@@ -58,7 +58,7 @@ final class AdBuildingBlocksKernelTest extends TestCase
         preg_match('/var DECOR_SHAPES = \{(.*?)\};/s', $kernel, $m);
         preg_match_all("/^\\s*([a-z_0-9]+):\\s+'M/m", $m[1] ?? '', $d);
 
-        $this->assertCount(7, $d[1], 'Expected the 7 decorative shapes in DECOR_SHAPES.');
+        $this->assertCount(11, $d[1], 'Expected the 11 decorative shapes in DECOR_SHAPES.');
         $this->assertSame(array_merge($plain, $d[1]), $this->validatorConst('SHAPES'));
     }
 

@@ -22,7 +22,7 @@ use Tests\TestCase;
 /**
  * AT-456 §B.9-2 — the AI side of the template builder expansion.
  *   item 9   the AI is taught every B.9-1 block (validator rules, repairs, prompt limits)
- *   item 10  the style library (8 styles, "Let the AI choose", stored on the generation, shown per option)
+ *   item 10  the style library (9 styles, "Let the AI choose", stored on the generation, shown per option)
  *   item 11  "Match our existing templates" (the agency's OWN templates as compact examples)
  * Every Anthropic call is Http::fake()d; nothing here spends a cent.
  */
@@ -212,7 +212,7 @@ final class AiTemplateBlocksAndStylesTest extends TestCase
     {
         $v = new AdLayoutValidator();
         $cases = ['3_hero_right' => '3_hero_left', 'grid of four' => '4_grid', 'two stacked' => '2_stack', '5 photos' => '5_hero',
-            'hero_top' => '3_hero_top', '2_beside' => '2_side', 'Collage' => '3_hero_left', '9_grid' => '5_hero'];
+            'hero_top' => '3_hero_top', '2_beside' => '2_side', 'Collage' => '3_hero_left', '9_grid' => '8_mosaic', 'a mosaic of seven' => '7_mosaic'];
 
         foreach ($cases as $wrote => $expected) {
             $opt = $this->option([['field' => 'collage', 'x' => 20, 'y' => 20, 'w' => 500, 'h' => 400, 'zIndex' => 1, 'collagePreset' => $wrote]]);

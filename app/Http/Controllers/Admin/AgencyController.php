@@ -34,6 +34,29 @@ class AgencyController extends Controller
     }
 
     /**
+     * Suspend / lift suspension on an agency. Owner-only. While suspended, its users cannot
+     * sign in (and open sessions end). Reversible, nothing deleted. Spec: .ai/specs/agency-suspension.md
+     */
+    public function toggleSuspend(Agency $agency)
+    {
+        if ($agency->isSuspended()) {
+            $agency->unsuspend();
+            $state = 'suspension lifted — its users can sign in again';
+        } else {
+            $agency->suspend();
+            $state = 'SUSPENDED — its users can no longer sign in';
+        }
+
+        Log::info('Agency suspension toggled', [
+            'agency_id'    => $agency->id,
+            'suspended_at' => $agency->suspended_at,
+            'changed_by'   => auth()->id(),
+        ]);
+
+        return redirect()->route('agencies.index')->with('success', "Agency \"{$agency->name}\" {$state}.");
+    }
+
+    /**
      * Put a single agency into / out of maintenance mode (AT-93). Owner-only.
      * While ON, only that agency's users see the branded maintenance screen
      * after login; System Owners bypass and every other agency is unaffected.

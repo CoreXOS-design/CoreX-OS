@@ -1,0 +1,746 @@
+EMAIL,FIRSTNAME,LASTNAME,AGENCY,TOWN,PROVINCE,EMAIL_TYPE
+stacey@rentafactory.co.za,Stacey,Lee Mackay,Rent A Factory,,,principal
+deidre@dlproperties.co.za,Deidre,Langeveld,Deidre Langeveld Properties DL Properties,Cannon Rocks Gqeberha,Eastern Cape,principal
+michelle@m2residential.co.za,Michelle,Borman,M2Residential,Colchester Despatch Gamtoos,Eastern Cape,principal
+adri@affinityrealestate.co.za,Adri,Pretorius,Affinity Real Estate,Port Elizabeth,Eastern Cape,principal
+info@increaseproperties.co.za,Tlali,J. Bohloko,Increase Properties,Bloemfontein,Free State,principal
+mirinda@mvproperties.co.za,Mirinda,Van Niekerk,Mirinda van Niekerk Properties,,Gauteng,principal
+paula@phrealestate.co.za,Paula,Hardy,Paula Hardy Real Estate,,Gauteng,principal
+office@vd5properties.co.za,,,VD5 Properties,Akasia,Gauteng,principal
+walter@unitedproperties.co.za,Walter,,United Properties Boksburg,Akasia Benoni Boksburg,Gauteng,principal
+jenny@jjps.co.za,Jenny,Johnston,Jenny Johnston Property Services,Alberton,Gauteng,principal
+sue.mccabe@suemccabeestates.co.za,Sue,Mccabe,Sue McCabe Estates,Alberton,Gauteng,principal
+sherida@sheridaproperties.co.za,Sherida,,Sherida Properties,Bedfordview,Gauteng,principal
+admin@yourealty.co.za,Trevor,Richter,You Realty,Bedfordview,Gauteng,principal
+gaye@gcr.co.za,Gaye,Cawood,Gaye Cawood Realty,Bedfordview Centurion Midrand,Gauteng,principal
+connect@introrealestate.co.za,Jackie,Naude,Intro Real Estate,Benoni,Gauteng,principal
+emma@propertiesplus.co.za,Emma,Morisse,Property Plus,Benoni,Gauteng,principal
+jenny@eveestates.co.za,Jenny,,Eve Estates,Benoni Boksburg Kempton,Gauteng,principal
+dion@dvrproperties.co.za,Dion,Van Rensburg,DVR Properties,Brackendowns,Gauteng,principal
+michael@group101.co.za,Michael,Hutchison,Group 101 Properties,Brakpan,Gauteng,principal
+gerrie.nel@realnet.co.za,Gerrie,Nel,Real Estate In Action,Bronkhorstspruit,Gauteng,principal
+jonathan@residencyrealty.co.za,Jonathan,,Residency Realty,Bryanston,Gauteng,principal
+info@sakstons.com,,,Sakstons Property,Bryanston (Sandton),Gauteng,principal
+elmarie@arkestates.co.za,Elmarie,,Ark Estates,Carletonville Fochville Margate,Gauteng,principal
+leon@realestateservices.co.za,Leon,,Centurion Real Estate,Centurion,Gauteng,principal
+info@kentgush.co.za,Nicci,Humphreys,Kent Gush Properties,Centurion,Gauteng,principal
+marussia@luxlivproperty.com,Marussia,,LuxLiv Property,Centurion,Gauteng,principal
+principalpa@smileproperty.co.za,Principalpa,,Smile Property Group,Centurion,Gauteng,principal
+maritzamassyn@telkomsa.net,Maritza,Massyn,Maritza Massyn Eiendomme,Deneysville,Gauteng,principal
+levona@huxhamproperties.co.za,Levona,Faulmann; Michael Huxham,Huxham Properties,Edenvale,Gauteng,principal
+andrew@watson.co.za,Andrew,Watson,Watson Properties,Edenvale,Gauteng,principal
+devon@luxprop.agency,Devon,Brough,Lux Prop,Elton Hill Johannesburg,Gauteng,principal
+charles@pmasters.co.za,Theo,Potgieter,Property Masters Realty Group,Evaton,Gauteng,principal
+tessa@cycadestates.co.za,Tessa,Aggenbacht,Cycad Estates,Florida,Gauteng,principal
+leandra@leandrarealestate.co.za,Leandra,,Leandra Real Estate,Gauteng,Gauteng,principal
+rikaestate@mweb.co.za,Rika,Harvey,Rika 4 Homes,Germiston,Gauteng,principal
+sandro@mendace.co.za,Sandro,Mendace,Mendace Properties,Germiston (Solheim),Gauteng,principal
+mark@bossplatinum.co.za,Mark,,Boss Platinum Real Estate,Glenvista,Gauteng,principal
+ryan@ryansrealty.co.za,Ryan,,Ryan's Realty,Hermanus,Gauteng,principal
+eve@evesrealestate.co.za,Eve,,Eve's Real Estate,Johannesburg,Gauteng,principal
+joyce@joyceeaglesproperties.co.za,Joyce,Eagle,Joyce Eagles Properties,Johannesburg,Gauteng,principal
+pierre@newtownhousing.co.za,Pierre,Langford,New Town Housing,Johannesburg,Gauteng,principal
+jaco@optimarealty.co.za,Jaco,Bothma,Optima Realty,Johannesburg,Gauteng,principal
+magda@realglen.co.za,Magda,Stoffberg,RealGlen Properties,Kempton Park,Gauteng,principal
+renevanwyk@vartrust.co.za,Renee,Varejes,Vartrust Real Estate,Midrand,Gauteng,principal
+lisa@silverpropertygroup.co.za,Lisa,Silver,Silver Property Group,Morningside,Gauteng,principal
+john@jle.co.za,John,Livanos,John Livanos Estates,Parkhurst Johannesburg,Gauteng,principal
+margie@pienaar.co.za,Margie,Pienaar,Margie Pienaar Eiendomme,Pretoria,Gauteng,principal
+brian1snooke@gmail.com,Brian,Snooke,Pro Namic Real Estate,Pretoria,Gauteng,principal
+anthony@propertyshop.co.za,Anthony,Boshoff,Property Shop,Pretoria,Gauteng,principal
+rob@reliablerealty.co.za,Rob,Savage,Reliable Realty,Pretoria,Gauteng,principal
+sieg@stockrealestate.co.za,Sieg,Stockhoff,Stock Real Estate,Pretoria,Gauteng,principal
+tania@tarnicaeiendomme.co.za,Tania,Steyn,Tarnica Eiendomme,Pretoria,Gauteng,principal
+sean@wizebuy.co.za,Sean,Glenn,Wize Buy Properties,Pretoria,Gauteng,principal
+betsie@karisproperties.co.za,Betsie,Strydom,Karis Properties,Pretoria (Greater Pretoria,Gauteng,principal
+dean@realtyarena.co.za,Dean,,Realty Arena,Roodepoort,Gauteng,principal
+nick@knightsbridgeprop.com,Nicholas,Beresford,Knightsbridge Properties,Sandton (Hurlingham Manor),Gauteng,principal
+kdutoitprops@mweb.co.za,Karien,Du Toit,Karien Du Toit Properties,Silver Lakes,Gauteng,principal
+dean@deanhoodsproperties.co.za,Dean,Hoods,Dean Hoods Properties,Silverlakes Pretoria,Gauteng,principal
+jackiedevries@terazzo.co.za,Jackie,De Vries,Terazzo Properties,South Africa,Gauteng,principal
+riaan@livingonvaal.co.za,Riaan,Van Aswegen,Living On Vaal Real Estate,Vanderbijlpark,Gauteng,principal
+bongani@abakhiproperties.com,Bongani,Mhlongo,Abakhi Property Holdings,Akasia,KwaZulu-Natal,principal
+ina@capitalproperties.co.za,Ina,Uys,Capital Properties,Akasia,KwaZulu-Natal,principal
+truzanne@limelightproperties.co.za,Truzanne,Minny,Limelight Properties,Amanzimtoti,KwaZulu-Natal,principal
+erica@ericarealtors.co.za,Erica,,Erica Realtors,Ballito,KwaZulu-Natal,principal
+fiona@fionacrago.co.za,Fiona,Crago,Fiona Crago Real Estate,Ballito,KwaZulu-Natal,principal
+johann@globalprop.co.za,Johann,,GlobalProp,Ballito,KwaZulu-Natal,principal
+valeriemcg@highwayproperties.co.za,Valerie,Mcgreal,Highway Properties,Ballito,KwaZulu-Natal,principal
+admin@rasmussenproperties.co.za,,,Rasmussen Industrial Properties,Ballito Camperdown Cato Ridge,KwaZulu-Natal,principal
+info@africaestate.co.za,Louise,Fourie,Africa Estate Properties,Bloemfontein,KwaZulu-Natal,principal
+ryan@dealcore.co.za,Ryan,Berry,Deal Core Property Group,Cato,KwaZulu-Natal,principal
+ceo@gourlay.co.za,Ceo,,Gourlay Properties,Durban,KwaZulu-Natal,principal
+craig@pwr.co.za,Craig,Murphy,Point Waterfront Realty,Durban,KwaZulu-Natal,principal
+kershen@uniquerealty.co.za,Kershen,Naidoo,Unique Realty,Durban,KwaZulu-Natal,principal
+admin@idwalapropertygroup.co.za,,,Idwala Property Group,Durban (Montclair),KwaZulu-Natal,principal
+marcus@havemannproperties.co.za,Marcus,,Havemann Properties,Empangeni,KwaZulu-Natal,principal
+info@reallist.co.za,,,Reallist,Hilton (Mount Verde Estate),KwaZulu-Natal,principal
+ralfdedekind@futurenet.co.za,Ralf,Dedekind,Dedekind Real Estate,Ladysmith,KwaZulu-Natal,principal
+joanne@alphaestates.co.za,Joanne,,Alpha Estates,Margate,KwaZulu-Natal,principal
+admin.rb@fosprops.co.za,,,Fosprops Properties,Richards Bay,KwaZulu-Natal,principal
+jaqui@coastalrelocations.co.za,Jaqueline,Pieters,Coastal Relocations,Umhlanga,KwaZulu-Natal,principal
+mark@uhf.co.za,Mark,Fulton,Fulton Properties,Umhlanga,KwaZulu-Natal,principal
+info@hendra.co.za,Wayne,Hendra And Tarryn Hendra,Hendra Estates,Umhlanga,KwaZulu-Natal,principal
+info@lambiespark.co.za,Ian,Lambie And Mike Spark,Lambie Spark & Associates (Pty) Ltd,Umhlanga Rocks,KwaZulu-Natal,principal
+manager@wildlifehomes.co.za,Silke,Fobbe,Afrika Wildlife Homes,Limpopo,Limpopo,principal
+billy@wiltinnet.co.za,Billy,Steenkamp,Wiltinnet Properties,Modimolle,Limpopo,principal
+karen@karendasilva.co.za,Karen,Da Silva,Karen Da Silva Estate Agents,Ermelo,Mpumalanga,principal
+sheyenne@platinumproperty.co.za,Sheyenne,Vos,Prime Platinum Property,Mbombela (Nelspruit),Mpumalanga,principal
+rene@renepp.co.za,Rene,,Rene Peyper Properties,Middelburg,Mpumalanga,principal
+pc.nell@pcnellproperties.com,Pc,Nell,PC Nell Properties,Middelburg Witbank,Mpumalanga,principal
+jaco@arkvest.co.za,Jaco,Viljoen,Arkvest Properties,Nelspruit,Mpumalanga,principal
+natie@klopprop.com,Natie,Klopper,Klopper Properties,Potchefstroom,North West,principal
+heleen@kimbrealest.co.za,Heleen,Hamann,Kimberley Real Estate,Kimberley,Northern Cape,principal
+mark@markanthonyproperties.co.za,Mark,Anthony,Mark Anthony Properties,Atlantis Cape Town,Western Cape,principal
+francois@roiproperties.co.za,Francois,,ROI Properties,Bellville Durbanville,Western Cape,principal
+candice@duarteproperties.co.za,Candice,Duarte,Duarte Properties,Blouberg Cape Town,Western Cape,principal
+lynette@ownrealestate.co.za,Lynette,Pratt,Own Real Estate,Bredasdorp,Western Cape,principal
+guy@ggproperties.co.za,Guy,Gillespie,Guy Gillespie Properties,Camps Bay,Western Cape,principal
+aisha@aishasproperties.co.za,Aisha,,Aishas Properties,Cape Town,Western Cape,principal
+peter@onepointfive.co.za,Peter,Stenslunde,OnePointFive,Cape Town,Western Cape,principal
+rose@roseeedes.co.za,Rose,Eedes,Rose Eedes Properties,Cape Town,Western Cape,principal
+lance@lancerealestate.co,Lance,,Lance Real Estate,Fresnaye,Western Cape,principal
+marshan@francoproperties.com,Marshan,Franco,Marshan Franco Properties,George,Western Cape,principal
+quintus@qbrealestate.co.za,Quintus,,QB Real Estate,George Stellenbosch Strandfontein,Western Cape,principal
+nikkierossouw2@gmail.com,Nikkie,Rossouw,Nikkie Rossouw Properties,Heidelberg,Western Cape,principal
+margie@capewaterfrontestates.co.za,Margaret,Mackenzie,Cape Waterfront Estates,Hout Bay,Western Cape,principal
+kea@global.co.za,Heine,Dixon,Knysna Estate Agency,Knysna,Western Cape,principal
+elaine@pegasusprop.co.za,Elaine,Fourie,Pegasus Properties,Langebaan,Western Cape,principal
+marcel-leon@synergyindevelopments.co.za,Marcel,Hoogebeen,Synergy in Developments,Paarl,Western Cape,principal
+admin@asherproperties.co.za,Shaun,Asher,Asher Properties,Southern Suburbs,Western Cape,principal
+irma@irmaknipeproperties.co.za,Irma,Knipe,Irma Knipe Properties,Stellenbosch,Western Cape,principal
+info@meridianiagent.co.za,Antonie,Goosen,Meridian Realty (iAgents),Stellenbosch (Head Office Devonvallei),Western Cape,principal
+jp@portowen.com,Jean-Paul,Stuyck,Port Owen Estates,Velddrif,Western Cape,principal
+reception1@citynet.co.za,,,CITYNET,,,general
+canvassing@clockworkproperties.co.za,Deon,Tromp,Clockwork Properties Rentals,,,general
+info@elliottpropertygroup.co.za,,,Elliott Property Group,,,general
+admin@fabuloushomes.co.za,,,Fabulous Homes,,,general
+letting@framework.co.za,,,Framework Property Services,,,general
+info@ihspm.co.za,Janine,Greyvensteyn,IHS Property Management,,,general
+customerservices@inqb8.biz,,,INQB8 Property Rentals,,,general
+propertysales@indluliving.com,Propertysales,,Indlu Living,,,general
+reception@jlmproperty.co.za,,,JLM Property,,,general
+leasing@oriongroup.co.za,Leasing,,Orion Real Estate,,,general
+pretor@pretor.co.za,Pretor,,Pretor Property Management (Pty) Ltd,,,general
+ontvangs@sonpark.co.za,Ontvangs,,Sonpark,,,general
+info@upmystreetproperties.co.za,,,Up My Street Properties,,,general
+sales@zelriprop.co.za,,,Zelri Properties,,,general
+annekebarnard01@gmail.com,,,Eric Bosman Properties CC,Kriel,,general
+admin@greystoneprop.co.za,,,Greystone Properties,,Eastern Cape,general
+info@zikizaprops.co.za,,,Zikiza Properties,,Eastern Cape,general
+info@zolamproperties.co.za,,,Zolam Properties,,Eastern Cape,general
+info@homeandhectare.com,,,Home & Hectare Real Estate,Agulhas,Eastern Cape,general
+info@ai-properties.co.za,,,AI Properties,Alicedale,Eastern Cape,general
+info@cvbprop.co.za,,,CVB Properties,Cintsa East London,Eastern Cape,general
+office@missionholdinggroup.co.za,,,MHG Property,East,Eastern Cape,general
+admin@digiprops.co.za,,,Digiprops Real Estate,East London,Eastern Cape,general
+admin@investpro.co.za,,,Investpro,East London,Eastern Cape,general
+info@legacy-properties.co.za,,,Legacy Properties - East London,East London,Eastern Cape,general
+info@trueprop.co.za,,,Trueprop,East London,Eastern Cape,general
+info@warrenjack.co.za,,,Warren Jack Property Group,Gqeberha,Eastern Cape,general
+kopanojbay@gmail.com,Kopanojbay,,Kopano Properties Jeffreys Bay,Jeffreys Bay,Eastern Cape,general
+cyberagent@mweb.co.za,Maarten,Oosthuizen,MOJO Properties/Eiendomme,Jeffreys Bay,Eastern Cape,general
+admin@propertyjbay.co.za,,,Property Jbay,Jeffreys Bay,Eastern Cape,general
+info@realdealproperties.co.za,,,Real Deal Properties S. A,Jeffreys Bay,Eastern Cape,general
+info@coastalhproperties.co.za,,,Coastal Haven Properties,Mdantsane,Eastern Cape,general
+oysterbayproperties@gmail.com,Oysterbayproperties,,Oyster Bay Estate Agency,Oyster Bay,Eastern Cape,general
+office@namar.co.za,,,Namar Properties,Port Elizabeth,Eastern Cape,general
+info@homeandequity.co.za,,,Home and Equity,Summerstrand Port Elizabeth,Eastern Cape,general
+office@propertycom.co.za,Anita,Kritzinger,PROPERTY.COM,Summerstrand Port Elizabeth,Eastern Cape,general
+admin@properlet.co.za,,,Properlet,,Free State,general
+info@metrore.co.za,,,Metro Real Estate,Bedford,Free State,general
+info@aguilarealestate.co.za,,,Aguila Real Estate,Bloemfontein,Free State,general
+info@cmspropertyservices.co.za,Chris,Robert Walls,CMS Property Services,Bloemfontein,Free State,general
+admin@mikaya.co.za,,,Mikaya Real Estate,Bloemfontein,Free State,general
+platinum@platinumglobal.co.za,Platinum,,Platinum Global,Bloemfontein,Free State,general
+info@ponelopelerealty.co.za,,,Ponelopele Realty,Bloemfontein,Free State,general
+info@powerhouseprops.co.za,,,Powerhouse Properties,Bloemfontein,Free State,general
+admin@primepropertygroup.co.za,,,Prime Property Group,Bloemfontein,Free State,general
+admin@propertyboombloem.co.za,,,Property Boom,Bloemfontein,Free State,general
+info@propertyjourneyre.co.za,,,Property Journey RE,Bloemfontein,Free State,general
+info@protearealestate.co.za,,,Protea Real Estate,Bloemfontein,Free State,general
+info@realtybloem.co.za,,,Realty Bloem,Bloemfontein,Free State,general
+info@cathycordier.co.za,Cathy,Cordier,Cathy Cordier Properties,Kroonstad,Free State,general
+admin@zenithestate.co.za,,,Zenith Properties,Kroonstad,Free State,general
+office@meredithburns.co.za,,,Meredith Burns,Sasolburg,Free State,general
+office.sasolburg@neoteboproperties.co.za,,,Neotebo Properties Sasolburg,Sasolburg,Free State,general
+sueco@suecoprop.com,Sueco,,Sueco Properties,Sasolburg,Free State,general
+reception@procorsa.co.za,,,Procor S A,Welkom,Free State,general
+info@africanbreeze1.co.za,,,African Breeze Property Group,,Gauteng,general
+jhbcentral@astutehomes.co.za,Lindeni,Rosemary Sechabela,Astute Homes,,Gauteng,general
+info@deltaproperties.co.za,,,Delta Property Group,,Gauteng,general
+info@emirexproperties.net,,,Emirex Properties,,Gauteng,general
+office@harmonyhomes.co.za,,,Harmony Homes,,Gauteng,general
+info@in2assets.com,,,In2assets,,Gauteng,general
+letting@ithembaproperty.co.za,,,Ithemba Property,,Gauteng,general
+admin@kwakhona.co.za,,,KwaKhona Properties,,Gauteng,general
+info@mayfairgroup.co.za,,,Mayfair Property Group,,Gauteng,general
+info@natrent.co.za,Susan,Coleman,Natrent Rentals,,Gauteng,general
+admin@preferental.com,,,Preferental Platform,,Gauteng,general
+info@prelovedhomes.co.za,,,Preloved Homes,,Gauteng,general
+info@refreshrealty.co.za,,,Refresh Realty,,Gauteng,general
+info@renicorealestate.co.za,Johan,Louw,Renico Construction,,Gauteng,general
+info@sdpremier.co.za,,,SD Premier Real Estate,,Gauteng,general
+info@synium.co.za,,,Synium,,Gauteng,general
+info@theplugrealestate.co.za,,,The Plug Real Estate,,Gauteng,general
+info@tracyharrisproperties.co.za,,,Tracy Harris Properties,,Gauteng,general
+info@umoya.co.za,,,Umoya Real Estate,,Gauteng,general
+info@lregroup.co.za,,,LRE Group,Agulhas,Gauteng,general
+hornrh@mweb.co.za,Hornrh,,Agent Net Estates,Akasia,Gauteng,general
+info@bluecrystalprop.co.za,,,Bluecrystal Properties,Akasia,Gauteng,general
+info@everlastprop.co.za,,,Everlast Properties,Akasia,Gauteng,general
+rentals@tracyharrisproperties.co.za,,,Free Living,Akasia,Gauteng,general
+office@justimagineproperties.com,,,Just Imagine Properties,Akasia,Gauteng,general
+info@kilimanjaroestate.co.za,,,Kilimanjaro Estate,Akasia,Gauteng,general
+home@moiafrika.africa,,,Moiafrika Real Estate,Akasia,Gauteng,general
+info@nestseekers.co.za,,,Nest Seekers,Akasia,Gauteng,general
+info@pulseproperties.co.za,Tilla,Viljoen,Pulse Property Managers,Akasia,Gauteng,general
+info@redzproperties.co.za,,,REDZ etc,Akasia,Gauteng,general
+info@tskrealestate.co.za,,,TSK Real Estate,Akasia,Gauteng,general
+assistance@thabco.com,Assistance,,Thabco Properties,Akasia,Gauteng,general
+admin@realestateco.pro,,,The R.E.A.L Estate Company,Akasia,Gauteng,general
+sales@urbanpropgroup.co.za,,,Urban Property Group,Akasia,Gauteng,general
+info@zamoshproperties.co.za,,,Zamosh Property Group,Akasia Alberton Centurion,Gauteng,general
+info@newberryprop.co.za,Jordaan,,Newberry Property Group,Akasia Centurion Cullinan,Gauteng,general
+info@tshwanerealestate.co.za,,,Tshwane Real Estate,Akasia Centurion Cullinan,Gauteng,general
+info@greenpasturehomes.co.za,,,Green Pasture Homes,Akasia Centurion Mabopane,Gauteng,general
+info@africanhomesproperties.co.za,,,African Homes Properties,Alberton,Gauteng,general
+admin@backosgroup.co.za,,,Backos Property Group,Alberton,Gauteng,general
+admin@blackhouserealty.co.za,,,Black House Realty,Alberton,Gauteng,general
+info@ecoprops.co.za,,,Eco Properties,Alberton,Gauteng,general
+info@hometownproperties.co.za,Rosanne,Tarry,Home Town Properties,Alberton,Gauteng,general
+admin@kcphousing.co.za,,,KCP Housing,Alberton,Gauteng,general
+info@lifestylepg.co.za,,,Lifestyle Property Group,Alberton,Gauteng,general
+info@maslowrealty.co.za,,,Maslow Realty,Alberton,Gauteng,general
+info@ourhome.property,,,Our Home,Alberton,Gauteng,general
+info@property101za.co.za,,,Property 101 ZA,Alberton,Gauteng,general
+info@rags2richesrealtors.co.za,,,Rags 2 Riches Realtors,Alberton,Gauteng,general
+info@rockstars.co.za,,,Rockstar Realty,Alberton,Gauteng,general
+info@romerlangproperties.co.za,,,Romerlang Properties,Alberton,Gauteng,general
+info@rosieviljoenestates.co.za,Rosa,Viljoen,Rosie Viljoen Real Estate,Alberton,Gauteng,general
+admin@rrealtors.co.za,,,Roxy Realtors,Alberton,Gauteng,general
+info@sitheberealty.co.za,,,Sithebe Realty,Alberton,Gauteng,general
+online4@snooksestates.co.za,,,Snooks Estates,Alberton,Gauteng,general
+info@soloprp.co.za,,,Solo Properties,Alberton,Gauteng,general
+info@claremart.com,,,The Claremart Group,Alberton,Gauteng,general
+info@ubuntuprop.co.za,,,Ubuntu Property Consultancy,Alberton,Gauteng,general
+admin@yellowbirdrealestate.co.za,,,Yellow Bird Real Estate,Alberton,Gauteng,general
+info@nwamzamaniproperties.co.za,Tlangi,Ngobeni,N’wa Mzamani Properties,Amandasig Akasia,Gauteng,general
+admin@1directionrealty.co.za,,,1 Direction Realty,Bedfordview,Gauteng,general
+achiever@achieverprop.co.za,Achiever,,Achiever Real Estate,Bedfordview,Gauteng,general
+info@estproperties.co.za,,,Est. Properties,Bedfordview,Gauteng,general
+admin@grose.co.za,,,Gerald Grose Estates,Bedfordview,Gauteng,general
+contact@libertalia.co.za,,,Libertalia Properties,Bedfordview,Gauteng,general
+info@magutshwaproperties.co.za,,,Magutshwa Properties,Bedfordview,Gauteng,general
+info@naturalproperty.co.za,,,Natural Property Group,Bedfordview,Gauteng,general
+info@parallelproperty.co.za,,,Parallel Property,Bedfordview,Gauteng,general
+admin@proteaprop.co.za,,,Protea Property,Bedfordview,Gauteng,general
+info@wandabollo.co.za,,,Wanda Bollo Estates,Bedfordview,Gauteng,general
+info@groveproperties.co.za,,,Grove Properties,Bellville,Gauteng,general
+admin@urbanindex.co.za,,,Urban Index,Bellville,Gauteng,general
+sales@destinataproperties.com,,,Destinata Properties,Bellville Benoni Boksburg,Gauteng,general
+office@agilitypsm.co.za,,,Agility Property Solutions & Management,Benoni,Gauteng,general
+info@ayeshasrealestate.co.za,Ayesha,Ismail,Ayesha's Real Estate,Benoni,Gauteng,general
+sales@citydev.co.za,,,CityDev,Benoni,Gauteng,general
+admin@commerci.co.za,,,Commerci Properties,Benoni,Gauteng,general
+info@eziproperties.co.za,,,EZI Properties,Benoni,Gauteng,general
+info@focushomes.co.za,,,Focus Properties,Benoni,Gauteng,general
+info@hatisaproperties.co.za,,,Hatisa Properties,Benoni,Gauteng,general
+admin@latskyproperties.co.za,Johan,Latsky,Johan Latsky Properties,Benoni,Gauteng,general
+info@klondykeproperties.co.za,,,Klondyke Properties,Benoni,Gauteng,general
+info@monarchproperties.co.za,,,Monarch Property Consultants,Benoni,Gauteng,general
+admin2@monolithestates.co.za,,,Monolith Estates,Benoni,Gauteng,general
+info@nextgenrealestates.co.za,,,Nextgen Real Estate,Benoni,Gauteng,general
+info@plushproperties.co.za,,,Plush Properties,Benoni,Gauteng,general
+info@stocktonprop.co.za,,,Stockton Property Consultants,Benoni,Gauteng,general
+admin@pristinerealty.co.za,,,Pristine Realty,Benoni Blythedale Centurion,Gauteng,general
+admin@rrnproperties.co.za,,,Rifumo Ra Ntsako,Benoni Boksburg Kempton,Gauteng,general
+auctions@parkvillage.co.za,Auctions,,Park Village,Bethlehem,Gauteng,general
+marius@nationalre.co.za,Marius,Du Toit,National Real Estate,Bloemfontein,Gauteng,general
+sales@blueprop.com,,,Blue Property Group,Blouberg,Gauteng,general
+hello@mworx.co.za,,,M Worx Property Partners,Blouberg,Gauteng,general
+marketing@assetrealty.co.za,,,Asset Realty,Bochum,Gauteng,general
+info@legacyh.co.za,,,Legacy H Realty,Boksburg,Gauteng,general
+admin@lentra.co.za,,,Lentra Realty,Boksburg,Gauteng,general
+management@mvzproperties.co.za,,,Mari Van Zyl Real Estates,Boksburg,Gauteng,general
+admin@nppm.co.za,,,NPPM Properties,Boksburg,Gauteng,general
+contactus@renprop.co.za,Contactus,,Renprop Residential,Boksburg,Gauteng,general
+admin@crispproperties.co.za,,,Crisp Properties | NIB Projects,Boksburg Brakpan Johannesburg,Gauteng,general
+contact@zakeni.co.za,Nondumiso,Mngadi,Zakeni Realty International,Brakpan,Gauteng,general
+team@proproperties.co.za,,,Pro Properties,Brits,Gauteng,general
+admin@bcrentals.co.za,,,BC Rentals & Sales,Centurion,Gauteng,general
+ronel@baroquerealestate.com,Ronel,,Baroque Real Estate,Centurion,Gauteng,general
+info@fapg.co.za,Zyl,,Future Agent (Pty) Ltd,Centurion,Gauteng,general
+welcome@holmz.co.za,Welcome,,Holmz,Centurion,Gauteng,general
+info@justdoitproperties.co.za,,,Just do It Properties,Centurion,Gauteng,general
+admin@kyalamigroup.com,,,Kyalami Property Group,Centurion,Gauteng,general
+info@midteam.co.za,,,Midteam Management Services,Centurion,Gauteng,general
+info@mugaproperties.co.za,,,Muga Properties,Centurion,Gauteng,general
+admin@patchaproperties.co.za,,,Patcha Properties,Centurion,Gauteng,general
+admin@poshpropertiessa.co.za,,,Posh Properties SA,Centurion,Gauteng,general
+admin@rbbrandrealestate.co.za,,,RB Brand Real Estate (Pty) Ltd,Centurion,Gauteng,general
+admin@realtycheck.co.za,,,Realty Check Mpumalanga,Centurion,Gauteng,general
+admin@realtyrise.co.za,,,Realtyrise Properties,Centurion,Gauteng,general
+admin@showbproperties.co.za,,,Show b Properties,Centurion,Gauteng,general
+info@sfrealty.co.za,,,Silver Fern Realty,Centurion,Gauteng,general
+info@skyriseproperties.co.za,,,Skyrise Properties,Centurion,Gauteng,general
+info@topspotrealty.co.za,,,Topspot Realty,Centurion,Gauteng,general
+info@urbantrend.co.za,,,Urbantrend Group,Centurion,Gauteng,general
+office@waypointrealestate.co.za,Janus,Nel,Waypoint Real Estate,Centurion,Gauteng,general
+info@wolfpropgroup.co.za,,,Wolf Property Group,Centurion,Gauteng,general
+maritsa@isearchproperties.co.za,Maritsa,,iSearch Properties,Centurion,Gauteng,general
+info@visionprop.co.za,,,Vision Properties,Centurion Kempton Park,Gauteng,general
+info@deoswanepoelproperties.co.za,,,Deo Swanepoel Properties,Doornpoort,Gauteng,general
+info@studentproperties.co.za,,,Student Properties,Douglasdale Johannesburg,Gauteng,general
+ashley@assetpg.co.za,Ashley,,Asset Property Group,East Rand,Gauteng,general
+russell@russellfisher.co.za,Russell,Fisher,Russell Fisher Properties,Edenvale,Gauteng,general
+admin@stonerealtygroup.co.za,,,Stone Realty Group,Edenvale,Gauteng,general
+hello@taaa.co.za,Cindy,Demetriou,The Agents and Associates,Edenvale,Gauteng,general
+sales@eyeofafrica.co.za,,,Eye of Africa,Eikenhof,Gauteng,general
+enquiry@unicityrealty.co.za,,,Unicity Realty,Faerie Glen Pretoria,Gauteng,general
+info@summithomessa.com,,,Summit Homes,Gezina Pretoria,Gauteng,general
+sales@propertyfolks.co.za,,,Property Folks,Hartbeespoort,Gauteng,general
+rentals@howellproperties.co.za,,,Howell Properties Heidelberg,Heidelberg,Gauteng,general
+info@annettecloete.co.za,Annette,Cloete,Annette Cloete Properties,Henley On Klip,Gauteng,general
+info@watprop.co.za,,,Watprop,Illovo Johannesburg,Gauteng,general
+admin@1strate.co.za,,,1st Rate Properties,Johannesburg,Gauteng,general
+info@avocadoproperties.co.za,Percy,Madiba,Avocado Properties,Johannesburg,Gauteng,general
+reception@mydrp.co.za,,,DRP,Johannesburg,Gauteng,general
+office@evolverealestate.co.za,,,Evolve Real Estate,Johannesburg,Gauteng,general
+info@livethecity.co.za,,,HCI Live the City,Johannesburg,Gauteng,general
+hello@homesoldproperties.co.za,,,Homesold Properties,Johannesburg,Gauteng,general
+admin@howesrealestate.co.za,,,Howes Real Estate,Johannesburg,Gauteng,general
+sales@imagineproperty.co.za,,,IMAGINE Properties,Johannesburg,Gauteng,general
+reception@lesso.co.za,,,Lesso Estates PTY LTD,Johannesburg,Gauteng,general
+agents@matchprop.co.za,Agents,,Match! Property Sales Rentals & Management,Johannesburg,Gauteng,general
+info@neemarealestate.co.za,Josephat,Kirumbi,Neema Real Estate,Johannesburg,Gauteng,general
+info@propertybees.co.za,,,Property Bees,Johannesburg,Gauteng,general
+info@providencerealty.co.za,,,Providence Realty,Johannesburg,Gauteng,general
+info@rea7tor.co.za,,,REA7TOR (Pty) Ltd,Johannesburg,Gauteng,general
+info@reefprop.co.za,,,Reef Property Consultants,Johannesburg,Gauteng,general
+info@ryx.co.za,,,Ryx Properties,Johannesburg,Gauteng,general
+office@silvertreeestates.co.za,,,Silvertree Estates,Johannesburg,Gauteng,general
+info@propertyarchives.co.za,,,The Property Archives,Johannesburg,Gauteng,general
+info@tickleysproperties.co.za,,,Tickleys Properties,Johannesburg,Gauteng,general
+info@tricolt.co.za,,,Tricolt Group,Johannesburg,Gauteng,general
+support@undaproperty.co.za,,,UNDA Property Holdings (Pty) Ltd,Johannesburg,Gauteng,general
+info@utf.co.za,,,Urban Task Force,Johannesburg,Gauteng,general
+zareena@zkp.co.za,Ashaylan,Moodley ; Zareena Kara,Zareena Kara Properties,Johannesburg,Gauteng,general
+info@royalrealestate.co.za,,,Royal Real Estate,Johannesburg South,Gauteng,general
+siphosethuproperties@gmail.com,Portia,Mnisi,Siphosethu Properties,Karenpark,Gauteng,general
+info@delucia.co.za,,,De Lucia Group,Kempton Park,Gauteng,general
+info@mthimkhuluproperty.co.za,,,Mthimkhulu Property (Pty) Ltd,Kempton Park,Gauteng,general
+info@solidgroundproperties.co.za,,,SolidGround Properties,Kempton Park,Gauteng,general
+jp@teamjp.co.za,Jp,,Team JP Estate Agents,Kempton Park,Gauteng,general
+info@zaprop.co.za,,,ZA Prop Kempton Park,Kempton Park,Gauteng,general
+christiaan@globalplatinum.co.za,Christiaan,Myburgh,Global Estates Platinum,Krugersdorp,Gauteng,general
+properties@pawsonproperties.co.za,,,Pawson Properties,Krugersdorp,Gauteng,general
+info@propcoresa.co.za,,,Propcore Real Estate,Krugersdorp,Gauteng,general
+andy@propjunction.co.za,Andy,,Property Junction,Lanseria,Gauteng,general
+chris@otterestates.co.za,Chris,,Otter Estates,Lonehill,Gauteng,general
+info@cherryestates.co.za,,,Cherry Estates,Mabopane,Gauteng,general
+admin@propertycircuit.co.za,,,The Property Circuit,Meyersdal,Gauteng,general
+office.meyerton@neoteboproperties.co.za,,,Neotebo Properties Meyerton,Meyerton,Gauteng,general
+admin@arkrealty.co.za,,,ARK Realty,Midrand,Gauteng,general
+info@afriqproperties.co.za,,,Afriq Properties,Midrand,Gauteng,general
+info@atworldproperties.co.za,,,At World Properties,Midrand,Gauteng,general
+enquiries@cospace.co.za,,,Co.Space,Midrand,Gauteng,general
+info@clproperties.co.za,,,Country Life Properties,Midrand,Gauteng,general
+info@daintydiamond.co.za,,,Dainty Diamond Properties,Midrand,Gauteng,general
+info@fastgoproperties.co.za,Rams,Mmatloa,Fast Go Properties,Midrand,Gauteng,general
+enquiries@griffinproperty.co.za,,,Griffin Property Group,Midrand,Gauteng,general
+admin@hannafordhomes.co.za,,,Hannaford Homes,Midrand,Gauteng,general
+rentals@innovationworx.co.za,,,Innovation Worx,Midrand,Gauteng,general
+kalyneleeproperties@gmail.com,Kalyneleeproperties,,Lee's Properties,Midrand,Gauteng,general
+info@trueproperty.co.za,,,True Property,Midrand,Gauteng,general
+info@whprops.com,,,WH Properties,Midrand,Gauteng,general
+admin@waterfall-properties.co.za,,,Waterfall Property Investment,Midrand,Gauteng,general
+info@karenjonkerproperties.co.za,Karen,Jonker,Karen Jonker Properties,Midstream,Gauteng,general
+info@property44.co.za,Jacques,Terblanche,Property 44 (Pty) Ltd,Midvaal,Gauteng,general
+info@rianaproperties.com,,,Riana Properties,Nigel,Gauteng,general
+jaco@vcrealty.co.za,Jaco,,VC Realty Group,Parys,Gauteng,general
+info@bloompropertiessa.co.za,,,Bloom Properties,Pretoria,Gauteng,general
+info@bluesealproperties.co.za,,,Blue Seal Properties,Pretoria,Gauteng,general
+propworld@cityprop.co.za,Propworld,,City Property,Pretoria,Gauteng,general
+info@firstpropertytrust.co.za,David,Mc Inroy,First Property Trust,Pretoria,Gauteng,general
+koalet@gmail.com,Alet,Branders,Koalet Properties,Pretoria,Gauteng,general
+info@livicton.com,,,Livicton Properties,Pretoria,Gauteng,general
+sales@nellievanstaden.com,,,Nellie Van Staden Realtors,Pretoria,Gauteng,general
+info@nethomeprop.co.za,,,Nethome Properties Solution,Pretoria,Gauteng,general
+info@newdawnpg.co.za,,,New Dawn Property Group,Pretoria,Gauteng,general
+info@propertyboss365.co.za,,,Property Boss 365,Pretoria,Gauteng,general
+info@rapidrentals.co.za,Cronje,De Wit,Rapid Rentals,Pretoria,Gauteng,general
+info@realtorsatwork.co.za,,,Realtors at Work,Pretoria,Gauteng,general
+info@richterrealty.co.za,,,Richter Realty Waterkloof,Pretoria,Gauteng,general
+eldu@telkomsa.net,Eldu,,Eldu Properties,Pretoria East,Gauteng,general
+info@hometrade.co.za,Wikus,Van Rooyen,Hometrade,Pretoria North,Gauteng,general
+info@entinestates.co.za,,,Entin Estates,Randfontein,Gauteng,general
+sales@hyderproperties.co.za,,,Hyder Properties,Rivonia Johannesburg,Gauteng,general
+info@deluxehomeproperties.co.za,,,Deluxe Home Properties - Florida,Roodepoort,Gauteng,general
+info@goldentigerrealtors.com,,,Golden Tiger Realtors,Roodepoort,Gauteng,general
+admin@bingorealty.co.za,,,Bingo Realty,Sandton,Gauteng,general
+admin@chernodavis.co.za,Brian,Chernotsky,ChernoDavis Properties,Sandton,Gauteng,general
+info@elements-property.com,,,Elements Property Consultants,Sandton,Gauteng,general
+dev@limestone.co.za,,,Limestone Residential Properties,Sandton,Gauteng,general
+info@luxoproperties.co.za,,,Luxo Properties,Sandton,Gauteng,general
+info@lynnestates.co.za,,,Lynn Estates,Sandton,Gauteng,general
+heylwazy@gmail.com,Heylwazy,,NN Properties,Sandton,Gauteng,general
+info@anvilproperty.co.za,,,ANVIL Property,Sandton (Illovo),Gauteng,general
+info@properties-4africa.co.za,,,Properties 4 Africa,Springs,Gauteng,general
+admin@hausandco.co.za,,,Haus And Co,Vanderbijlpark,Gauteng,general
+admin@marcjames.co.za,,,Marc James,Vereeniging Area,Gauteng,general
+info@ronsproperties.co.za,,,Ron's Property Solutions,Verwoerdpark,Gauteng,general
+info@udkproperties.co.za,,,Uysie de Klerk Eiendomme Waterkloof,Waterkloof,Gauteng,general
+info@knightestates.co.za,,,Knight Estates Wilropark,Wilropark,Gauteng,general
+info@keyproperties.co.za,,,Exclusive Key Properties,Woodmead,Gauteng,general
+sales@beprop.co.za,,,Be Prop,,KwaZulu-Natal,general
+info@ocebisaproperties.co.za,,,Ocebisa Properties,Adams Mission Amanzimtoti,KwaZulu-Natal,general
+admin@hellorealty.co.za,,,Hello Realty,Akasia,KwaZulu-Natal,general
+info@primoprop.co.za,,,Primo Properties,Akasia,KwaZulu-Natal,general
+info@jlprop.co.za,,,Jacques Louw Properties,Alberton,KwaZulu-Natal,general
+info@tru-home.co.za,,,TruHome,Amanzimtoti,KwaZulu-Natal,general
+admin@upsideproperties.co.za,,,Upside Properties,Amanzimtoti,KwaZulu-Natal,general
+accounts@sapropnet.co.za,,,Propnet South Africa,Atlantis,KwaZulu-Natal,general
+connect@alexprop.co.za,Connect,,Alexander Property Group,Ballito,KwaZulu-Natal,general
+info@beatproperty.co.za,,,Beat Property Movement,Ballito,KwaZulu-Natal,general
+admin@brett4real.com,Brett,Botsis,Brett4Real,Ballito,KwaZulu-Natal,general
+info@compropballito.co.za,,,ComProp,Ballito,KwaZulu-Natal,general
+info@dynamicprop.co.za,,,Dynamic Property Group,Ballito,KwaZulu-Natal,general
+office@glproperties.co.za,,,Global Lifestyle Properties,Ballito,KwaZulu-Natal,general
+admin@indexproperty.co.za,,,Index Property Solutions,Ballito,KwaZulu-Natal,general
+lalela@estatesales.co.za,Lalela,,Lalela Sales,Ballito,KwaZulu-Natal,general
+admin@oakwoodprop.co.za,,,Oakwood Properties,Ballito,KwaZulu-Natal,general
+admin@proestates.co.za,,,Pro Estates,Ballito,KwaZulu-Natal,general
+info@realtyexecs.co.za,,,Realty Execs,Ballito,KwaZulu-Natal,general
+seaton@estatesales.co.za,Seaton,,Seaton Sales,Ballito,KwaZulu-Natal,general
+reception@zimbaliestate.com,,,Zimbali Estates (Pty) Ltd,Ballito,KwaZulu-Natal,general
+zululami@estatesales.co.za,Zululami,,Zululami Sales Office,Ballito,KwaZulu-Natal,general
+info@capitol.co.za,,,Capitol Commercial Properties,Bellville,KwaZulu-Natal,general
+heinrich@dpmproperty.co.za,Heinrich,,DPM Property Services,Bellville,KwaZulu-Natal,general
+admin@houseofrealtors.co.za,,,House of Realtors,Bellville,KwaZulu-Natal,general
+fronthouse@iconpg.co.za,Fronthouse,,Icon Property Group,Bellville,KwaZulu-Natal,general
+info@pretkorproperties.com,,,Pretkor Eiendomme,Bellville,KwaZulu-Natal,general
+info@propertycoza.co.za,,,Home2Home Property,Chatsworth,KwaZulu-Natal,general
+info@burczakproperties.co.za,,,Burczak Properties,Durban,KwaZulu-Natal,general
+admin@dreammpropertyholdings.co.za,,,Dream Property Holdings,Durban,KwaZulu-Natal,general
+growth@mafadi.co.za,,,Mafadi Property Management Office,Durban,KwaZulu-Natal,general
+property.admin@make-it-happen.co.za,,,Make It Happen Property,Durban,KwaZulu-Natal,general
+office@nostracasa.co.za,,,Nostra Casa Real Estate,Durban,KwaZulu-Natal,general
+info@propertyprofessionalssa.co.za,,,PPSA Property Professionals SA,Durban,KwaZulu-Natal,general
+info@realestatecompany.co.za,,,Real Estate Company,Durban,KwaZulu-Natal,general
+info@sameeravally.co.za,Sameera,Vally,Sameera Vally Real Estate Agent,Durban,KwaZulu-Natal,general
+montclair@ipropsol.co.za,Montclair,,iProperty Solutions (Pty) Ltd,Durban,KwaZulu-Natal,general
+info@zikraproperties.co.za,,,Zikra Properties,Durban North,KwaZulu-Natal,general
+info@renebekker.co.za,,,Rene Bekker Properties,Empangeni,KwaZulu-Natal,general
+admin@kznscproperties.co.za,,,KZN South Coast Property Group,Hibberdene,KwaZulu-Natal,general
+support@smithspg.co.za,,,Smiths Property Group,Hillcrest,KwaZulu-Natal,general
+reception@rrealestate.co.za,,,R & R Real Estate,Howick,KwaZulu-Natal,general
+cribs@cribsproperty.co.za,Charlene,Meyer,Cribs Property,Johannesburg,KwaZulu-Natal,general
+info@bonnins.co.za,,,Bonnin's Estates,La Lucia,KwaZulu-Natal,general
+enquiries@therealtyboutique.com,,,The Realty Boutique,La Lucia,KwaZulu-Natal,general
+marketing@sanlameer.co.za,,,Villa Sales at San Lameer,Lower South Coast,KwaZulu-Natal,general
+info@cenprop.co.za,,,Cenprop,Pietermaritzburg,KwaZulu-Natal,general
+rentals@haloprop.co.za,Chris,Halford,Haloprop,Pietermaritzburg,KwaZulu-Natal,general
+info@natalproperty.co.za,Bruce,Campbell,Natal Property Consultants,Pietermaritzburg,KwaZulu-Natal,general
+saproppract@gmail.com,Saproppract,,Southern African Property Practitioners,Pietermaritzburg,KwaZulu-Natal,general
+info@zntrealtors.co.za,,,Z&T Realtors,Pietermaritzburg,KwaZulu-Natal,general
+reception@ingwe.co.za,Noeleen,Naidoo,Ingwe Property Group,Pinetown,KwaZulu-Natal,general
+admin@prop4u.co.za,,,Prop 4 U (Pty) LTD,Queensburgh,KwaZulu-Natal,general
+info@blueoceanproperty.co.za,,,Blue Ocean Property,Ramsgate,KwaZulu-Natal,general
+info@bluediamondproperties.co.za,,,Blue Diamond Properties,Reservoir Hills,KwaZulu-Natal,general
+admin@fosprops.co.za,,,Fosprops,Richards Bay,KwaZulu-Natal,general
+info@sotobeprop.co.za,,,Sotobe Properties,Richards Bay,KwaZulu-Natal,general
+admin@turnerestates.co.za,,,Turner Estates,Richards Bay,KwaZulu-Natal,general
+info@5thavenue.co.za,,,5th Avenue Properties - KZN,Umhlanga,KwaZulu-Natal,general
+info@devmcorealty.co.za,,,Devmco Realty,Umhlanga,KwaZulu-Natal,general
+support@prophunt.co.za,Nadia,Erasmus,PropHunt,Umhlanga,KwaZulu-Natal,general
+info@vrgproperties.co.za,,,VRG Properties,Umhlanga Rocks Durban,KwaZulu-Natal,general
+admin@elistroh.co.za,,,Eli Ströh Property Services,Alldays,Limpopo,general
+corporate@gamefarmestates.co.za,Corporate,,Africa Game Farm Estates,Badplaas,Limpopo,general
+admin@nibproperties.co.za,,,NIB Properties,Bela Bela,Limpopo,general
+headoffice@humblebeerealty.co.za,Headoffice,,HumbleBee Realty,Groblersdal,Limpopo,general
+admin@bertiejoubertproperty.co.za,,,Bertie Joubert Eiendomme,Lephalale,Limpopo,general
+prop@ymalan.co.za,Yvette,Malan,Yvette Malan Properties,Lephalale,Limpopo,general
+info@lightvisionproperties.co.za,,,Light Vision Properties,Louis,Limpopo,general
+salesadmin@boltmangroup.co.za,Salesadmin,,Boltman Real Estate,Mokopane,Limpopo,general
+reception@sueproperties.co.za,,,Sue Properties,Mokopane,Limpopo,general
+reception@betgroup.co.za,,,Emmunah Real Estate,Polokwane,Limpopo,general
+admin@llar.co.za,,,LLAR,Polokwane,Limpopo,general
+info@maserokaproperties.co.za,,,Maseroka Properties,Polokwane,Limpopo,general
+sannelie@propertyboutique.co.za,Sannelie,,Property Boutique,Polokwane,Limpopo,general
+thabazimbiproperties@gmail.com,Thabazimbiproperties,,Thabazimbi Properties,Thabazimbi,Limpopo,general
+admin@sapropdev.co.za,,,SA Properties & Developments,Tzaneen,Limpopo,general
+info@tzaneen-property.co.za,,,Tzaneen Properties,Tzaneen,Limpopo,general
+info@mapheladiproperties.co.za,,,Mapheladi Properties,Barberton,Mpumalanga,general
+rentals@propertiesm.co.za,,,Mbombela Properties,Barberton,Mpumalanga,general
+info@zestpropertygroup.co.za,,,Zest Property Group - Dullstroom,Dullstroom,Mpumalanga,general
+admin@flamelilypg.co.za,,,Flamelily Property Group,Eendrag,Mpumalanga,general
+info@rosaproperties.co.za,,,Rosa Properties,Emalahleni,Mpumalanga,general
+marketing@badgerproperties.co.za,,,Badger Properties,Hazyview,Mpumalanga,general
+deovolprops@lantic.net,Deovolprops,,Deo Volente Lydenburg,Lydenburg,Mpumalanga,general
+b.mashile12@gmail.com,,,Heart@Home Properties,Middelburg,Mpumalanga,general
+rita@propertysol.co.za,Rita,,Property Solutions Middelburg,Middelburg,Mpumalanga,general
+reception@pdlprop.co.za,,,PDL Property Management,Nelspruit,Mpumalanga,general
+info@prop777.co.za,,,Property 777 Estate Agents,Nelspruit,Mpumalanga,general
+admin@compass2000.co.za,,,Compass Real Estate Brokers,Standerton,Mpumalanga,general
+entia@entiaestate.co.za,Entia,,Entia Estates,Standerton,Mpumalanga,general
+info@royalkeyproperties.co.za,,,Royal Key Properties,Witbank,Mpumalanga,general
+info@witprop.co.za,,,Witbank Property Management,Witbank,Mpumalanga,general
+info@bigrealestate.co.za,,,BIG Real Estate,,North West,general
+admin@hellohomeproperties.co.za,,,Hello Home Properties,,North West,general
+info@propertycloud.co.za,,,PropertyCloud Hartbeespoort,Hartbeespoort,North West,general
+marie@eaglesgroup.co.za,Marie,,Eagles Property Consultants,Klerksdorp,North West,general
+sales@homespotproperties.co.za,,,Home Spot Properties,Klerksdorp,North West,general
+info@eaglewingsproperties.co.za,,,Eagle Wings Properties,Potchefstroom,North West,general
+admin@nexor862.co.za,,,Nexor Properties,Potchefstroom,North West,general
+admin@potcheiendomme.co.za,,,Potch Eiendomme,Potchefstroom,North West,general
+natasha@propsolutions.co.za,Natasha,,Property Solutions - Potchefstroom,Potchefstroom,North West,general
+vrassistant1@gmail.com,,,Varsity Rentals,Potchefstroom,North West,general
+info@legacyp.co.za,,,Legacy Property Network,Rustenburg,North West,general
+communication@vpmteam.co.za,Communication,,Von Wielligh Property Management,Rustenburg,North West,general
+admin@xpertiesproperties.co.za,,,Xperties Property,Rustenburg,North West,general
+sales@madsproperties.co.za,Megan,Lockhart; Gloudina Esterhuysen,Mads Properties,Boshof,Northern Cape,general
+info@chorusproperty.co.za,,,Chorus Letting,,Western Cape,general
+info@georgerennie.co.za,,,George Rennie & Co (Pty) Ltd,,Western Cape,general
+info@lootscoetzee.co.za,,,Loots Coetzee Inc,,Western Cape,general
+info@obsrealty.co.za,,,OBS Realty,,Western Cape,general
+info@propertypointer.co.za,,,Property Pointer,Albertinia,Western Cape,general
+admin@brightwave.capetown,,,Brightwave Commercial Property,Bellville,Western Cape,general
+info@capeindustrialproperty.co.za,Anja,Janse Van Rensburg,Cape Industrial Property (Pty) Ltd,Bellville,Western Cape,general
+admin@marleneezio.co.za,Marlene,Ezio,Marlene Ezio Properties,Bellville,Western Cape,general
+info@nspropertysolutions.co.za,Mark,De Lange,NS Property Solutions,Bellville,Western Cape,general
+hq@realtorsgroup.co.za,Manja,Kritzinger,Realtors Group,Bellville,Western Cape,general
+info@robshaw.co.za,,,Robshaw Property Group,Bellville,Western Cape,general
+info@sltrust.co.za,,,Sandak Lewin Trust,Bellville,Western Cape,general
+admin@seraphimrealtors.co.za,,,Seraphim Realtors,Bellville Blackheath Blouberg,Western Cape,general
+properties@craigterblanche.com,Craig,Terblanche,Craig Terblanche Properties,Bellville Brackenfell,Western Cape,general
+admin@apexrealty.co.za,Shane,Muller,Apex Realty,Blouberg,Western Cape,general
+info@aska.co.za,,,Aska Property Group,Blouberg,Western Cape,general
+hello@rioproperty.co.za,,,RIO Property,Blouberg,Western Cape,general
+info@ovorealty.co.za,,,OVO Realty,Blue,Western Cape,general
+rentals@grosch.co.za,,,Grosch Properties,Blue Downs,Western Cape,general
+info@peterventer.com,,,Peter Venter Estates,Bot River,Western Cape,general
+info@dicksonrealestate.co.za,,,Dickson Real Estate,Brackenfell,Western Cape,general
+info@valuables.co.za,Bennie,Van Der Merwe,Valuables Properties,Brackenfell,Western Cape,general
+admin@basspropertygroup.co.za,,,Bass Property Group,Cape,Western Cape,general
+enquiries@doubledprop.com,,,Double.D Property Consultants,Cape,Western Cape,general
+hello@haloproperties.co.za,,,Halo Properties,Cape,Western Cape,general
+info@thestorey.co.za,,,The Storey Real Estate,Cape,Western Cape,general
+clientneeds@annenberg.co.za,Clientneeds,,Annenberg Property Group,Cape Town,Western Cape,general
+enquiries@dgproperties.co.za,,,DG Properties Sea Point,Cape Town,Western Cape,general
+enquiries@daleglen.co.za,,,Daleglen Property Group,Cape Town,Western Cape,general
+enquiries@faircape.co.za,,,Faircape Sales and Leasing,Cape Town,Western Cape,general
+info@headsproperty.co.za,,,Heads Residential Property,Cape Town,Western Cape,general
+info@mergepropertygroup.co.za,,,Merge Property Group,Cape Town,Western Cape,general
+info@opportunityprop.co.za,,,Opportunity Property,Cape Town,Western Cape,general
+info@rolix.co.za,,,Rolix Real Estate,Cape Town,Western Cape,general
+info@rootedprop.co.za,,,Rooted Properties,Cape Town,Western Cape,general
+info@safcom.co.za,,,Safcom Properties,Cape Town,Western Cape,general
+info@skyewolf.co.za,,,Skye Wolf,Cape Town,Western Cape,general
+info@spectrumrealty.co.za,,,Spectrum Letting,Cape Town,Western Cape,general
+info@startprop.com,,,Startprop,Cape Town,Western Cape,general
+info@stealthprop.co.za,,,Stealth Properties,Cape Town,Western Cape,general
+info@steer.co.za,,,Steer Property Services,Cape Town,Western Cape,general
+info@topefforts.co.za,,,Top Efforts Properties,Cape Town,Western Cape,general
+admin@urbanxproperties.co.za,,,Urban X Properties,Cape Town,Western Cape,general
+info@property4sale.co.za,,,property4SALE,Cape Town,Western Cape,general
+manager@baker-street.co.za,,,Baker Street Properties,Cape Town (Woodstock),Western Cape,general
+info@capewinelandsproperties.co.za,,,Cape Winelands Properties,Franschhoek,Western Cape,general
+admin@grestates.co.za,,,GR Estates,Garden Route,Western Cape,general
+info@crownrealtors.co.za,,,Crown Realtors,George,Western Cape,general
+info@frylinckproperties.co.za,,,Frylinck Properties,George,Western Cape,general
+info@griprealty.co.za,,,Grip Realty,George,Western Cape,general
+accounts@scprop.co.za,,,Southern Cape Properties,George,Western Cape,general
+agency@terraconprop.co.za,Agency,,Terracon Properties (Pty) Ltd,George,Western Cape,general
+info@vdv-properties.co.za,,,Van der Vyver Properties (Van der Vyver Inc),George,Western Cape,general
+info@vaultproperties.co.za,,,Vault Properties,George,Western Cape,general
+info@grproperty.co.za,,,Garden Route Lifestyle Property,George Groot Brakrivier,Western Cape,general
+info@homelinkestates.co.za,,,Homelink Estates,Gordons Bay,Western Cape,general
+admin@dekaap.co.za,,,De Kaap Eiendomme,Great Brak River,Western Cape,general
+admin@pinnaclepointproperties.co.za,,,Pinnacle Properties,Groot Brakrivier,Western Cape,general
+info@3at1properties.co.za,,,3@1 Properties,Hartenbos,Western Cape,general
+info@propertymonopoly.co.za,,,Property Monopoly,Hartenbos,Western Cape,general
+jacques@gtproperty.co.za,Jacques,,Guthrie & Theron Properties,Hermanus (Also Pringle Bay/Onrus/Gansbaai/Kleinmond),Western Cape,general
+info@signaturerealestate.co.za,,,Signature Real Estate,Hout Bay,Western Cape,general
+info@habitatrealty.co.za,,,Habitat Realty,Kenilworth Cape Town,Western Cape,general
+hello@numax.co.za,,,NuMax Realty,Kleinmond,Western Cape,general
+rikus@prproperty.co.za,Rikus,Van Zyl,P&R Property Group,Knysna,Western Cape,general
+info@thesenliving.co.za,,,Thesen Islands Living,Knysna,Western Cape,general
+info@clubmykonosproperties.co.za,,,Club Mykonos Properties,Langebaan,Western Cape,general
+admin@flamingoprop.co.za,,,Flamingo Properties Langebaan,Langebaan,Western Cape,general
+clientservice@freekprop.co.za,Clientservice,,Freek Properties,Langebaan,Western Cape,general
+office@langebaanrealtors.co.za,,,Langebaan Realtors,Langebaan,Western Cape,general
+info@propertydecoded.co.za,,,Property Decoded,Milnerton,Western Cape,general
+info@driesbarnardproperties.com,,,Dries Barnard Properties,Montagu,Western Cape,general
+ronel@debeerrealestate.africa,Ronel,De Beer,De Beer Real Estate,Mossel Bay (Island View),Western Cape,general
+joanne@1choice.co.za,Joanne,,1st Choice Family Homes Newlands,Newlands,Western Cape,general
+info@y-not.co.za,,,Y-Not Properties Oudtshoorn,Oudtshoorn,Western Cape,general
+info@hanliesproperties.com,,,Hanlie's Properties,Paarl,Western Cape,general
+property@valdevie.co.za,,,Val de Vie On Site Property Sales,Paarl,Western Cape,general
+admin@homefromhomeplett.co.za,,,Home From Home Plett,Plettenberg Bay,Western Cape,general
+info@wyklandproperties.com,,,Wykland Properties - Riebeek Kasteel,Riebeek Kasteel,Western Cape,general
+servamusproperties@gmail.com,Servamusproperties,,Servamus Properties,Riversdale,Western Cape,general
+info@lmproperties.co.za,,,LateganMuller Properties,Sedgefield,Western Cape,general
+admin@scre.co.za,,,Southcoast Real Estate,Sedgefield,Western Cape,general
+sales@sitari.co.za,,,Sitari Country Estate,Somerset West,Western Cape,general
+property@heartland.co.za,,,Heartland,South Africa,Western Cape,general
+info@annabasson.co.za,,,Anna Basson Eiendomme,Stellenbosch,Western Cape,general
+amana@amana.co.za,Amana,,Amana Properties,Stilbaai,Western Cape,general
+sales@jcaproperties.co.za,,,JCA Properties,Stilbaai,Western Cape,general
+kiewiet@kiewietproperties.co.za,Kiewiet,,Kiewiet Eiendomme/Properties,Stilbaai,Western Cape,general
+jacques@constantiaproperty.co.za,Jacques,,Constantia Valley Estates,Tokai,Western Cape,general
+info@quaggapropertybrokers.co.za,,,Quagga Property Brokers,Tokai,Western Cape,general
+gabriel@surdoprop.co.za,Gabriel,Da Matta,Surdo Prop,Wynberg (Cape Town),Western Cape,general
+aadila@ahproperty.co.za,Aadila,,AH Properties,,,agent
+luciano@acehighproperty.co.za,Luciano,,Ace High Property,,,agent
+angela@propco.co.za,Angela,,Propco,,,agent
+lesley@trgproperties.co.za,Lesley,,TRG Properties,,,agent
+zuki@ecdeep.co.za,Zuki,,EC Deep Properties,,Eastern Cape,agent
+mariette@surfsiderealty.co.za,Mariette,,Surfside Realty,Douglas,Eastern Cape,agent
+michelle@fullcircleprop.co.za,Michelle,,Full Circle Properties,East London,Eastern Cape,agent
+jeanne@ipcproperties.com,Jeanne,,IPC Properties,Newton Park,Eastern Cape,agent
+karin@staytoday.co.za,Karin,Malan,Stay Today Properties,Port Elizabeth,Eastern Cape,agent
+jaco@homeprops.co.za,Jaco,,@ Home Property Group SA,Bloemfontein,Free State,agent
+georgios@dynpro.co.za,Georgios,,Dynpro,Bloemfontein,Free State,agent
+evyn@barbourthorne.co.za,Evyn,,Barbour & Thorne Properties,Welkom,Free State,agent
+karabo@lefikaprop.co.za,Karabo,,Lefika Property Group,,Gauteng,agent
+anderson@live-easy.co.za,Anderson,,Live Easy,,Gauteng,agent
+anri@love-it.properties,Anri,,Love-It Properties,,Gauteng,agent
+cindy@menlynmaine.co.za,Cindy,,MM Property Consultants,,Gauteng,agent
+abramm@morenaproperties.co.za,Abramm,,Morena Properties,,Gauteng,agent
+brian@osher.co.za,Brian,,Osher Property Solutions cc,,Gauteng,agent
+otilia@cleproperties.co.za,Otilia,,CLE Properties,Akasia,Gauteng,agent
+info@legacypg.co.za,,,Legacy Property Group,Akasia,Gauteng,agent
+mangapane@mpsrealestate.co.za,Claudette,Baatjies,MPS Real Estate,Akasia,Gauteng,agent
+sales@okandiviprop.com,,,Okandivi Properties,Akasia,Gauteng,agent
+info@olenkabetseproperties.co.za,,,Olenkabetse Properties,Akasia,Gauteng,agent
+tshepo@propertysniffers.co.za,Tshepo,,Property Sniffers,Akasia,Gauteng,agent
+machelle@rmrealtors.co.za,Machelle,,RM Real Estate,Akasia,Gauteng,agent
+adriaan@tpgprops.co.za,Adriaan,,TPG Properties,Akasia,Gauteng,agent
+pieter@duvenhageproperties.co.za,Pieter,,Duvenhage Properties,Akasia Brits,Gauteng,agent
+mike@landstarprop.co.za,Mike,,Landstar Property Solutions,Alberton,Gauteng,agent
+connect@landsdowne.co.za,Connect,,Landsdowne Investment Properties,Bedfordview,Gauteng,agent
+busi@malherbex.com,Busi,,Malherbex Property Group,Bedfordview,Gauteng,agent
+kevinb@biggroup.co.za,Kevinb,,Barretts Industrial Group,Bellville,Gauteng,agent
+janetta@trustproperty.co.za,Janetta,,Trust Property,Bellville,Gauteng,agent
+cindy@ctproperties.co.za,Cindy,,CT Properties,Benoni,Gauteng,agent
+alta@caldanhomes.co.za,Alta,,Caldan Homes,Benoni,Gauteng,agent
+mareli@gritrealty.co.za,Mareli,,Grit Realty (Pty) Ltd,Benoni,Gauteng,agent
+marita@trustgro.co.za,Marita,,Trustgro Developments,Benoni,Gauteng,agent
+matimba@tynprop.co.za,Matimba,,Tyn Prop,Benoni,Gauteng,agent
+greg@adek.co.za,Greg,,Adek,Benoni Boksburg,Gauteng,agent
+naomi@one4.co.za,Naomi,,One4 Property,Blackheath,Gauteng,agent
+michelle@ocrental.co.za,Michelle,,OC Rental & Sales,Brooklyn Pretoria,Gauteng,agent
+michelle@valulink.co.za,Michelle,,Valulink Real Estate,Bryanston,Gauteng,agent
+michelle@4crn.com,Michelle,,4 Corners Realtors,Centurion,Gauteng,agent
+alma@bakersrealestate.com,Alma,,Bakers Real Estate,Centurion,Gauteng,agent
+info@dichomes.co.za,,,Dic Homes,Centurion,Gauteng,agent
+thendo@donedealproperty.co.za,Thendo,,Done Deal Property,Centurion,Gauteng,agent
+malini@emproperty.co.za,Malini,,Empowered Property Solutions,Centurion,Gauteng,agent
+lindie@oakhouserealty.co.za,Lindie,,Oakhouse Realty,Centurion,Gauteng,agent
+paul@primelocationsa.co.za,Paul,,PrimeLocation SA,Centurion,Gauteng,agent
+ulandie@successnetproperty.co.za,Ulandie,,Successnet Property Connection,Centurion,Gauteng,agent
+uresh@boschprop.co.za,Uresh,,Bosch Properties,Centurion East London,Gauteng,agent
+jaco@harprop.co.za,Jaco,,Harprop Real Estate,Deneysville,Gauteng,agent
+martin@ikonic.co.za,Martin,,Ikonic Real Estate,Dullstroom,Gauteng,agent
+anton@2ndstorey.co.za,Anton,,2nd Storey Property Management,Germiston,Gauteng,agent
+koketso@earthzone.co.za,Koketso,,Earth Zone Properties,Gqeberha,Gauteng,agent
+ayesha@aurumrealty.co.za,Ayesha,,Aurum Realty,Hartbeespoort,Gauteng,agent
+andrew@aucor.com,Andrew,,Aucor Property Johannesburg,Johannesburg,Gauteng,agent
+grant@cires.co.za,Grant,,Cires Property Solutions,Johannesburg,Gauteng,agent
+lindy@gbp.co.za,Lindy,,GB Properties,Johannesburg,Gauteng,agent
+ryan@instaproperti.co.za,Ryan,,Instaproperti,Johannesburg,Gauteng,agent
+amo@weinprop.co.za,Amo,,Weinprop,Johannesburg,Gauteng,agent
+tandy@hfpg.co.za,Tandy,,Home Finders Gauteng,Johannesburg Krugersdorp Randfontein,Gauteng,agent
+laszlo@newworldprop.co.za,Laszlo,,New World Property Group,Johannesburg Midrand Sandton,Gauteng,agent
+leo.ndlwana@cockpitestates.co.za,Leo,,Cockpit Real Estates,Kempton Park,Gauteng,agent
+chantelle@promaxprop.co.za,Chantelle,,ProMax Estates,Meyerton,Gauteng,agent
+serina@cornerstonemgt.co.za,Serina,,Cornerstone Management,Midrand,Gauteng,agent
+jerry.horn@me.com,Jerry,,EA Devco,Midrand,Gauteng,agent
+jakes.d.botha@gmail.com,Jaco,,Citadel Properties,Midvaal,Gauteng,agent
+brendan@bluesquareproperties.co.za,Brendan,,Blue Square Properties,Pretoria,Gauteng,agent
+nokuthula@castlehillprop.co.za,Nokuthula,,Castlehill Real Estate,Pretoria,Gauteng,agent
+joleen@dickandsuehomefinders.co.za,Joleen,,Dick & Sue Home Finders,Pretoria,Gauteng,agent
+jp@lombardpg.co.za,,,Lombard Property Group,Pretoria,Gauteng,agent
+info@mountainestates.co.za,,,Mountain Estates,Pretoria,Gauteng,agent
+admin@vanguardproperties.co.za,,,Vanguard Properties,Pretoria,Gauteng,agent
+adrienne@milnerrealty.co.za,Adrienne,,A Milner Realty,Randburg,Gauteng,agent
+masha@lantanaproperties.co.za,Masha,,Lantana Properties,Randburg,Gauteng,agent
+amone@keenonprop.co.za,Amone,,Keen On Properties,Rensburg,Gauteng,agent
+anton@titaninternational.co.za,Anton,,Titan International,Roodepoort,Gauteng,agent
+edward@9holdings.co.za,Edward,,9 Holdings,Rosebank,Gauteng,agent
+lance@realestateservices.co.za,Lance,Ferreira,LCR Leasing and Sales,Sandton,Gauteng,agent
+gfoden@legacygroup.co.za,Gfoden,,Legacy Living,Sandton,Gauteng,agent
+info@pebblestone.co.za,,,Pebblestone Properties,Sandton,Gauteng,agent
+tryfina@triumphantzoe.com,Tryfina,,Triumphant Zoe,Sandton,Gauteng,agent
+sonja@prop-nology.co.za,Sonja,,Prop Nology Properties,Vereeniging,Gauteng,agent
+elainevn@vn-re.com,Elainevn,,Van Niekerk Real Estate,Villieria Pretoria,Gauteng,agent
+ernstrey@millennialrealtygauteng.co.za,Ernstrey,,Millennial Realty Gauteng,Woodmead,Gauteng,agent
+ryan@dalmax.co.za,Ryan,,Dalmax Properties,,KwaZulu-Natal,agent
+pariksha@teamgroupre.co.za,Pariksha,,Team Group Real Estate,Asherville,KwaZulu-Natal,agent
+marcelle@bedfordbrokerage.co.za,Marcelle,,Bedford Brokerage,Ballito,KwaZulu-Natal,agent
+gosi@dreamvillestates.com,Gosi,,Dreamville Properties,Ballito,KwaZulu-Natal,agent
+charles@highlandprop.co.za,Charles,,Highland Property Group,Ballito,KwaZulu-Natal,agent
+tumi@homelinkproperties.co.za,Tumi,,Homelink Properties,Ballito,KwaZulu-Natal,agent
+charlie@househuntersballito.co.za,Charlie,,House Hunters Ballito,Ballito,KwaZulu-Natal,agent
+phil@lambiespark.co.za,Phil,,Lambie Spark & Associates,Ballito,KwaZulu-Natal,agent
+admin@lloydsrealestate.co.za,,,Lloyds Real Estate (Pty) Ltd,Ballito,KwaZulu-Natal,agent
+admin@ipropertyinvestment.co.za,,,iProperty Investment,Ballito,KwaZulu-Natal,agent
+francois@brick-field.co.za,Francois,,Brick Field Properties,Bellville,KwaZulu-Natal,agent
+greg@delmarrealestate.co.za,Greg,,Del Mar Real Estate,Brettenwood Coastal Estate,KwaZulu-Natal,agent
+mandy@hamptonsrealty.co.za,Mandy,,Hamptons Realty Group,Brits,KwaZulu-Natal,agent
+marc@promprop.co.za,Marc,,Prom Properties,Cato Ridge Chatsworth,KwaZulu-Natal,agent
+sandheera@midproperties.co.za,Sandheera,,MID Properties,Centurion,KwaZulu-Natal,agent
+nikhil@hyphenproperty.com,Nikhil,,Hyphen Property,Cornubia,KwaZulu-Natal,agent
+angela@chalupskyproperties.com,Angela,,Chalupsky Properties,Durban,KwaZulu-Natal,agent
+penny@homeefy.co.za,Penny,,Homeefy,Durban,KwaZulu-Natal,agent
+colin@nexgenrealestate.co.za,Colin,,Nexgen Real Estate,Durban,KwaZulu-Natal,agent
+nicky@partnersinprop.com,Nicky,,Partners in Property,Durban,KwaZulu-Natal,agent
+richardabrahams@vsgc.co.za,Richardabrahams,,Vertical Spaces Properties,Durban,KwaZulu-Natal,agent
+hugo@nextlevelprop.co.za,Hugo,,Next Level Properties,Durban North,KwaZulu-Natal,agent
+info@elegante4u.co.za,Americo,Menezes,Elegante Estate Agency,Margate,KwaZulu-Natal,agent
+candice@southgateproperties.co.za,Candice,,Southgate Properties - Mtunzini,Mtunzini,KwaZulu-Natal,agent
+admin@maritzburgprop.co.za,,,Maritzburg Property Consultants,Pietermaritzburg,KwaZulu-Natal,agent
+bruce@natalproperty.co.za,Bruce,,Natal Property Consultants - PMB Montrose,Pietermaritzburg,KwaZulu-Natal,agent
+amy@homegroundestates.co.za,Amy,,Home Ground Real Estate,Salt Rock,KwaZulu-Natal,agent
+mercia@stipecprop.co.za,Mercia,,STiPEC Property Consultants,,Limpopo,agent
+maite@marealestate.co.za,Maite,,M & A Real Estate,Dendron,Limpopo,agent
+mabatho@debenhamsproperties.co.za,Mabatho,,Debenhams Properties,Northam,Limpopo,agent
+gloria@lucretiveproperties.co.za,Gloria,,Lucretive Properties,Emalahleni,Mpumalanga,agent
+christelle@firstone2sell.co.za,Christelle,,First One 2 Sell Properties,Ermelo,Mpumalanga,agent
+office@perfektumhomes.co.za,,,Perfektum Homes,Secunda,Mpumalanga,agent
+sue@secunda24-7properties.co.za,Sue,,Secunda 24/7 Realty,Secunda,Mpumalanga,agent
+cindy@uniquelegacy.co.za,Cindy,,Unique Legacy Properties,Secunda,Mpumalanga,agent
+ashlin@wayoutproperties.co.za,Ashlin,,Way Out Properties,Witbank,Mpumalanga,agent
+kristin@kkrealty.co.za,Kristin,,KK Realty,Hartbeespoort,North West,agent
+rudi@ubique.co.za,Rudi,,Ubique Afslaers,Potchefstroom,North West,agent
+janice@nightingalerealestate.co.za,Janice,,Nightingale Real Estate,Roodepoort,North West,agent
+suzanne@brunettesrealtors.co.za,Suzanne,,Brunettes Realtors,Kimberley,Northern Cape,agent
+anna@uptprop.co.za,Anna,,Upington Properties,Upington,Northern Cape,agent
+anthea@capecountryproperties.co.za,Anthea,,Cape Country Properties,,Western Cape,agent
+eita@stoicrealty.co.za,Eita,,Stoic Realty,,Western Cape,agent
+sean@biz-com.co.za,Sean,,Bizcom Property Sales & Rentals,Albertinia,Western Cape,agent
+nomonde@lionleadrealestate.co.za,Nomonde,,LIONLEAD Real Estate Atlantic Seaboard,Atlantic Seaboard,Western Cape,agent
+wouter@pentzproperties.com,Wouter,,Pentz Properties,Atlantis,Western Cape,agent
+liza@blouberghomes.co.za,Liza,,Property ME,Bellville Blouberg,Western Cape,agent
+lynetia@hatchway.co.za,Lynetia,,Hatchway Properties,Blouberg Cape Town,Western Cape,agent
+lindsay.dwyer@propertyvinecapetown.co.za,Lindsay,Dwyer,Property Vine Cape Town,Blouberg Cape Town,Western Cape,agent
+raphael@newmanproperties.co.za,Raphael,,Newman Properties,Blue,Western Cape,agent
+info@3cubeproperty.co.za,,,3CUBE Property Solutions - Cape Town,Cape Town,Western Cape,agent
+magda@geeproperties.co.za,Magda,,Gee Property Administration,Cape Town,Western Cape,agent
+kylei@harbourarch.co.za,Kylei,,Harbour Arch Property Sales,Cape Town,Western Cape,agent
+jo@hardieproperty.com,,,Hardie Property,Cape Town,Western Cape,agent
+imraan@platinumhill.co.za,Imraan,,Platinum Hill Properties,Cape Town,Western Cape,agent
+adam@propertycpt.co.za,Adam,,Property CPT,Cape Town,Western Cape,agent
+yolandi@rosemcfall.co.za,Rose,Mcfall,Rose McFall Properties,Cape Town,Western Cape,agent
+diana@prop4real.co.za,Diana,,Prop4Real,De Doorns,Western Cape,agent
+suzaan@matziprop.co.za,Suzaan,,Matzikama Properties,Durbanville,Western Cape,agent
+kobus@ngpropertybrokers.co.za,Kobus,,NG Property Brokers,Durbanville,Western Cape,agent
+adele@prideproperty.co.za,Adele,,Pride Property,Gansbaai,Western Cape,agent
+gizelle@envisualproperties.co.za,Gizelle,,Envisual Properties,Gordons Bay,Western Cape,agent
+michelle@p3prop.co.za,Michelle,,P3 Properties,Groot Brakrivier Hartenbos,Western Cape,agent
+hps@hermanus.co.za,Hps,,Hermanus Property Sales CC,Hermanus,Western Cape,agent
+bron@dreamknysna.co.za,Bron,,Dream Knysna,Knysna,Western Cape,agent
+schoemanstefanus@gmail.com,Schoemanstefanus,,Simply Properties,Mokopane,Western Cape,agent
+ashby@plettrealty.co.za,Ashby,,Plett Realty,Plettenberg Bay,Western Cape,agent
+wesley@propertypro.co.za,Wesley,,PropertyPro.co.za,Stellenbosch,Western Cape,agent

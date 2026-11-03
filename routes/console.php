@@ -679,3 +679,8 @@ Schedule::command('attorney-portal:notify-new-documents')->dailyAt('07:30')->wit
 
 // MIC 5.5 (AT-519): nightly stored per-file counts + pocket stats for the Work tab and hot-pocket tiles.
 Schedule::command('mic:refresh-stats')->dailyAt('03:30')->withoutOverlapping();
+
+// AT-534 — Campaigns (CoreX's own outbound email sequences): queue a send run per running campaign, and read each in-use
+// sending address's inbox for replies / STOP / bounces. Both idempotent. Spec: .ai/specs/campaigns.md §6.1, §6.6.
+Schedule::command('campaigns:send-due')->everyFiveMinutes()->onOneServer()->withoutOverlapping(10);
+Schedule::command('campaigns:check-inbox')->everyFiveMinutes()->onOneServer()->withoutOverlapping(10);
