@@ -571,7 +571,7 @@ final class ContractorJobDispatchTest extends TestCase
         ]);
         $html = $this->actingAs($this->agent)->get(route('corex.rental-work-orders.show', $bare))->getContent();
         $this->assertStringContainsString('data-no-contractor-chosen', $html);
-        $this->assertStringContainsString('Choose and send the job', $html);
+        $this->assertStringContainsString('data-appoint-contractor-submit', $html, 'section 31.4: one Send to button per contractor');
     }
 
     public function test_the_go_ahead_route_sends_the_job_to_a_new_contractor_but_not_again_to_the_same_one(): void

@@ -327,7 +327,7 @@
         }
       } catch (e) { /* ignore */ }
 
-      listings.push({
+      const ppListing = {
         portal_ref:       'PP-' + ref,
         portal_url:       href.startsWith('http') ? href : 'https://www.privateproperty.co.za' + href,
         address:          address,
@@ -343,7 +343,10 @@
         agency_name:      agencyName,
         thumbnail_url:    thumbnail,
         source:           'pp',
-      });
+      };
+      // MIC capture (3.13.0): private seller, status banner, exclusive flag, floor/land size, badges.
+      try { if (self.CorexMic) self.CorexMic.ppTile(card, ppListing); } catch (e) { /* never block the tile */ }
+      listings.push(ppListing);
     });
 
     return listings;
@@ -358,6 +361,17 @@
 
     if (msg.action === 'getListings') {
       sendResponse({ listings: extractAllListings() });
+      return true;
+    }
+
+    // MIC capture (3.13.0): the public facts of ONE listing page. `sv` is the safe subset background.js read from the
+    // page's own serverVariables. Nothing is clicked; no contact number is ever requested.
+    if (msg.action === 'getListingFacts') {
+      try {
+        sendResponse({ facts: self.CorexMic ? self.CorexMic.ppListingPage(document, window.location.href, msg.sv || {}) : null });
+      } catch (e) {
+        sendResponse({ facts: null, error: String(e && e.message || e) });
+      }
       return true;
     }
 

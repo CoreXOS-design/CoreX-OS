@@ -22,10 +22,31 @@ class RtsContactOutcome extends Model
 
     protected $table = 'rts_contact_outcomes';
 
+    /** v4 (road-to-sold.md 23.7): how the owner was contacted. A short list in code, labelled in plain words. NULL = recorded before v4. */
+    public const CHANNELS = [
+        'phone'     => 'Phone call',
+        'whatsapp'  => 'WhatsApp',
+        'email'     => 'Email',
+        'in_person' => 'In person',
+    ];
+
+    public static function channelLabel(?string $channel): string
+    {
+        return $channel === null || $channel === '' ? 'Channel not recorded' : (self::CHANNELS[$channel] ?? ucfirst(str_replace('_', ' ', $channel)));
+    }
+
+    /** True once the channel column exists (added by migration). */
+    public static function hasChannelColumn(): bool
+    {
+        static $has = null;
+
+        return $has ??= \Illuminate\Support\Facades\Schema::hasColumn((new static())->getTable(), 'channel');
+    }
+
     protected $fillable = [
         'agency_id', 'branch_id', 'track', 'user_id', 'recorded_by_user_id', 'tracked_property_id', 'property_id',
         'prospecting_listing_id', 'list_item_id', 'contact_id', 'outcome_definition_id',
-        'outcome_key', 'outcome_label', 'kind', 'note', 'valuation_booked', 'calendar_event_id',
+        'outcome_key', 'outcome_label', 'kind', 'channel', 'note', 'valuation_booked', 'calendar_event_id',
         'next_action', 'next_action_at', 'list_tag', 'no_answer_streak', 'dropped', 'is_current',
         'occurred_at',
     ];

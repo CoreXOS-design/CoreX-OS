@@ -1,0 +1,429 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Tests\Feature\Prospecting;
+
+use App\Models\Agency;
+use App\Models\Branch;
+use App\Models\ProspectingListing;
+use App\Models\Prospecting\TrackedProperty;
+use App\Models\User;
+use App\Services\Prospecting\MicWork\GoneTileProvider;
+use App\Services\Prospecting\MicWork\MicWorkTiles;
+use App\Services\Prospecting\MicWork\NeighboursPanelProvider;
+use App\Services\Prospecting\MicWork\RefreshStatusPanelProvider;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
+use Tests\TestCase;
+
+/**
+ * AT-520 step 4.6 (mic-work-tab.md 11.3.F, 11.9): tile 3 (under offer / sold / gone), tile 10 (neighbours of a sale) and tile 11 (market data last
+ * refreshed) - agency-bound, filtered, and registered for the Work tab through the tags.
+ */
+final class MicTileServicesTest extends TestCase
+{
+    use RefreshDatabase;
+
+    private Agency $a;
+    private Agency $b;
+    private User $u;
+    private int $n = 118000000;
+
+    protected function tearDown(): void
+    {
+        \Carbon\Carbon::setTestNow();
+        parent::tearDown();
+    }
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+        $this->a = Agency::create(['name' => 'Agency A', 'slug' => 'agency-a']);
+        $this->b = Agency::create(['name' => 'Agency B', 'slug' => 'agency-b']);
+        $br = Branch::create(['agency_id' => $this->a->id, 'name' => 'Main']);
+        $this->u = User::factory()->create(['agency_id' => $this->a->id, 'branch_id' => $br->id, 'role' => 'agent']);
+    }
+
+    private function file(array $attrs = [], ?Agency $agency = null): TrackedProperty
+    {
+        return TrackedProperty::queryWithoutAgencyScope()->create(array_merge(['agency_id' => ($agency ?? $this->a)->id, 'status' => 'active', 'first_seen_at' => now(),
+            'street_name' => 'Beach Road', 'suburb' => 'Uvongo'], $attrs));
+    }
+
+    private function advert(TrackedProperty $tp, string $status, int $daysAgo, array $attrs = []): ProspectingListing
+    {
+        $this->n++;
+        $l = new ProspectingListing();
+        $l->forceFill(array_merge(['agency_id' => $tp->agency_id, 'captured_by_user_id' => $this->u->id, 'tracked_property_id' => $tp->id, 'portal_source' => 'p24', 'portal_ref' => 'P24-' . $this->n,
+            'portal_url' => 'https://www.property24.com/x/' . $this->n, 'suburb' => 'Uvongo', 'price' => 1_500_000, 'property_type' => 'House', 'first_seen_at' => now()->subDays(200),
+            'last_seen_at' => now(), 'is_active' => $status === 'active', 'portal_status' => $status, 'listing_type' => 'sale', 'portal_status_changed_at' => now()->subDays($daysAgo),
+            'off_market_at' => $status === 'active' ? null : now()->subDays($daysAgo)], $attrs))->save();
+
+        return $l->fresh();
+    }
+
+    // ---- tile 3 ------------------------------------------------------------------------------------------------------
+
+    public function test_tile_3_counts_under_offer_sold_and_gone_in_the_window_for_this_agency_only(): void
+    {
+        foreach ([['under_offer', 3], ['sold', 10], ['gone', 5], ['probably_sold', 2]] as [$st, $d]) {
+            $this->advert($this->file(), $st, $d);
+        }
+        $this->advert($this->file(), 'sold', 90);                                          // too old for the 30-day window
+        $this->advert($this->file(), 'active', 1);                                         // on the market
+        $this->advert($this->file(), 'sold', 3, ['listing_type' => 'rent']);               // a rental
+        $this->advert($this->file([], $this->b), 'sold', 3);                               // another agency
+
+        $p = new GoneTileProvider();
+        $s = $p->summary($this->a->id, $this->u);
+
+        $this->assertSame(3, $p->tile());
+        $this->assertSame(4, $s['count']);
+        $this->assertStringContainsString('last 30 days', $s['reason']);
+        $this->assertStringContainsString('1 under offer', (string) $s['note']);
+        $this->assertStringContainsString('1 probably sold', (string) $s['note']);
+        $this->assertCount(4, $p->propertyIds($this->a->id, $this->u)->get(), 'a click filters the list to exactly those files');
+        $this->assertSame(1, $p->summary($this->b->id, $this->u)['count']);
+    }
+
+    // ---- tile 10 -----------------------------------------------------------------------------------------------------
+
+    public function test_tile_10_lists_triggers_newest_first_inside_the_time_filter(): void
+    {
+        \Carbon\Carbon::setTestNow('2026-10-20 12:00:00');   // "this month" must hold fixtures a few days old whatever day the suite runs on
+        $this->file(['street_number' => '5', 'deeds_registered_date' => now()->subDays(2)->toDateString(), 'last_known_sold_price' => 2_100_000, 'capture_kind' => 'deeds_capture']);
+        $this->advert($this->file(['street_number' => '7']), 'sold', 40);
+        $this->advert($this->file(['street_number' => '9']), 'under_offer', 5);
+        $this->advert($this->file(['street_number' => '11']), 'sold', 400);                // far outside 6 months
+        $this->file(['street_number' => '13', 'deeds_registered_date' => now()->subDays(2)->toDateString(), 'suburb' => 'Margate'], $this->b);
+        $p = new NeighboursPanelProvider();
+
+        $thisMonth = $p->rows($this->a->id, $this->u, ['months' => 0]);
+        $all = $p->rows($this->a->id, $this->u, ['months' => 6]);
+
+        $this->assertContains('registered', array_column($all, 'type'));
+        $this->assertSame(['registered', 'sold', 'under_offer'], collect($all)->pluck('type')->sort()->values()->all());
+        $this->assertCount(3, $all);
+        $this->assertGreaterThanOrEqual(1, count($thisMonth));
+        $this->assertSame('5 Beach Road, Uvongo', collect($all)->firstWhere('type', 'registered')['address']);
+        $this->assertSame(2_100_000, collect($all)->firstWhere('type', 'registered')['price']);
+        $this->assertSame('registered', $all[0]['type'], 'deeds registrations come first, then portal sold / under offer');
+        $this->assertSame(['under_offer', 'sold'], collect($all)->whereIn('type', ['sold', 'under_offer'])->pluck('type')->values()->all(), 'newest first inside the portal group (5 days ago, then 40)');
+        $this->assertTrue(collect($all)->every(fn ($r) => $r['has_address']));
+        $this->assertSame(['sold'], collect($p->rows($this->a->id, $this->u, ['months' => 6, 'type' => 'sold']))->pluck('type')->all());
+        $this->assertSame([], $p->rows($this->a->id, $this->u, ['months' => 6, 'suburb' => 'Margate']), "another agency's Margate trigger is not ours");
+    }
+
+    public function test_tile_10_neighbours_are_five_each_side_plus_across_and_the_owner_only_comes_from_our_own_deeds(): void
+    {
+        $trigger = $this->file(['street_number' => '20', 'deeds_registered_date' => now()->toDateString(), 'capture_kind' => 'deeds_capture']);
+        foreach ([2, 4, 6, 8, 10, 12, 14, 16, 18, 22, 24, 26, 28, 30, 32, 34, 36, 15, 17, 19, 21, 23, 25, 27, 99] as $n) {
+            $this->file(['street_number' => (string) $n]);
+        }
+        $deeded = TrackedProperty::queryWithoutAgencyScope()->where('agency_id', $this->a->id)->where('street_number', '22')->first();
+        $contactId = DB::table('contacts')->insertGetId(['agency_id' => $this->a->id, 'branch_id' => $this->u->branch_id, 'first_name' => 'Thandi', 'last_name' => 'Nkosi', 'created_at' => now(), 'updated_at' => now()]);
+        $deeded->forceFill(['owner_contact_id' => $contactId, 'deeds_captured_at' => now()])->save();
+        $other = $this->file(['street_number' => '26']);                                    // owner known but NOT from a deeds capture of ours
+        $other->forceFill(['owner_contact_id' => $contactId])->save();
+        $this->advert($deeded, 'active', 0);
+
+        $rows = (new NeighboursPanelProvider())->around($this->a->id, $this->u, 'registered:' . $trigger->id);
+        $by = collect($rows)->groupBy('side');
+
+        $this->assertCount(5, $by['before']);
+        $this->assertCount(5, $by['after']);
+        $this->assertCount(5, $by['across']);
+        $this->assertSame([10, 12, 14, 16, 18], $by['before']->pluck('number')->all(), 'the five nearest on the same side before it');
+        $this->assertSame([22, 24, 26, 28, 30], $by['after']->pluck('number')->all());
+        $this->assertSame([15, 17, 19, 21, 23], $by['across']->pluck('number')->all(), 'across: the five nearest opposite-side numbers (listed by number)');
+        $row22 = collect($rows)->firstWhere('number', 22);
+        $this->assertSame('Thandi Nkosi', $row22['owner']);
+        $this->assertTrue($row22['on_market']);
+        $this->assertSame($deeded->id, $row22['property_id']);
+        $this->assertNull(collect($rows)->firstWhere('number', 26)['owner'], 'an owner not from our own deeds capture is never shown');
+        $this->assertSame([], (new NeighboursPanelProvider())->around($this->b->id, $this->u, 'registered:' . $trigger->id), "another agency cannot open our trigger");
+    }
+
+    public function test_tile_10_a_flat_in_a_complex_lists_the_other_units(): void
+    {
+        $cx = DB::table('property_complexes')->insertGetId(['agency_id' => $this->a->id, 'suburb_id' => 1, 'property_type' => 'apartment', 'land_size_m2' => 5000, 'units_count' => 3, 'created_at' => now(), 'updated_at' => now()]);
+        $trigger = $this->file(['street_name' => null, 'deeds_registered_date' => now()->toDateString()]);
+        $u4 = $this->file(['street_name' => null, 'unit_number' => '4']);
+        $u9 = $this->file(['street_name' => null, 'unit_number' => '9']);
+        DB::table('tracked_properties')->whereIn('id', [$trigger->id, $u4->id, $u9->id])->update(['complex_id' => $cx]);
+
+        $rows = (new NeighboursPanelProvider())->around($this->a->id, $this->u, 'registered:' . $trigger->id);
+
+        $this->assertCount(2, $rows);
+        $this->assertSame('complex', $rows[0]['side']);
+    }
+
+    // ---- tile 11 -----------------------------------------------------------------------------------------------------
+
+    private function suburb(string $name, int $p24Id, int $cityId): int
+    {
+        return (int) DB::table('p24_suburbs')->insertGetId(['name' => $name, 'slug' => strtolower(str_replace(' ', '-', $name)), 'p24_id' => $p24Id, 'p24_city_id' => $cityId, 'created_at' => now(), 'updated_at' => now()]);
+    }
+
+    private function crawl(int $suburbId, string $portal, int $daysAgo, bool $complete = true): void
+    {
+        $id = DB::table('mic_crawls')->insertGetId(['agency_id' => $this->a->id, 'user_id' => $this->u->id, 'session_id' => uniqid('s'), 'portal' => $portal, 'listing_type' => 'sale',
+            'started_at' => now()->subDays($daysAgo)->subHour(), 'finished_at' => now()->subDays($daysAgo), 'pages_read' => 5, 'pages_total' => 5, 'adverts_seen' => 50, 'is_complete' => $complete,
+            'is_filtered' => false, 'created_at' => now(), 'updated_at' => now()]);
+        DB::table('mic_crawl_suburbs')->insert(['mic_crawl_id' => $id, 'agency_id' => $this->a->id, 'portal' => $portal, 'suburb_id' => $suburbId, 'suburb_name' => 'x', 'created_at' => now(), 'updated_at' => now()]);
+    }
+
+    public function test_tile_11_shows_when_each_portal_was_last_read_completely_and_what_is_overdue(): void
+    {
+        $country = (int) DB::table('p24_countries')->insertGetId(['name' => 'South Africa', 'p24_id' => 1, 'created_at' => now(), 'updated_at' => now()]);
+        $province = (int) DB::table('p24_provinces')->insertGetId(['name' => 'KwaZulu-Natal', 'p24_id' => 2, 'p24_country_id' => $country, 'created_at' => now(), 'updated_at' => now()]);
+        $city = (int) DB::table('p24_cities')->insertGetId(['name' => 'Margate', 'p24_id' => 376, 'p24_province_id' => $province, 'created_at' => now(), 'updated_at' => now()]);
+        $fresh = $this->suburb('Uvongo', 6359, $city);
+        $stale = $this->suburb('Ramsgate', 6371, $city);
+        $never = $this->suburb('Margate Beach', 6372, $city);
+        foreach ([$fresh, $stale, $never] as $s) {
+            for ($i = 0; $i < 3; $i++) {
+                $this->advert($this->file(), 'active', 0);
+                DB::table('prospecting_listings')->orderByDesc('id')->limit(1)->update(['p24_suburb_id' => $s]);
+            }
+        }
+        $this->crawl($fresh, 'p24', 1);
+        $this->crawl($fresh, 'pp', 2);
+        $this->crawl($stale, 'p24', 20);
+        $this->crawl($stale, 'pp', 3);
+        $this->crawl($never, 'p24', 1, false);                                              // not complete: does not count
+
+        $rows = collect((new RefreshStatusPanelProvider())->rows($this->a->id, $this->u, ['scope' => 'all', 'show_all' => true]))->keyBy('suburb');
+
+        $this->assertFalse($rows['Uvongo']['overdue']);
+        $this->assertSame(2, $rows['Uvongo']['age_days']);
+        $this->assertTrue($rows['Ramsgate']['overdue'], 'the older read is 20 days old');
+        $this->assertSame(20, $rows['Ramsgate']['age_days']);
+        $this->assertTrue($rows['Margate Beach']['overdue'], 'PP was never read');
+        $this->assertTrue($rows['Margate Beach']['p24_approx'], 'an incomplete crawl does not count; the newest advert sighting stands in, flagged approximate');
+        $this->assertNull($rows['Margate Beach']['pp_read_at']);
+        $this->assertSame('https://www.property24.com/for-sale/uvongo/margate/kwazulu-natal/6359?sp=so%3dNewest', $rows['Uvongo']['p24_url'], 'newest first (P24AreaPageLinks)');
+        $this->assertSame('Ramsgate', array_values($rows->all())[0]['suburb'] ?? null, 'the oldest read comes first');
+        $this->assertSame([], (new RefreshStatusPanelProvider())->rows($this->b->id, $this->u, ['scope' => 'all', 'show_all' => true]), "another agency's suburbs are not ours");
+    }
+
+    public function test_the_providers_are_registered_for_the_work_tab(): void
+    {
+        $tiles = app(MicWorkTiles::class);
+
+        $this->assertInstanceOf(GoneTileProvider::class, collect(app()->tagged('mic.work.tiles'))->first(fn ($p) => $p->tile() === 3));
+        $panels = collect(app()->tagged('mic.work.panels'))->map(fn ($p) => $p->tile())->sort()->values()->all();
+        $this->assertSame([10, 11], $panels);
+        $this->assertNotNull($tiles);
+    }
+    public function test_tile_10_puts_triggers_without_an_address_last_and_never_dates_a_status_we_did_not_watch(): void
+    {
+        $withAddress = $this->file(['street_number' => '7']);
+        $this->advert($withAddress, 'sold', 10);
+        $hidden = $this->file(['street_number' => null, 'street_name' => null]);
+        $this->advert($hidden, 'sold', 2);
+        // first noticed already sold (the status "changed" the moment we first saw the advert): no known date, not a dated trigger
+        $unwatched = $this->file(['street_number' => '9']);
+        $this->advert($unwatched, 'sold', 0, ['first_seen_at' => now()->subHours(2), 'portal_status_changed_at' => now()->subHour()]);
+
+        $rows = (new NeighboursPanelProvider())->rows($this->a->id, $this->u, ['months' => 6]);
+
+        $this->assertSame(['sold:' . $withAddress->id, 'sold:' . $hidden->id], array_column($rows, 'id'), 'the unwatched change is not listed; the address-less trigger comes last');
+        $this->assertTrue($rows[0]['has_address']);
+        $this->assertFalse($rows[1]['has_address']);
+    }
+
+    public function test_tile_11_uses_the_newest_advert_sighting_as_an_approximate_read_until_a_real_crawl_exists(): void
+    {
+        $country = (int) DB::table('p24_countries')->insertGetId(['name' => 'South Africa', 'p24_id' => 1, 'created_at' => now(), 'updated_at' => now()]);
+        $province = (int) DB::table('p24_provinces')->insertGetId(['name' => 'KwaZulu-Natal', 'p24_id' => 2, 'p24_country_id' => $country, 'created_at' => now(), 'updated_at' => now()]);
+        $city = (int) DB::table('p24_cities')->insertGetId(['name' => 'Margate', 'p24_id' => 376, 'p24_province_id' => $province, 'created_at' => now(), 'updated_at' => now()]);
+        $uvongo = $this->suburb('Uvongo', 6359, $city);
+        $ramsgate = $this->suburb('Ramsgate', 6371, $city);
+        foreach ([$uvongo, $ramsgate] as $sid) {
+            for ($i = 0; $i < 3; $i++) {
+                $l = $this->advert($this->file(), 'active', 0);
+                DB::table('prospecting_listings')->where('id', $l->id)->update(['p24_suburb_id' => $sid, 'last_seen_at' => now()->subDays($sid === $uvongo ? 2 : 12)]);
+            }
+        }
+        $this->crawl($ramsgate, 'p24', 1);                                                 // a real, complete crawl for Ramsgate on P24 only
+
+        $rows = collect((new RefreshStatusPanelProvider())->rows($this->a->id, $this->u, ['scope' => 'all', 'show_all' => true]))->keyBy('suburb');
+
+        $this->assertTrue($rows['Uvongo']['p24_approx']);
+        $this->assertSame(2, $rows['Uvongo']['age_days']);
+        $this->assertSame('approx (before crawl tracking)', $rows['Uvongo']['approx_label']);
+        $this->assertNull($rows['Uvongo']['pp_read_at'], 'no PP sighting at all');
+        $this->assertFalse($rows['Ramsgate']['p24_approx'], 'a real crawl replaces the approximation');
+        $this->assertSame(1, (int) \Illuminate\Support\Carbon::parse($rows['Ramsgate']['p24_read_at'])->diffInDays(now()));
+    }
+    public function test_tile_10_labels_dates_honestly_and_gives_the_face_numbers(): void
+    {
+        \Carbon\Carbon::setTestNow('2026-10-20 12:00:00');   // "this month" must hold fixtures a few days old whatever day the suite runs on
+        $trigger = $this->file(['street_number' => '20', 'deeds_registered_date' => now()->toDateString(), 'capture_kind' => 'deeds_capture']);
+        $open = $this->file(['street_number' => '22']);
+        $claimed = $this->file(['street_number' => '24']);
+        $contacted = $this->file(['street_number' => '26']);
+        DB::table('tracked_property_agency_work')->insert(['agency_id' => $this->a->id, 'tracked_property_id' => $claimed->id, 'claimed_by_user_id' => $this->u->id, 'created_at' => now(), 'updated_at' => now()]);
+        DB::table('tracked_property_agency_work_events')->insert(['agency_id' => $this->a->id, 'tracked_property_id' => $contacted->id, 'kind' => 'status', 'to_value' => 'contacted', 'occurred_at' => now(), 'created_at' => now(), 'updated_at' => now()]);
+        $sold = $this->file(['street_number' => '40', 'street_name' => 'Other Road']);
+        $this->advert($sold, 'sold', 3);
+        $this->file(['street_number' => null, 'street_name' => null, 'deeds_registered_date' => now()->toDateString()]); // a registration with no address
+
+        $p = new NeighboursPanelProvider();
+        $rows = collect($p->rows($this->a->id, $this->u, ['months' => 0]));
+        $pending = $p->summary($this->a->id, $this->u);
+        $this->assertTrue($pending['pending'], 'nothing stored yet: a placeholder, never a wait');
+        $p->refreshSummary($this->a->id);
+        $t = microtime(true);
+        $s = $p->summary($this->a->id, $this->u);
+        $this->assertLessThan(0.3, microtime(true) - $t, 'read from storage in under 300 ms');
+        $this->assertFalse($s['pending']);
+
+        $this->assertSame('registered ' . now()->format('j M'), $rows->firstWhere('id', 'registered:' . $trigger->id)['date_label']);
+        $this->assertSame('seen ' . now()->subDays(3)->format('j M'), $rows->firstWhere('id', 'sold:' . $sold->id)['date_label']);
+        $this->assertSame('seen', $rows->firstWhere('id', 'sold:' . $sold->id)['date_kind']);
+        $this->assertSame(2, $s['triggers_this_month'], 'the registered house and the sold one; the address-less one is counted apart');
+        $this->assertSame(2, $s['count']);
+        $this->assertSame(1, $s['triggers_without_address']);
+        $this->assertSame(1, $s['neighbours_open'], '22 is open; 24 is claimed, 26 was contacted; the sold trigger is on a street with no other known home');
+        $this->assertNotNull($open);
+    }
+
+    public function test_tile_11_puts_our_working_suburbs_first_and_shows_the_rest_only_on_request(): void
+    {
+        $country = (int) DB::table('p24_countries')->insertGetId(['name' => 'South Africa', 'p24_id' => 1, 'created_at' => now(), 'updated_at' => now()]);
+        $province = (int) DB::table('p24_provinces')->insertGetId(['name' => 'KwaZulu-Natal', 'p24_id' => 2, 'p24_country_id' => $country, 'created_at' => now(), 'updated_at' => now()]);
+        $city = (int) DB::table('p24_cities')->insertGetId(['name' => 'Margate', 'p24_id' => 376, 'p24_province_id' => $province, 'created_at' => now(), 'updated_at' => now()]);
+        $ours = $this->suburb('Ramsgate', 6371, $city);
+        $ours2 = $this->suburb('Uvongo', 6359, $city);
+        $north = $this->suburb('Ballito Gardens Estate', 7000, $city);
+        foreach ([$ours, $ours2, $north] as $sid) {
+            for ($i = 0; $i < 3; $i++) {
+                $l = $this->advert($this->file(), 'active', 0);
+                DB::table('prospecting_listings')->where('id', $l->id)->update(['p24_suburb_id' => $sid, 'last_seen_at' => now()->subDays($sid === $north ? 226 : ($sid === $ours ? 20 : 3))]);
+            }
+        }
+        // the agency ticked two Areas and chose "Hide this suburb" for the estate it imported by mistake; an imported suburb is otherwise ours
+        \App\Models\MicAgencySetting::saveValues($this->a->id, ['areas' => [$ours, $ours2], 'hidden_suburbs' => [$north]]);
+        $p = new RefreshStatusPanelProvider();
+
+        $default = $p->rows($this->a->id, $this->u, []);
+        $all = $p->rows($this->a->id, $this->u, ['show_all' => true]);
+
+        $this->assertSame(['Ramsgate', 'Uvongo'], array_column($default, 'suburb'), 'our working suburbs only, oldest first');
+        $this->assertSame(['Ramsgate', 'Uvongo', 'Ballito Gardens Estate'], array_column($all, 'suburb'), 'with "show all" the rest follow, after ours');
+        $this->assertTrue($all[0]['working']);
+        $this->assertFalse($all[2]['working']);
+        $this->assertSame(['area'], $all[0]['working_why']);
+        $this->assertTrue($p->summary($this->a->id, $this->u)['pending'], 'nothing stored yet: a placeholder, never a wait');
+        $p->refreshSummary($this->a->id);
+        $this->assertSame('Ramsgate', $p->summary($this->a->id, $this->u)['oldest_suburb']);
+
+        $s = $p->summary($this->a->id, $this->u);
+        $this->assertSame(20, $s['oldest_age_days']);
+        $this->assertSame(20, $s['count']);
+        $this->assertSame(1, $s['older_than_days'], 'Ramsgate (20 days) is older than the 7-day refresh interval; Uvongo (3) is not; the north-coast estate is not one of ours');
+        $this->assertSame(7, $s['interval_days'], 'the SAME 7 days as Settings > Market data refresh, not a separate 14');
+        $this->assertStringContainsString('older than 7 days', $s['reason']);
+        $this->assertSame(2, $s['working_suburbs']);
+    }
+    public function test_an_approximate_read_needs_half_the_live_adverts_seen_not_one(): void
+    {
+        $country = (int) DB::table('p24_countries')->insertGetId(['name' => 'South Africa', 'p24_id' => 1, 'created_at' => now(), 'updated_at' => now()]);
+        $province = (int) DB::table('p24_provinces')->insertGetId(['name' => 'KwaZulu-Natal', 'p24_id' => 2, 'p24_country_id' => $country, 'created_at' => now(), 'updated_at' => now()]);
+        $city = (int) DB::table('p24_cities')->insertGetId(['name' => 'Margate', 'p24_id' => 376, 'p24_province_id' => $province, 'created_at' => now(), 'updated_at' => now()]);
+        $fullRead = $this->suburb('Margate', 6001, $city);      // 10 live adverts, 9 seen 5 hours ago: a real read
+        $oneTouched = $this->suburb('Uvongo', 6002, $city);     // 10 live adverts, 1 touched today, the rest 20 days ago: not a read today
+        $tooFew = $this->suburb('Ramsgate', 6003, $city);       // 2 live adverts: not enough to call anything a read
+        $make = function (int $sid, array $daysAgo) {
+            foreach ($daysAgo as $d) {
+                $l = $this->advert($this->file(), 'active', 0);
+                DB::table('prospecting_listings')->where('id', $l->id)->update(['p24_suburb_id' => $sid, 'last_seen_at' => now()->subHours($d === 0 ? 5 : $d * 24)]);
+            }
+        };
+        $make($fullRead, array_merge(array_fill(0, 9, 0), [30]));
+        $make($oneTouched, array_merge([0], array_fill(0, 9, 20)));
+        $make($tooFew, [0, 0]);
+        \App\Models\MicAgencySetting::saveValues($this->a->id, ['areas' => [$fullRead, $oneTouched, $tooFew]]);
+
+        $rows = collect((new RefreshStatusPanelProvider())->rows($this->a->id, $this->u, []))->keyBy('suburb');
+
+        $this->assertSame(0, $rows['Margate']['age_days'], 'a real full read 5 hours ago');
+        $this->assertTrue($rows['Margate']['p24_approx'], 'still flagged approximate: no crawl record exists for it');
+        $this->assertSame(20, $rows['Uvongo']['age_days'], 'one advert seen today is not a read of the suburb: the 50% point is 20 days ago');
+        $this->assertNull($rows['Ramsgate']['p24_read_at'], 'two live adverts are too few to approximate a read');
+    }
+    private function claim(int $suburbId, int $monthsAgo = 1): void
+    {
+        $f = $this->file();
+        DB::table('tracked_properties')->where('id', $f->id)->update(['p24_suburb_id' => $suburbId]);
+        DB::table('tracked_property_agency_work')->insert(['agency_id' => $this->a->id, 'tracked_property_id' => $f->id, 'claimed_by_user_id' => $this->u->id, 'claimed_at' => now()->subMonths($monthsAgo),
+            'created_at' => now(), 'updated_at' => now()]);
+    }
+
+    private function stock(int $suburbId): void
+    {
+        $f = $this->file();
+        DB::table('mic_file_stats')->insert(['agency_id' => $this->a->id, 'tracked_property_id' => $f->id, 'p24_suburb_id' => $suburbId, 'own_stock' => 1]);
+    }
+
+    private function lead(int $suburbId, int $monthsAgo = 1): void
+    {
+        $propertyId = DB::table('properties')->insertGetId(['agency_id' => $this->a->id, 'title' => 'x', 'agent_id' => $this->u->id, 'branch_id' => $this->u->branch_id, 'external_id' => uniqid('P'), 'p24_suburb_id' => $suburbId,
+            'created_at' => now(), 'updated_at' => now()]);
+        DB::table('portal_leads')->insert(['agency_id' => $this->a->id, 'portal' => 'p24', 'lead_type' => 'enquiry', 'name' => 'Lead', 'lead_source_raw' => '{}', 'listing_id' => $propertyId, 'received_at' => now()->subMonths($monthsAgo), 'created_at' => now(), 'updated_at' => now()]);
+    }
+
+    private function search(string $url, string $portal = 'p24'): void
+    {
+        DB::table('prospecting_searches')->insert(['agency_id' => $this->a->id, 'user_id' => $this->u->id, 'portal_source' => $portal, 'search_url' => $url, 'search_description' => 'x', 'listing_count' => 1, 'total_results' => 1, 'pages_captured' => 1,
+            'captured_at' => now(), 'created_at' => now(), 'updated_at' => now()]);
+    }
+
+    public function test_a_suburb_is_ours_where_the_agency_searched_for_it_or_holds_stock_or_claims_unless_hidden(): void
+    {
+        $country = (int) DB::table('p24_countries')->insertGetId(['name' => 'South Africa', 'p24_id' => 1, 'created_at' => now(), 'updated_at' => now()]);
+        $province = (int) DB::table('p24_provinces')->insertGetId(['name' => 'KwaZulu-Natal', 'p24_id' => 2, 'p24_country_id' => $country, 'created_at' => now(), 'updated_at' => now()]);
+        $city = (int) DB::table('p24_cities')->insertGetId(['name' => 'Margate', 'p24_id' => 376, 'p24_province_id' => $province, 'created_at' => now(), 'updated_at' => now()]);
+        $named = $this->suburb('Uvongo', 6359, $city);          // a results page for the suburb itself
+        $inList = $this->suburb('Pennington', 6309, $city);     // named in an advanced search's s= list
+        $claimed = $this->suburb('Shakas Rock', 6002, $city);
+        $ticked = $this->suburb('Ramsgate', 6003, $city);
+        $mistake = $this->suburb('Durban North', 6004, $city);
+        $alertOnly = $this->suburb('Umzumbe', 6005, $city);
+        $townWide = $this->suburb('Southport', 6344, $city);
+        $this->search('https://www.property24.com/for-sale/uvongo/margate/kwazulu-natal/6359/p2');
+        $this->search('https://www.property24.com/for-sale/advanced-search/results?sp=cid%3d194%26s%3d6309%2c6004');
+        $this->search('https://www.property24.com/for-sale/margate/kwazulu-natal/814');                 // a TOWN page names no suburb
+        $this->search('https://www.property24.com/for-sale/alias/hibiscus-coast/102/kwazulu-natal/2');  // a region
+        $this->search('https://www.property24.com/for-sale/advanced-search/results?sp=cid%3d6344');     // town ids are not suburbs
+        $this->claim($claimed);
+        DB::table('p24_listings')->insert(['agency_id' => $this->a->id, 'p24_listing_number' => '1', 'asking_price' => 1, 'first_seen_date' => now()->toDateString(), 'last_seen_date' => now()->toDateString(), 'suburb' => 'Umzumbe', 'created_at' => now(), 'updated_at' => now()]);   // an alert email advert
+        $l = $this->advert($this->file(), 'active', 0);
+        DB::table('prospecting_listings')->where('id', $l->id)->update(['p24_suburb_id' => $townWide]);   // imported by a wide page
+        $this->lead($alertOnly);
+        $svc = new \App\Services\Prospecting\MicWork\WorkingSuburbs();
+        \App\Models\MicAgencySetting::saveValues($this->a->id, ['areas' => [$ticked], 'hidden_suburbs' => [$mistake]]);
+
+        $counts = collect($svc->counts($this->a->id))->keyBy('suburb');
+        $ids = $svc->ids($this->a->id);
+
+        $this->assertSame(['search'], $ids[$named]);
+        $this->assertSame(['search'], $ids[$inList]);
+        $this->assertSame(['claim'], $ids[$claimed]);
+        $this->assertSame(['area'], $ids[$ticked]);
+        $this->assertArrayNotHasKey($mistake, $ids, '"Hide this suburb" (it was named in a search by mistake)');
+        $this->assertArrayNotHasKey($alertOnly, $ids, 'a P24 alert email advert does not make a suburb ours');
+        $this->assertArrayNotHasKey($townWide, $ids, 'an advert imported by a town-wide page does not make a suburb ours');
+        $this->assertSame(1, $counts['Southport']['adverts'], 'still counted, for information');
+        $this->assertSame(1, $counts['Umzumbe']['alerts']);
+        $this->assertSame(1, $counts['Umzumbe']['leads']);
+        $this->assertTrue($counts['Durban North']['hidden']);
+
+        \App\Models\MicAgencySetting::saveValues($this->a->id, ['areas' => [$mistake]]);
+        $this->assertArrayHasKey($mistake, $svc->ids($this->a->id), 'a suburb ticked as an Area stays even if also hidden');
+        $this->assertSame([], $svc->ids($this->b->id), "another agency's work is its own");
+    }
+}

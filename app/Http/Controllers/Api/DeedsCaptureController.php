@@ -715,6 +715,10 @@ final class DeedsCaptureController extends Controller
 
         $tp->save();
 
+        // Property identity C2 (property-identity.md section 15.2): a capture that resolves, with enough certainty, to a property already in
+        // Market Intelligence claims that record for the capturing agent (and counts in Road to Sold). Failure-isolated: the capture stands.
+        app(\App\Services\Prospecting\CaptureClaimService::class)->claimFromDeeds($agencyId, $tp, (int) $user->id, $ref, $created);
+
         // 2026-08-19 (Johan, ruling after the live trace): "the rule should
         // be always bring it into corex... there is no authoritative
         // source. Both are inputs; the agent is the authority." This

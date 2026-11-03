@@ -345,7 +345,7 @@ final class EntryPointStoreFromProspectingTest extends TestCase
         $this->actingAs(User::find($userId))
             ->get(route('seller-outreach.entry.deed-poll-prospecting', ['prospectingListingId' => $listingId]))
             ->assertStatus(200)
-            ->assertJsonStructure(['owners', 'candidates', 'deeds']);
+            ->assertJsonStructure(['owners', 'candidates', 'today_count']); // 13.21: the picker list is fetched live; the poll carries only the count
     }
 
     /** Tenancy — polling another agency's listing 404s. */

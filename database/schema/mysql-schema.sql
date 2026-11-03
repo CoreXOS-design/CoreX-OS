@@ -144,6 +144,37 @@ CREATE TABLE `activity_targets` (
   CONSTRAINT `activity_targets_user_id_foreign` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `ad_renders`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `ad_renders` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `batch_id` varchar(40) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `ad_ref` bigint unsigned DEFAULT NULL,
+  `format` varchar(8) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `status` varchar(12) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'queued',
+  `stage` varchar(60) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `progress_percent` tinyint unsigned NOT NULL DEFAULT '0',
+  `file_name` varchar(200) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `poster_name` varchar(200) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `duration_seconds` decimal(6,1) DEFAULT NULL,
+  `size_bytes` bigint unsigned DEFAULT NULL,
+  `width` smallint unsigned DEFAULT NULL,
+  `height` smallint unsigned DEFAULT NULL,
+  `voice_key` varchar(60) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `source_hash` varchar(40) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `failure_reason` text COLLATE utf8mb4_unicode_ci,
+  `rendered_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `ad_renders_batch_id_format_unique` (`batch_id`,`format`),
+  KEY `ad_renders_batch_id_index` (`batch_id`),
+  KEY `ad_renders_ad_ref_index` (`ad_ref`),
+  KEY `ad_renders_source_hash_index` (`source_hash`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `ad_schedule_patterns`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -166,6 +197,19 @@ CREATE TABLE `ad_schedule_patterns` (
   CONSTRAINT `ad_schedule_patterns_user_id_foreign` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `ad_studio_settings`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `ad_studio_settings` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `key` varchar(80) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `value` text COLLATE utf8mb4_unicode_ci,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `ad_studio_settings_key_unique` (`key`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `address_match_settings`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -181,6 +225,28 @@ CREATE TABLE `address_match_settings` (
   `unit_missing_on_one_side` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'possible',
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
+  `fuzzy_threshold` tinyint unsigned NOT NULL DEFAULT '85',
+  `auto_merge_min_confidence` varchar(10) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'high',
+  `auto_claim_min_confidence` varchar(10) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'high',
+  `same_address_sweep` tinyint(1) NOT NULL DEFAULT '1',
+  `portal_group_link_enabled` tinyint(1) NOT NULL DEFAULT '1',
+  `portal_group_price_spread` decimal(3,1) NOT NULL DEFAULT '1.5',
+  `portal_group_auto_link_min_confidence` varchar(10) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'high',
+  `twin_match_enabled` tinyint(1) NOT NULL DEFAULT '1',
+  `twin_price_tolerance_pct` tinyint unsigned NOT NULL DEFAULT '1',
+  `twin_min_corroboration` tinyint unsigned NOT NULL DEFAULT '2',
+  `twin_auto_link` tinyint(1) NOT NULL DEFAULT '0',
+  `complex_group_enabled` tinyint(1) NOT NULL DEFAULT '1',
+  `complex_min_land_m2` int unsigned NOT NULL DEFAULT '1000',
+  `map_point_check_enabled` tinyint(1) NOT NULL DEFAULT '1',
+  `map_point_distance_m` smallint unsigned NOT NULL DEFAULT '150',
+  `unit_split_min_adverts` tinyint unsigned NOT NULL DEFAULT '5',
+  `unit_split_price_spread` decimal(3,1) NOT NULL DEFAULT '2.0',
+  `unit_split_land_size_gap_pct` tinyint unsigned NOT NULL DEFAULT '10',
+  `auto_tidy` tinyint(1) NOT NULL DEFAULT '1',
+  `merge_price_band_pct` smallint unsigned NOT NULL DEFAULT '40',
+  `merge_size_band_pct` smallint unsigned NOT NULL DEFAULT '40',
+  `merge_beds_gap` smallint unsigned NOT NULL DEFAULT '1',
   PRIMARY KEY (`id`),
   UNIQUE KEY `address_match_settings_agency_id_unique` (`agency_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -252,6 +318,7 @@ CREATE TABLE `agencies` (
   `pp_max_photos` smallint unsigned DEFAULT '150',
   `pp_last_sync_error` text COLLATE utf8mb4_unicode_ci,
   `slug` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `is_training` tinyint(1) NOT NULL DEFAULT '0',
   `geocode_country` varchar(2) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `viewing_pack_redaction_dpi` smallint unsigned DEFAULT NULL,
   `viewing_pack_default_duration_minutes` smallint unsigned DEFAULT NULL,
@@ -444,6 +511,9 @@ CREATE TABLE `agencies` (
   `timezone` varchar(64) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `desk_enabled` tinyint(1) NOT NULL DEFAULT '1',
   `desk_control_idle_minutes` smallint unsigned NOT NULL DEFAULT '5',
+  `document_authoriser_user_ids` json DEFAULT NULL,
+  `document_authoriser_roles` json DEFAULT NULL,
+  `training_video_voice` varchar(40) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `agencies_slug_unique` (`slug`),
   UNIQUE KEY `agencies_privacy_policy_token_unique` (`privacy_policy_token`),
@@ -585,6 +655,41 @@ CREATE TABLE `agency_auction_settings` (
   PRIMARY KEY (`id`),
   UNIQUE KEY `agency_auction_settings_agency_id_unique` (`agency_id`),
   CONSTRAINT `agency_auction_settings_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `agency_board_members`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `agency_board_members` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `name` varchar(150) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `title` varchar(150) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `email` varchar(190) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `user_id` bigint unsigned DEFAULT NULL,
+  `sort_order` int unsigned NOT NULL DEFAULT '0',
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `agency_board_members_agency_id_index` (`agency_id`),
+  KEY `agency_board_members_user_id_index` (`user_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `agency_compliance_gate_settings`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `agency_compliance_gate_settings` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `gate_key` varchar(64) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `enabled` tinyint(1) NOT NULL DEFAULT '1',
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `agency_compliance_gate_settings_agency_id_gate_key_unique` (`agency_id`,`gate_key`),
+  CONSTRAINT `agency_compliance_gate_settings_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `agency_compliance_provisions`;
@@ -782,6 +887,7 @@ DROP TABLE IF EXISTS `agency_feature_rollouts`;
 CREATE TABLE `agency_feature_rollouts` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
   `agency_id` bigint unsigned NOT NULL,
+  `source_plan_id` bigint unsigned DEFAULT NULL,
   `status` varchar(16) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'active',
   `interval_days` tinyint unsigned NOT NULL DEFAULT '2',
   `weekdays_only` tinyint(1) NOT NULL DEFAULT '1',
@@ -800,8 +906,10 @@ CREATE TABLE `agency_feature_rollouts` (
   UNIQUE KEY `agency_feature_rollouts_agency_id_unique` (`agency_id`),
   KEY `agency_feature_rollouts_created_by_foreign` (`created_by`),
   KEY `agency_feature_rollouts_status_index` (`status`),
+  KEY `agency_feature_rollouts_source_plan_id_foreign` (`source_plan_id`),
   CONSTRAINT `agency_feature_rollouts_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
-  CONSTRAINT `agency_feature_rollouts_created_by_foreign` FOREIGN KEY (`created_by`) REFERENCES `users` (`id`) ON DELETE SET NULL
+  CONSTRAINT `agency_feature_rollouts_created_by_foreign` FOREIGN KEY (`created_by`) REFERENCES `users` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `agency_feature_rollouts_source_plan_id_foreign` FOREIGN KEY (`source_plan_id`) REFERENCES `feature_rollout_plans` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `agency_features`;
@@ -1670,13 +1778,14 @@ DROP TABLE IF EXISTS `agent_social_accounts`;
 CREATE TABLE `agent_social_accounts` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
   `user_id` bigint unsigned NOT NULL,
-  `agency_id` bigint unsigned NOT NULL,
+  `agency_id` bigint unsigned DEFAULT NULL,
   `platform` enum('facebook','instagram') COLLATE utf8mb4_unicode_ci NOT NULL,
   `platform_page_id` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
   `platform_page_name` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
   `access_token` text COLLATE utf8mb4_unicode_ci NOT NULL,
   `token_expires_at` timestamp NULL DEFAULT NULL,
   `is_active` tinyint(1) NOT NULL DEFAULT '1',
+  `is_platform` tinyint(1) NOT NULL DEFAULT '0',
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
   `deleted_at` timestamp NULL DEFAULT NULL,
@@ -2111,6 +2220,104 @@ CREATE TABLE `assistant_linked_agents` (
   CONSTRAINT `assistant_linked_agents_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `attorney_portal_accesses`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `attorney_portal_accesses` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `service_provider_id` bigint unsigned NOT NULL,
+  `service_provider_contact_id` bigint unsigned NOT NULL,
+  `email` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `token_hash` char(64) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `invited_by_id` bigint unsigned DEFAULT NULL,
+  `invited_at` timestamp NULL DEFAULT NULL,
+  `expires_at` timestamp NULL DEFAULT NULL,
+  `revoked_at` timestamp NULL DEFAULT NULL,
+  `revoked_by_id` bigint unsigned DEFAULT NULL,
+  `last_login_at` timestamp NULL DEFAULT NULL,
+  `last_login_ip` varchar(64) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `login_count` int unsigned NOT NULL DEFAULT '0',
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `sign_in_choice` varchar(10) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `password` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `password_set_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `atty_access_agency_contact_unique` (`agency_id`,`service_provider_contact_id`),
+  UNIQUE KEY `attorney_portal_accesses_token_hash_unique` (`token_hash`),
+  KEY `attorney_portal_accesses_service_provider_id_index` (`service_provider_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `attorney_portal_logs`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `attorney_portal_logs` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `access_id` bigint unsigned DEFAULT NULL,
+  `event` varchar(40) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `deal_id` bigint unsigned DEFAULT NULL,
+  `document_id` bigint unsigned DEFAULT NULL,
+  `ip` varchar(64) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `user_agent` varchar(500) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `meta` json DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `atty_log_access_idx` (`agency_id`,`access_id`,`created_at`),
+  KEY `attorney_portal_logs_deal_id_event_index` (`deal_id`,`event`),
+  KEY `attorney_portal_logs_document_id_index` (`document_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `attorney_portal_notices`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `attorney_portal_notices` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `access_id` bigint unsigned NOT NULL,
+  `deal_id` bigint unsigned NOT NULL,
+  `notified_through` timestamp NULL DEFAULT NULL,
+  `last_sent_at` timestamp NULL DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `atty_notice_access_deal_unique` (`access_id`,`deal_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `attorney_portal_sessions`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `attorney_portal_sessions` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `access_id` bigint unsigned NOT NULL,
+  `token_hash` char(64) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `expires_at` timestamp NOT NULL,
+  `revoked_at` timestamp NULL DEFAULT NULL,
+  `ip` varchar(64) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `user_agent` varchar(500) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `attorney_portal_sessions_token_hash_unique` (`token_hash`),
+  KEY `attorney_portal_sessions_access_id_index` (`access_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `attorney_portal_settings`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `attorney_portal_settings` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `attorney_portal_enabled` tinyint(1) DEFAULT NULL,
+  `access_grace_days` smallint unsigned DEFAULT NULL,
+  `link_valid_days` smallint unsigned DEFAULT NULL,
+  `attorney_portal_notify` varchar(10) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `attorney_portal_settings_agency_id_unique` (`agency_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `auction_bidders`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -2439,6 +2646,21 @@ CREATE TABLE `bedroom_segments` (
   CONSTRAINT `bedroom_segments_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `billing_price_lists`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `billing_price_lists` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `effective_from` date NOT NULL,
+  `bands` json NOT NULL,
+  `branch_rate` decimal(10,2) NOT NULL,
+  `created_by` bigint unsigned DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `billing_price_lists_effective_from_index` (`effective_from`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `branch_activity_columns`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -2740,6 +2962,30 @@ CREATE TABLE `buyer_preferences` (
   CONSTRAINT `buyer_preferences_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
   CONSTRAINT `buyer_preferences_contact_id_foreign` FOREIGN KEY (`contact_id`) REFERENCES `contacts` (`id`) ON DELETE CASCADE,
   CONSTRAINT `buyer_preferences_updated_by_user_id_foreign` FOREIGN KEY (`updated_by_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `buyer_property_exclusions`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `buyer_property_exclusions` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `contact_id` bigint unsigned NOT NULL,
+  `tracked_property_id` bigint unsigned DEFAULT NULL,
+  `prospecting_listing_id` bigint unsigned DEFAULT NULL,
+  `property_id` bigint unsigned DEFAULT NULL,
+  `reason` varchar(500) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `source` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'mic',
+  `hidden_by_user_id` bigint unsigned DEFAULT NULL,
+  `hidden_at` timestamp NOT NULL,
+  `restored_by_user_id` bigint unsigned DEFAULT NULL,
+  `restored_at` timestamp NULL DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `bpe_buyer_active` (`agency_id`,`contact_id`,`restored_at`),
+  KEY `bpe_tracked` (`tracked_property_id`),
+  KEY `bpe_listing` (`prospecting_listing_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `buyer_property_responses`;
@@ -3079,6 +3325,8 @@ CREATE TABLE `calendar_events` (
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
   `deleted_at` timestamp NULL DEFAULT NULL,
+  `tracked_property_id` bigint unsigned DEFAULT NULL,
+  `rts_prospect_id` bigint unsigned DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `calendar_events_created_by_id_foreign` (`created_by_id`),
   KEY `calendar_events_source_type_source_id_index` (`source_type`,`source_id`),
@@ -3094,6 +3342,8 @@ CREATE TABLE `calendar_events` (
   KEY `calendar_events_event_date_index` (`event_date`),
   KEY `calendar_events_status_index` (`status`),
   KEY `calendar_events_created_by_ai_index` (`created_by_ai`),
+  KEY `calendar_events_tracked_property_idx` (`tracked_property_id`),
+  KEY `calendar_events_rts_prospect_idx` (`rts_prospect_id`),
   CONSTRAINT `calendar_events_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE SET NULL,
   CONSTRAINT `calendar_events_branch_id_foreign` FOREIGN KEY (`branch_id`) REFERENCES `branches` (`id`) ON DELETE SET NULL,
   CONSTRAINT `calendar_events_contact_id_foreign` FOREIGN KEY (`contact_id`) REFERENCES `contacts` (`id`) ON DELETE SET NULL,
@@ -3167,6 +3417,8 @@ CREATE TABLE `cds_drafts` (
   `mappings` json DEFAULT NULL,
   `tagged_html` longtext COLLATE utf8mb4_unicode_ci,
   `settings` json DEFAULT NULL,
+  `source_path` varchar(500) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `source_name` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `source_template_id` bigint unsigned DEFAULT NULL,
   `status` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'draft',
   `created_at` timestamp NULL DEFAULT NULL,
@@ -3662,12 +3914,15 @@ CREATE TABLE `commission_setting_audit_log` (
   `notes` text COLLATE utf8mb4_unicode_ci,
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
+  `on_behalf_of_user_id` bigint unsigned DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `commission_setting_audit_log_commission_setting_id_foreign` (`commission_setting_id`),
   KEY `commission_setting_audit_log_performed_by_user_id_foreign` (`performed_by_user_id`),
   KEY `csa_agency_time_idx` (`agency_id`,`performed_at`),
+  KEY `commission_setting_audit_log_obo_fk` (`on_behalf_of_user_id`),
   CONSTRAINT `commission_setting_audit_log_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
   CONSTRAINT `commission_setting_audit_log_commission_setting_id_foreign` FOREIGN KEY (`commission_setting_id`) REFERENCES `commission_settings` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `commission_setting_audit_log_obo_fk` FOREIGN KEY (`on_behalf_of_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
   CONSTRAINT `commission_setting_audit_log_performed_by_user_id_foreign` FOREIGN KEY (`performed_by_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
@@ -4348,6 +4603,51 @@ CREATE TABLE `compiled_templates` (
   CONSTRAINT `compiled_templates_superseded_by_id_foreign` FOREIGN KEY (`superseded_by_id`) REFERENCES `compiled_templates` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `compliance_document_audit_log`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `compliance_document_audit_log` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `document_kind` varchar(16) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `version_id` bigint unsigned NOT NULL,
+  `event_type` varchar(40) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `actor_user_id` bigint unsigned DEFAULT NULL,
+  `actor_label` varchar(190) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `ip_address` varchar(45) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `meta` json DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `compliance_document_audit_log_document_kind_version_id_index` (`document_kind`,`version_id`),
+  KEY `compliance_document_audit_log_agency_id_index` (`agency_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `compliance_gate_changes`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `compliance_gate_changes` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `gate_key` varchar(64) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `gate_label` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `action` enum('switched_off','switched_on') COLLATE utf8mb4_unicode_ci NOT NULL,
+  `user_id` bigint unsigned DEFAULT NULL,
+  `user_name` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `user_email` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `ip_address` varchar(45) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `user_agent` varchar(512) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `disclaimer_version` varchar(32) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `disclaimer_text` text COLLATE utf8mb4_unicode_ci,
+  `disclaimer_accepted_at` timestamp NULL DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `compliance_gate_changes_user_id_foreign` (`user_id`),
+  KEY `compliance_gate_changes_agency_id_gate_key_id_index` (`agency_id`,`gate_key`,`id`),
+  KEY `compliance_gate_changes_created_at_index` (`created_at`),
+  CONSTRAINT `compliance_gate_changes_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`),
+  CONSTRAINT `compliance_gate_changes_user_id_foreign` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `condition_initials`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -4416,15 +4716,18 @@ CREATE TABLE `contact_audit_log` (
   `human_summary` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `created_at` timestamp NOT NULL,
   `deleted_at` timestamp NULL DEFAULT NULL,
+  `on_behalf_of_user_id` bigint unsigned DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `contact_audit_log_user_id_foreign` (`user_id`),
   KEY `contact_audit_log_branch_id_foreign` (`branch_id`),
   KEY `contact_audit_log_contact_id_created_at_index` (`contact_id`,`created_at`),
   KEY `contact_audit_log_contact_id_event_category_index` (`contact_id`,`event_category`),
   KEY `contact_audit_log_agency_id_created_at_index` (`agency_id`,`created_at`),
+  KEY `contact_audit_log_obo_fk` (`on_behalf_of_user_id`),
   CONSTRAINT `contact_audit_log_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`),
   CONSTRAINT `contact_audit_log_branch_id_foreign` FOREIGN KEY (`branch_id`) REFERENCES `branches` (`id`),
   CONSTRAINT `contact_audit_log_contact_id_foreign` FOREIGN KEY (`contact_id`) REFERENCES `contacts` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `contact_audit_log_obo_fk` FOREIGN KEY (`on_behalf_of_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
   CONSTRAINT `contact_audit_log_user_id_foreign` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
@@ -6351,6 +6654,9 @@ CREATE TABLE `deals` (
   `property_id` bigint unsigned DEFAULT NULL,
   `presentation_id` bigint unsigned DEFAULT NULL,
   `is_demo` tinyint(1) NOT NULL DEFAULT '0',
+  `tracked_property_id` bigint unsigned DEFAULT NULL,
+  `identity_confidence` varchar(10) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `identity_method` varchar(30) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `deals_branch_id_index` (`branch_id`),
   KEY `deals_file_no_index` (`file_no`),
@@ -6364,6 +6670,7 @@ CREATE TABLE `deals` (
   KEY `deals_managed_by_user_id_foreign` (`managed_by_user_id`),
   KEY `deals_deal_v2_id_index` (`deal_v2_id`),
   KEY `deals_deal_pipeline_template_id_foreign` (`deal_pipeline_template_id`),
+  KEY `idx_deals_tp` (`tracked_property_id`),
   CONSTRAINT `deals_deal_pipeline_template_id_foreign` FOREIGN KEY (`deal_pipeline_template_id`) REFERENCES `deal_pipeline_templates` (`id`) ON DELETE SET NULL,
   CONSTRAINT `deals_link_reviewer_fk` FOREIGN KEY (`link_reviewed_by_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
   CONSTRAINT `deals_managed_by_user_id_foreign` FOREIGN KEY (`managed_by_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
@@ -6891,6 +7198,24 @@ CREATE TABLE `document_custom_fields` (
   CONSTRAINT `document_custom_fields_template_id_foreign` FOREIGN KEY (`template_id`) REFERENCES `docuperfect_templates` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `document_distribution_audit_entries`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `document_distribution_audit_entries` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `user_id` bigint unsigned DEFAULT NULL,
+  `area` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'matrix',
+  `summary` varchar(500) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `changes` json NOT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `on_behalf_of_user_id` bigint unsigned DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `dd_audit_agency_idx` (`agency_id`,`created_at`),
+  KEY `document_distribution_audit_entries_obo_fk` (`on_behalf_of_user_id`),
+  CONSTRAINT `document_distribution_audit_entries_obo_fk` FOREIGN KEY (`on_behalf_of_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `document_filing_register`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -7247,7 +7572,7 @@ CREATE TABLE `docuperfect_named_fields` (
   `field_type` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'text',
   `default_options` json DEFAULT NULL,
   `sort_order` int NOT NULL DEFAULT '0',
-  `source_type` enum('property','contact','agent','deal','static','computed','manual') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'manual',
+  `source_type` enum('property','contact','agent','deal','static','computed','manual','lease') COLLATE utf8mb4_unicode_ci DEFAULT 'manual',
   `source_column` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `source_contact_type` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
@@ -7411,6 +7736,57 @@ CREATE TABLE `docuperfect_template_generations` (
   KEY `docuperfect_template_generations_draft_id_index` (`draft_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `docuperfect_template_release_events`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `docuperfect_template_release_events` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `release_id` bigint unsigned DEFAULT NULL,
+  `template_id` bigint unsigned DEFAULT NULL,
+  `agency_id` bigint unsigned DEFAULT NULL,
+  `event` varchar(30) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `actor_user_id` bigint unsigned DEFAULT NULL,
+  `actor_name` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `on_behalf_of_user_id` bigint unsigned DEFAULT NULL,
+  `note` text COLLATE utf8mb4_unicode_ci,
+  `detail` json DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `dtre_release_idx` (`release_id`,`created_at`),
+  KEY `dtre_agency_idx` (`agency_id`,`created_at`),
+  KEY `dtre_template_event_idx` (`template_id`,`event`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `docuperfect_template_releases`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `docuperfect_template_releases` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `source_template_id` bigint unsigned NOT NULL,
+  `template_id` bigint unsigned NOT NULL,
+  `agency_id` bigint unsigned NOT NULL,
+  `version` int unsigned NOT NULL,
+  `state` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'awaiting_approval',
+  `readiness_verdict` varchar(24) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `readiness_snapshot` json DEFAULT NULL,
+  `source_content_sha` char(64) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `package_sha256` char(64) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `lease_link` json DEFAULT NULL,
+  `released_by` bigint unsigned DEFAULT NULL,
+  `released_at` timestamp NULL DEFAULT NULL,
+  `decided_by` bigint unsigned DEFAULT NULL,
+  `decided_at` timestamp NULL DEFAULT NULL,
+  `decision_note` text COLLATE utf8mb4_unicode_ci,
+  `previous_release_id` bigint unsigned DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `dtr_source_agency_version_uq` (`source_template_id`,`agency_id`,`version`),
+  KEY `dtr_agency_state_idx` (`agency_id`,`state`),
+  KEY `dtr_template_idx` (`template_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `docuperfect_template_signature_zones`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -7473,11 +7849,16 @@ CREATE TABLE `docuperfect_templates` (
   `updated_at` timestamp NULL DEFAULT NULL,
   `deleted_at` timestamp NULL DEFAULT NULL,
   `sections` json DEFAULT NULL,
+  `release_status` varchar(20) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `workshop_verified_at` timestamp NULL DEFAULT NULL,
+  `workshop_verified_by` bigint unsigned DEFAULT NULL,
+  `workshop_verified_sha` char(64) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `docuperfect_templates_owner_id_foreign` (`owner_id`),
   KEY `docuperfect_templates_document_type_id_foreign` (`document_type_id`),
   KEY `docuperfect_templates_agency_id_index` (`agency_id`),
   KEY `docuperfect_templates_is_platform_index` (`is_platform`),
+  KEY `docuperfect_templates_release_status_index` (`release_status`),
   CONSTRAINT `docuperfect_templates_document_type_id_foreign` FOREIGN KEY (`document_type_id`) REFERENCES `document_types` (`id`) ON DELETE SET NULL,
   CONSTRAINT `docuperfect_templates_owner_id_foreign` FOREIGN KEY (`owner_id`) REFERENCES `users` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -7801,11 +8182,51 @@ CREATE TABLE `fault_reports` (
   CONSTRAINT `fault_reports_user_id_foreign` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `feature_rollout_feature_copy`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `feature_rollout_feature_copy` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `feature_key` varchar(100) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `summary` varchar(500) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `description` text COLLATE utf8mb4_unicode_ci,
+  `video_url` varchar(500) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `links` json DEFAULT NULL,
+  `updated_by` bigint unsigned DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `feature_rollout_feature_copy_feature_key_unique` (`feature_key`),
+  KEY `feature_rollout_feature_copy_updated_by_foreign` (`updated_by`),
+  CONSTRAINT `feature_rollout_feature_copy_updated_by_foreign` FOREIGN KEY (`updated_by`) REFERENCES `users` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `feature_rollout_plans`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `feature_rollout_plans` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `name` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `note` text COLLATE utf8mb4_unicode_ci,
+  `agency_type` varchar(16) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'any',
+  `is_default` tinyint(1) NOT NULL DEFAULT '0',
+  `created_by` bigint unsigned DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `feature_rollout_plans_created_by_foreign` (`created_by`),
+  KEY `feature_rollout_plans_agency_type_deleted_at_index` (`agency_type`,`deleted_at`),
+  CONSTRAINT `feature_rollout_plans_created_by_foreign` FOREIGN KEY (`created_by`) REFERENCES `users` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `feature_rollout_waves`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
 CREATE TABLE `feature_rollout_waves` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `plan_id` bigint unsigned DEFAULT NULL,
   `track` varchar(16) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'general',
   `position` int unsigned NOT NULL DEFAULT '0',
   `title` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
@@ -7815,7 +8236,9 @@ CREATE TABLE `feature_rollout_waves` (
   `updated_at` timestamp NULL DEFAULT NULL,
   `deleted_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
-  KEY `feature_rollout_waves_track_position_index` (`track`,`position`)
+  KEY `feature_rollout_waves_track_position_index` (`track`,`position`),
+  KEY `feature_rollout_waves_plan_id_index` (`plan_id`),
+  CONSTRAINT `feature_rollout_waves_plan_id_foreign` FOREIGN KEY (`plan_id`) REFERENCES `feature_rollout_plans` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `feedback_attachments`;
@@ -8824,6 +9247,16 @@ CREATE TABLE `lease_settings` (
   `payment_proof_email` varchar(191) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `default_lease_fee` decimal(12,2) DEFAULT NULL,
   `lease_fee_label` varchar(60) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `renewal_fee` decimal(12,2) DEFAULT NULL,
+  `rent_before_occupation_text` text COLLATE utf8mb4_unicode_ci,
+  `deposit_bank_account_name` varchar(191) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `deposit_bank_name` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `deposit_bank_branch_code` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `deposit_bank_account_type` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `deposit_bank_account_number` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `deposit_reference_rule` varchar(30) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `deposit_note` text COLLATE utf8mb4_unicode_ci,
+  `deposit_bank_note` text COLLATE utf8mb4_unicode_ci,
   PRIMARY KEY (`id`),
   UNIQUE KEY `lease_settings_agency_id_unique` (`agency_id`),
   CONSTRAINT `lease_settings_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE
@@ -9174,6 +9607,8 @@ CREATE TABLE `library_articles` (
   `status` varchar(10) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'ready',
   `generated_at` timestamp NULL DEFAULT NULL,
   `cost_zar` decimal(10,4) NOT NULL DEFAULT '0.0000',
+  `originality_overlap` decimal(5,4) DEFAULT NULL,
+  `originality_longest_run` smallint unsigned DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
   `deleted_at` timestamp NULL DEFAULT NULL,
@@ -9587,6 +10022,9 @@ CREATE TABLE `market_report_comp_rows` (
   `ss_year` smallint unsigned DEFAULT NULL,
   `address` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `suburb_normalised` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `p24_suburb_id` bigint unsigned DEFAULT NULL,
+  `duplicate_of_id` bigint unsigned DEFAULT NULL,
+  `dup_checked_at` timestamp NULL DEFAULT NULL,
   `property_type` varchar(64) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `extent_m2` int unsigned DEFAULT NULL,
   `sale_date` date DEFAULT NULL,
@@ -9606,13 +10044,19 @@ CREATE TABLE `market_report_comp_rows` (
   `updated_at` timestamp NULL DEFAULT NULL,
   `deleted_at` timestamp NULL DEFAULT NULL,
   `is_demo` tinyint(1) NOT NULL DEFAULT '0',
+  `tracked_property_id` bigint unsigned DEFAULT NULL,
+  `identity_confidence` varchar(10) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `identity_method` varchar(30) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   PRIMARY KEY (`id`),
-  KEY `market_report_comp_rows_agency_id_foreign` (`agency_id`),
   KEY `idx_mrcr_report_type` (`market_report_id`,`row_type`),
   KEY `idx_mrcr_suburb_date` (`suburb_normalised`,`sale_date`),
   KEY `idx_mrcr_geo` (`latitude`,`longitude`),
   KEY `idx_mrcr_scheme` (`scheme_name`),
   KEY `idx_market_report_comp_rows_is_demo` (`is_demo`),
+  KEY `idx_market_report_comp_r_tp` (`tracked_property_id`),
+  KEY `mrcr_agency_p24_suburb_idx` (`agency_id`,`p24_suburb_id`),
+  KEY `mrcr_agency_sale_idx` (`agency_id`,`sale_date`,`sale_price`),
+  KEY `mrcr_duplicate_of_idx` (`duplicate_of_id`),
   CONSTRAINT `market_report_comp_rows_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`),
   CONSTRAINT `market_report_comp_rows_market_report_id_foreign` FOREIGN KEY (`market_report_id`) REFERENCES `market_reports` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -9796,6 +10240,247 @@ CREATE TABLE `marketing_suppressions` (
   CONSTRAINT `marketing_suppressions_lifted_by_user_id_foreign` FOREIGN KEY (`lifted_by_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
   CONSTRAINT `marketing_suppressions_recorded_by_user_id_foreign` FOREIGN KEY (`recorded_by_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
   CONSTRAINT `marketing_suppressions_send_id_foreign` FOREIGN KEY (`send_id`) REFERENCES `seller_outreach_sends` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `mic_agency_settings`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `mic_agency_settings` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `values` json DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `mic_agency_settings_agency_id_unique` (`agency_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `mic_crawl_suburbs`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `mic_crawl_suburbs` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `mic_crawl_id` bigint unsigned NOT NULL,
+  `agency_id` bigint unsigned NOT NULL,
+  `portal` varchar(4) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `suburb_id` bigint unsigned DEFAULT NULL,
+  `suburb_name` varchar(120) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_mic_crawl_suburbs_lookup` (`agency_id`,`portal`,`suburb_id`),
+  KEY `idx_mic_crawl_suburbs_crawl` (`mic_crawl_id`),
+  CONSTRAINT `mic_crawl_suburbs_mic_crawl_id_foreign` FOREIGN KEY (`mic_crawl_id`) REFERENCES `mic_crawls` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `mic_crawls`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `mic_crawls` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `user_id` bigint unsigned DEFAULT NULL,
+  `session_id` varchar(40) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `portal` varchar(4) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `listing_type` varchar(10) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'sale',
+  `search_url` text COLLATE utf8mb4_unicode_ci,
+  `started_at` timestamp NULL DEFAULT NULL,
+  `finished_at` timestamp NULL DEFAULT NULL,
+  `pages_read` smallint unsigned NOT NULL DEFAULT '0',
+  `pages_total` smallint unsigned DEFAULT NULL,
+  `adverts_seen` int unsigned NOT NULL DEFAULT '0',
+  `is_complete` tinyint(1) NOT NULL DEFAULT '0',
+  `is_filtered` tinyint(1) NOT NULL DEFAULT '0',
+  `gone_count` int unsigned NOT NULL DEFAULT '0',
+  `probably_sold_count` int unsigned NOT NULL DEFAULT '0',
+  `gone_applied_at` timestamp NULL DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_mic_crawls_session` (`agency_id`,`session_id`),
+  KEY `idx_mic_crawls_lookup` (`agency_id`,`portal`,`is_complete`,`finished_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `mic_data_journals`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `mic_data_journals` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `run_id` char(36) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `step` varchar(16) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `agency_id` bigint unsigned DEFAULT NULL,
+  `table_name` varchar(64) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `row_id` bigint unsigned NOT NULL,
+  `column_name` varchar(64) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `old_value` text COLLATE utf8mb4_unicode_ci,
+  `new_value` text COLLATE utf8mb4_unicode_ci,
+  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `mic_data_journals_run_id_index` (`run_id`),
+  KEY `mic_data_journals_table_name_row_id_index` (`table_name`,`row_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `mic_file_context`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `mic_file_context` (
+  `agency_id` bigint unsigned NOT NULL,
+  `tracked_property_id` bigint unsigned NOT NULL,
+  `sale_class` varchar(10) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `suburb_id` bigint unsigned DEFAULT NULL,
+  `suburb_avg_sold_12m` int unsigned DEFAULT NULL,
+  `suburb_avg_sold_n` smallint unsigned NOT NULL DEFAULT '0',
+  `suburb_r_per_m2` int unsigned DEFAULT NULL,
+  `suburb_r_per_m2_n` smallint unsigned NOT NULL DEFAULT '0',
+  `suburb_r_per_m2_basis` varchar(5) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `own_size_m2` int unsigned DEFAULT NULL,
+  `own_size_basis` varchar(5) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `own_size_source` varchar(6) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `own_r_per_m2` int unsigned DEFAULT NULL,
+  `own_vs_suburb_pct` decimal(6,1) DEFAULT NULL,
+  `asking_vs_avg_sold_pct` decimal(6,1) DEFAULT NULL,
+  `nearby_sales` json DEFAULT NULL,
+  `last_deeds_sale` json DEFAULT NULL,
+  `matched_buyers` json DEFAULT NULL,
+  `our_history` json DEFAULT NULL,
+  `computed_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`agency_id`,`tracked_property_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `mic_file_stats`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `mic_file_stats` (
+  `agency_id` bigint unsigned NOT NULL,
+  `tracked_property_id` bigint unsigned NOT NULL,
+  `p24_suburb_id` bigint unsigned DEFAULT NULL,
+  `type_key` varchar(24) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `beds` tinyint unsigned NOT NULL DEFAULT '0',
+  `band` varchar(16) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `price` int unsigned DEFAULT NULL,
+  `lead_listing_id` bigint unsigned DEFAULT NULL,
+  `price_first` int unsigned DEFAULT NULL,
+  `price_move` int DEFAULT NULL,
+  `has_active_advert` tinyint(1) NOT NULL DEFAULT '0',
+  `own_stock` tinyint(1) NOT NULL DEFAULT '0',
+  `owner_advert` tinyint(1) NOT NULL DEFAULT '0',
+  `claimed` tinyint(1) NOT NULL DEFAULT '0',
+  `adverts_active` smallint unsigned NOT NULL DEFAULT '0',
+  `adverts_total` smallint unsigned NOT NULL DEFAULT '0',
+  `buyers_strong` smallint unsigned NOT NULL DEFAULT '0',
+  `buyers_mid` smallint unsigned NOT NULL DEFAULT '0',
+  `leads_total` smallint unsigned NOT NULL DEFAULT '0',
+  `leads_30d` smallint unsigned NOT NULL DEFAULT '0',
+  `cuts_count` smallint unsigned NOT NULL DEFAULT '0',
+  `cut_amount` int unsigned NOT NULL DEFAULT '0',
+  `cuts_30d` smallint unsigned NOT NULL DEFAULT '0',
+  `cuts_90d` smallint unsigned NOT NULL DEFAULT '0',
+  `cuts_any` smallint unsigned NOT NULL DEFAULT '0',
+  `last_cut_at` datetime DEFAULT NULL,
+  `relisted` tinyint(1) NOT NULL DEFAULT '0',
+  `dom_days` smallint unsigned DEFAULT NULL,
+  `dom_mode` varchar(12) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `score` decimal(5,2) DEFAULT NULL,
+  `score_seller` tinyint unsigned DEFAULT NULL,
+  `score_buyer` tinyint unsigned DEFAULT NULL,
+  `score_pocket` tinyint unsigned DEFAULT NULL,
+  `score_known` tinyint unsigned DEFAULT NULL,
+  `score_reachable` tinyint unsigned DEFAULT NULL,
+  `reason_1` varchar(32) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `reason_2` varchar(32) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `computed_at` datetime DEFAULT NULL,
+  `sole_mandate_ending` tinyint unsigned NOT NULL DEFAULT '0',
+  PRIMARY KEY (`agency_id`,`tracked_property_id`),
+  KEY `mfs_agency_score_idx` (`agency_id`,`score`),
+  KEY `mfs_pocket_idx` (`agency_id`,`p24_suburb_id`,`type_key`,`beds`,`band`),
+  KEY `mfs_active_idx` (`agency_id`,`has_active_advert`,`own_stock`),
+  KEY `mfs_owner_idx` (`agency_id`,`owner_advert`,`claimed`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `mic_match_exclusions`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `mic_match_exclusions` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `file_id` bigint unsigned NOT NULL,
+  `new_file_id` bigint unsigned NOT NULL,
+  `listing_id` bigint unsigned NOT NULL,
+  `portal_ref` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `canonical_ref` varchar(150) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `reason` varchar(40) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'not_same_property',
+  `created_by` bigint unsigned DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `undone_at` timestamp NULL DEFAULT NULL,
+  `undone_by` bigint unsigned DEFAULT NULL,
+  `moves` json DEFAULT NULL,
+  `journal` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `mme_agency_file_idx` (`agency_id`,`file_id`,`undone_at`),
+  KEY `mme_agency_new_idx` (`agency_id`,`new_file_id`,`undone_at`),
+  KEY `mme_agency_ref_idx` (`agency_id`,`canonical_ref`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `mic_pocket_stats`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `mic_pocket_stats` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `stat_date` date NOT NULL,
+  `p24_suburb_id` bigint unsigned NOT NULL,
+  `type_key` varchar(24) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `beds` tinyint unsigned NOT NULL,
+  `band` varchar(16) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `market_stock` int unsigned NOT NULL DEFAULT '0',
+  `aged_90` int unsigned NOT NULL DEFAULT '0',
+  `aged_180` int unsigned NOT NULL DEFAULT '0',
+  `cut_30` int unsigned NOT NULL DEFAULT '0',
+  `cut_90` int unsigned NOT NULL DEFAULT '0',
+  `relisted` int unsigned NOT NULL DEFAULT '0',
+  `own_on_market` int unsigned NOT NULL DEFAULT '0',
+  `own_sold` int unsigned NOT NULL DEFAULT '0',
+  `own_sales_trusted` int unsigned NOT NULL DEFAULT '0',
+  `own_fast_sales` int unsigned NOT NULL DEFAULT '0',
+  `own_avg_days_to_sale` decimal(7,1) DEFAULT NULL,
+  `buyers` int unsigned NOT NULL DEFAULT '0',
+  `leads_30d` int unsigned NOT NULL DEFAULT '0',
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `mps_unique` (`agency_id`,`stat_date`,`p24_suburb_id`,`type_key`,`beds`,`band`),
+  KEY `mps_agency_date_idx` (`agency_id`,`stat_date`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `mic_tile_summaries`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `mic_tile_summaries` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `tile` varchar(40) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `payload` json NOT NULL,
+  `computed_at` timestamp NULL DEFAULT NULL,
+  `took_ms` int unsigned DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `mic_tile_summaries_agency_id_tile_unique` (`agency_id`,`tile`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `mic_user_preferences`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `mic_user_preferences` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `user_id` bigint unsigned NOT NULL,
+  `view` varchar(12) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `filters` json DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `mic_user_preferences_agency_id_user_id_unique` (`agency_id`,`user_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `migrations`;
@@ -10155,9 +10840,12 @@ CREATE TABLE `outbound_mail_guard_toggle_audit` (
   `environment` varchar(40) COLLATE utf8mb4_unicode_ci NOT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
+  `on_behalf_of_user_id` bigint unsigned DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `outbound_mail_guard_toggle_audit_user_id_foreign` (`user_id`),
   KEY `outbound_mail_guard_toggle_audit_created_at_index` (`created_at`),
+  KEY `outbound_mail_guard_toggle_audit_obo_fk` (`on_behalf_of_user_id`),
+  CONSTRAINT `outbound_mail_guard_toggle_audit_obo_fk` FOREIGN KEY (`on_behalf_of_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
   CONSTRAINT `outbound_mail_guard_toggle_audit_user_id_foreign` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
@@ -10262,6 +10950,23 @@ CREATE TABLE `p24_countries` (
   UNIQUE KEY `p24_countries_p24_id_unique` (`p24_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `p24_group_members`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `p24_group_members` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `p24_group_id` varchar(30) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `listing_number` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `group_size` smallint unsigned DEFAULT NULL,
+  `first_seen_at` timestamp NULL DEFAULT NULL,
+  `seen_at` timestamp NULL DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uniq_p24gm_group_listing` (`p24_group_id`,`listing_number`),
+  KEY `idx_p24gm_listing` (`listing_number`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `p24_import_log`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -10355,6 +11060,7 @@ CREATE TABLE `p24_listings` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
   `agency_id` bigint unsigned NOT NULL,
   `p24_listing_number` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `canonical_ref` varchar(40) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `asking_price` decimal(15,2) NOT NULL,
   `property_type` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `suburb` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
@@ -10372,14 +11078,19 @@ CREATE TABLE `p24_listings` (
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
   `deleted_at` timestamp NULL DEFAULT NULL,
+  `tracked_property_id` bigint unsigned DEFAULT NULL,
+  `identity_confidence` varchar(10) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `identity_method` varchar(30) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   PRIMARY KEY (`id`),
-  UNIQUE KEY `p24_listings_p24_listing_number_unique` (`p24_listing_number`),
+  UNIQUE KEY `p24_listings_agency_number_unique` (`agency_id`,`p24_listing_number`),
   KEY `p24_listings_suburb_index` (`suburb`),
   KEY `p24_listings_property_type_index` (`property_type`),
   KEY `p24_listings_asking_price_index` (`asking_price`),
   KEY `p24_listings_first_seen_date_index` (`first_seen_date`),
   KEY `p24_listings_suburb_first_seen_date_index` (`suburb`,`first_seen_date`),
   KEY `p24_listings_agency_id_index` (`agency_id`),
+  KEY `idx_p24l_canonical` (`canonical_ref`),
+  KEY `idx_p24_listings_tp` (`tracked_property_id`),
   CONSTRAINT `p24_listings_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
@@ -10470,6 +11181,64 @@ CREATE TABLE `p24_provinces` (
   KEY `p24_provinces_p24_country_id_name_index` (`p24_country_id`,`name`),
   KEY `p24_provinces_p24_verified_at_index` (`p24_verified_at`),
   CONSTRAINT `p24_provinces_p24_country_id_foreign` FOREIGN KEY (`p24_country_id`) REFERENCES `p24_countries` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `p24_street_numbers`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `p24_street_numbers` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `p24_suburb_id` int unsigned NOT NULL,
+  `street_slug` varchar(120) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `street_name` varchar(160) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `house_number` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `address_text` varchar(200) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `last_sold_year` smallint unsigned DEFAULT NULL,
+  `first_seen_on` date NOT NULL,
+  `last_seen_on` date NOT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uniq_p24sn_house` (`p24_suburb_id`,`street_slug`,`house_number`),
+  KEY `idx_p24sn_street` (`p24_suburb_id`,`street_slug`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `p24_suburb_agencies`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `p24_suburb_agencies` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `p24_suburb_id` int unsigned NOT NULL,
+  `agency_portal_id` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `agency_name` varchar(191) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `listings_in_suburb` int unsigned DEFAULT NULL,
+  `total_listings` int unsigned DEFAULT NULL,
+  `read_on` date NOT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uniq_p24sa_agency_day` (`p24_suburb_id`,`agency_portal_id`,`read_on`),
+  KEY `idx_p24sa_suburb_day` (`p24_suburb_id`,`read_on`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `p24_suburb_trends`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `p24_suburb_trends` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `p24_suburb_id` int unsigned NOT NULL,
+  `suburb` varchar(120) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `town` varchar(120) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `metric` varchar(40) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `period` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `segment` varchar(40) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '',
+  `value` decimal(16,4) DEFAULT NULL,
+  `read_on` date NOT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uniq_p24st_dim` (`p24_suburb_id`,`metric`,`period`,`segment`,`read_on`),
+  KEY `idx_p24st_suburb_metric` (`p24_suburb_id`,`metric`,`read_on`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `p24_suburbs`;
@@ -10952,9 +11721,12 @@ CREATE TABLE `platform_company_audit` (
   `summary` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '',
   `changes` json DEFAULT NULL,
   `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `on_behalf_of_user_id` bigint unsigned DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `platform_company_audit_action_created_at_index` (`action`,`created_at`),
-  KEY `platform_company_audit_created_at_index` (`created_at`)
+  KEY `platform_company_audit_created_at_index` (`created_at`),
+  KEY `platform_company_audit_obo_fk` (`on_behalf_of_user_id`),
+  CONSTRAINT `platform_company_audit_obo_fk` FOREIGN KEY (`on_behalf_of_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `platform_company_logos`;
@@ -11215,10 +11987,13 @@ CREATE TABLE `platform_esign_wording_audit` (
   `user_id` bigint unsigned DEFAULT NULL,
   `detail` varchar(500) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `on_behalf_of_user_id` bigint unsigned DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `platform_esign_wording_audit_template_id_foreign` (`template_id`),
   KEY `platform_esign_wording_audit_user_id_foreign` (`user_id`),
   KEY `platform_esign_wording_audit_version_id_index` (`version_id`),
+  KEY `platform_esign_wording_audit_obo_fk` (`on_behalf_of_user_id`),
+  CONSTRAINT `platform_esign_wording_audit_obo_fk` FOREIGN KEY (`on_behalf_of_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
   CONSTRAINT `platform_esign_wording_audit_template_id_foreign` FOREIGN KEY (`template_id`) REFERENCES `platform_esign_templates` (`id`) ON DELETE CASCADE,
   CONSTRAINT `platform_esign_wording_audit_user_id_foreign` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -11365,6 +12140,22 @@ CREATE TABLE `policy_versions` (
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
   `deleted_at` timestamp NULL DEFAULT NULL,
+  `signed_copy_path` varchar(500) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `signed_copy_name` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `signed_copy_sha256` varchar(64) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `signed_copy_uploaded_by` bigint unsigned DEFAULT NULL,
+  `signed_copy_uploaded_at` timestamp NULL DEFAULT NULL,
+  `signed_by_name` varchar(190) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `signed_on` date DEFAULT NULL,
+  `submitted_to_fic_on` date DEFAULT NULL,
+  `staff_training_sent_at` timestamp NULL DEFAULT NULL,
+  `staff_training_sent_by` bigint unsigned DEFAULT NULL,
+  `staff_training_sent_count` int unsigned DEFAULT NULL,
+  `source_kind` varchar(16) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'sections',
+  `source_document_path` varchar(500) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `source_document_name` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `source_document_sha256` varchar(64) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `source_page_count` smallint unsigned DEFAULT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `policy_versions_policy_id_version_number_unique` (`policy_id`,`version_number`),
   KEY `policy_versions_approved_by_foreign` (`approved_by`),
@@ -11377,11 +12168,90 @@ CREATE TABLE `policy_versions` (
   CONSTRAINT `policy_versions_policy_id_foreign` FOREIGN KEY (`policy_id`) REFERENCES `agency_policies` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `portal_advert_contributions`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `portal_advert_contributions` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `portal_advert_fact_id` bigint unsigned NOT NULL,
+  `agency_id` bigint unsigned NOT NULL,
+  `first_seen_at` timestamp NULL DEFAULT NULL,
+  `last_seen_at` timestamp NULL DEFAULT NULL,
+  `seen_count` int unsigned NOT NULL DEFAULT '0',
+  `fields_contributed` json DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `unq_pac_fact_agency` (`portal_advert_fact_id`,`agency_id`),
+  KEY `idx_pac_agency` (`agency_id`),
+  CONSTRAINT `fk_pac_agency` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_pac_fact` FOREIGN KEY (`portal_advert_fact_id`) REFERENCES `portal_advert_facts` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `portal_advert_facts`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `portal_advert_facts` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `canonical_ref` varchar(40) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `portal` varchar(8) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `listing_id` varchar(30) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `address_text` varchar(500) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `street_number` varchar(20) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `street_name` varchar(191) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `unit_number` varchar(30) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `complex_name` varchar(191) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `suburb` varchar(120) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `suburb_normalised` varchar(120) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `town` varchar(120) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `province` varchar(60) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `latitude` decimal(10,7) DEFAULT NULL,
+  `longitude` decimal(10,7) DEFAULT NULL,
+  `geo_confidence` varchar(20) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `price` bigint unsigned DEFAULT NULL,
+  `bedrooms` tinyint unsigned DEFAULT NULL,
+  `bathrooms` decimal(4,1) DEFAULT NULL,
+  `garages` tinyint unsigned DEFAULT NULL,
+  `floor_size_m2` int unsigned DEFAULT NULL,
+  `erf_size_m2` int unsigned DEFAULT NULL,
+  `property_type` varchar(60) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `listing_agent_name` varchar(191) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `listing_agency_name` varchar(191) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `status` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'unknown',
+  `first_seen_at` timestamp NULL DEFAULT NULL,
+  `last_seen_at` timestamp NULL DEFAULT NULL,
+  `price_history` json DEFAULT NULL,
+  `seen_count` int unsigned NOT NULL DEFAULT '0',
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `shared_property_id` bigint unsigned DEFAULT NULL,
+  `advertiser_type` varchar(12) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `agent_portal_id` varchar(40) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `agency_portal_id` varchar(40) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `listed_date` date DEFAULT NULL,
+  `rates_amount` int unsigned DEFAULT NULL,
+  `levies_amount` int unsigned DEFAULT NULL,
+  `is_reduced` tinyint(1) DEFAULT NULL,
+  `is_exclusive` tinyint(1) DEFAULT NULL,
+  `badges` json DEFAULT NULL,
+  `p24_group_id` varchar(30) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `p24_mandate_id` varchar(30) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `wording_fingerprint` char(40) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `first_photo_fingerprint` char(40) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `portal_advert_facts_canonical_ref_unique` (`canonical_ref`),
+  KEY `idx_paf_suburb_street` (`suburb_normalised`,`street_name`),
+  KEY `idx_paf_gps` (`latitude`,`longitude`),
+  KEY `idx_paf_shared_property` (`shared_property_id`),
+  KEY `idx_paf_p24_group` (`p24_group_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `portal_captures`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
 CREATE TABLE `portal_captures` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
   `user_id` bigint unsigned NOT NULL,
   `presentation_id` bigint unsigned DEFAULT NULL,
   `source_site` varchar(100) COLLATE utf8mb4_unicode_ci NOT NULL,
@@ -11405,6 +12275,8 @@ CREATE TABLE `portal_captures` (
   PRIMARY KEY (`id`),
   KEY `portal_captures_presentation_id_source_site_index` (`presentation_id`,`source_site`),
   KEY `portal_captures_user_id_index` (`user_id`),
+  KEY `portal_captures_agency_id_index` (`agency_id`),
+  CONSTRAINT `portal_captures_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE RESTRICT,
   CONSTRAINT `portal_captures_presentation_id_foreign` FOREIGN KEY (`presentation_id`) REFERENCES `presentations` (`id`) ON DELETE SET NULL,
   CONSTRAINT `portal_captures_user_id_foreign` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -11482,6 +12354,7 @@ DROP TABLE IF EXISTS `portal_listing_observations`;
 /*!50503 SET character_set_client = utf8mb4 */;
 CREATE TABLE `portal_listing_observations` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
   `portal_listing_id` bigint unsigned NOT NULL,
   `capture_id` bigint unsigned NOT NULL,
   `observed_at` timestamp NULL DEFAULT NULL,
@@ -11492,6 +12365,8 @@ CREATE TABLE `portal_listing_observations` (
   PRIMARY KEY (`id`),
   KEY `portal_obs_listing_observed_idx` (`portal_listing_id`,`observed_at`),
   KEY `portal_listing_observations_capture_id_index` (`capture_id`),
+  KEY `portal_listing_observations_agency_id_index` (`agency_id`),
+  CONSTRAINT `portal_listing_observations_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE RESTRICT,
   CONSTRAINT `portal_listing_observations_capture_id_foreign` FOREIGN KEY (`capture_id`) REFERENCES `portal_captures` (`id`) ON DELETE CASCADE,
   CONSTRAINT `portal_listing_observations_portal_listing_id_foreign` FOREIGN KEY (`portal_listing_id`) REFERENCES `portal_listings` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -11501,8 +12376,10 @@ DROP TABLE IF EXISTS `portal_listings`;
 /*!50503 SET character_set_client = utf8mb4 */;
 CREATE TABLE `portal_listings` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
   `source_site` varchar(100) COLLATE utf8mb4_unicode_ci NOT NULL,
   `portal_listing_id` varchar(50) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `canonical_ref` varchar(40) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `canonical_url` text COLLATE utf8mb4_unicode_ci,
   `first_seen_at` timestamp NULL DEFAULT NULL,
   `last_seen_at` timestamp NULL DEFAULT NULL,
@@ -11514,9 +12391,12 @@ CREATE TABLE `portal_listings` (
   `deleted_at` timestamp NULL DEFAULT NULL,
   `tracked_property_id` bigint unsigned DEFAULT NULL,
   PRIMARY KEY (`id`),
-  UNIQUE KEY `portal_listings_site_id_unique` (`source_site`,`portal_listing_id`),
+  UNIQUE KEY `portal_listings_agency_site_id_unique` (`agency_id`,`source_site`,`portal_listing_id`),
   KEY `portal_listings_last_capture_id_index` (`last_capture_id`),
   KEY `idx_portal_listings_tracked` (`tracked_property_id`),
+  KEY `idx_portall_canonical` (`canonical_ref`),
+  KEY `portal_listings_agency_id_index` (`agency_id`),
+  CONSTRAINT `portal_listings_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE RESTRICT,
   CONSTRAINT `portal_listings_last_capture_id_foreign` FOREIGN KEY (`last_capture_id`) REFERENCES `portal_captures` (`id`) ON DELETE SET NULL,
   CONSTRAINT `portal_listings_tracked_property_id_foreign` FOREIGN KEY (`tracked_property_id`) REFERENCES `tracked_properties` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -11539,6 +12419,57 @@ CREATE TABLE `portal_submissions` (
   PRIMARY KEY (`id`),
   UNIQUE KEY `portal_submissions_unique_key` (`client_user_id`,`request_hash`,`submission_key`),
   KEY `portal_submissions_agency_id_index` (`agency_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `pp_alert_listings`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `pp_alert_listings` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `pp_listing_number` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `canonical_ref` varchar(40) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `asking_price` decimal(15,2) NOT NULL,
+  `original_price` decimal(15,2) DEFAULT NULL,
+  `property_type` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `suburb` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `area` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `bedrooms` tinyint unsigned DEFAULT NULL,
+  `bathrooms` tinyint unsigned DEFAULT NULL,
+  `garages` tinyint unsigned DEFAULT NULL,
+  `is_mandated` tinyint(1) NOT NULL DEFAULT '0',
+  `listing_status` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'active',
+  `pp_url` varchar(500) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `first_seen_date` date NOT NULL,
+  `last_seen_date` date NOT NULL,
+  `times_seen` int unsigned NOT NULL DEFAULT '1',
+  `tracked_property_id` bigint unsigned DEFAULT NULL,
+  `identity_confidence` varchar(10) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `identity_method` varchar(30) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_pp_alert_agency_number` (`agency_id`,`pp_listing_number`),
+  KEY `idx_pp_alert_canonical` (`canonical_ref`),
+  KEY `idx_pp_alert_tp` (`tracked_property_id`),
+  KEY `idx_pp_alert_agency_suburb` (`agency_id`,`suburb`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `pp_alert_price_changes`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `pp_alert_price_changes` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `listing_id` bigint unsigned NOT NULL,
+  `old_price` decimal(15,2) NOT NULL,
+  `new_price` decimal(15,2) NOT NULL,
+  `change_date` date NOT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_pp_alert_pc_listing` (`listing_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `pp_cities`;
@@ -11567,6 +12498,26 @@ CREATE TABLE `pp_event_feed_settings` (
   `updated_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   UNIQUE KEY `pp_event_feed_settings_key_unique` (`key`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `pp_import_log`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `pp_import_log` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `email_uid` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `email_subject` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `email_date` datetime NOT NULL,
+  `listings_found` int unsigned NOT NULL DEFAULT '0',
+  `listings_new` int unsigned NOT NULL DEFAULT '0',
+  `listings_updated` int unsigned NOT NULL DEFAULT '0',
+  `status` varchar(10) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'success',
+  `error_message` text COLLATE utf8mb4_unicode_ci,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_pp_import_agency_uid` (`agency_id`,`email_uid`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `pp_provinces`;
@@ -12018,6 +12969,7 @@ CREATE TABLE `presentation_outcomes` (
   `presentation_id` bigint unsigned NOT NULL,
   `agency_id` bigint unsigned NOT NULL,
   `outcome` enum('won_mandate','won_sale','lost_to_competitor','lost_to_no_decision','lost_to_price_dispute','lost_to_no_response','still_pending','other') COLLATE utf8mb4_unicode_ci NOT NULL,
+  `result_key` varchar(40) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `cancellation_reason` enum('price_too_high_seller','price_too_low_seller','commission_concerns','sole_mandate_concerns','family_pressure','existing_relationship','agency_reputation','agent_personality','timing_change','property_issues_discovered','price_match_with_other','other') COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `cancellation_competitor_agency` varchar(200) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `cancellation_competitor_price` bigint unsigned DEFAULT NULL,
@@ -12235,6 +13187,7 @@ DROP TABLE IF EXISTS `presentation_sold_comps`;
 CREATE TABLE `presentation_sold_comps` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
   `mic_comp_row_id` bigint unsigned DEFAULT NULL,
+  `copy_of_comp_row_id` bigint unsigned DEFAULT NULL,
   `presentation_id` bigint unsigned NOT NULL,
   `agency_id` bigint unsigned NOT NULL,
   `source_upload_id` bigint unsigned DEFAULT NULL,
@@ -12251,11 +13204,16 @@ CREATE TABLE `presentation_sold_comps` (
   `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `deleted_at` timestamp NULL DEFAULT NULL,
   `is_demo` tinyint(1) NOT NULL DEFAULT '0',
+  `tracked_property_id` bigint unsigned DEFAULT NULL,
+  `identity_confidence` varchar(10) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `identity_method` varchar(30) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `presentation_sold_comps_presentation_id_foreign` (`presentation_id`),
   KEY `presentation_sold_comps_agency_id_idx` (`agency_id`),
   KEY `idx_presentation_sold_comps_is_demo` (`is_demo`),
   KEY `presentation_sold_comps_mic_comp_row_id_foreign` (`mic_comp_row_id`),
+  KEY `idx_presentation_sold_co_tp` (`tracked_property_id`),
+  KEY `psc_copy_of_comp_idx` (`copy_of_comp_row_id`),
   CONSTRAINT `presentation_sold_comps_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
   CONSTRAINT `presentation_sold_comps_mic_comp_row_id_foreign` FOREIGN KEY (`mic_comp_row_id`) REFERENCES `market_report_comp_rows` (`id`) ON DELETE SET NULL,
   CONSTRAINT `presentation_sold_comps_presentation_id_foreign` FOREIGN KEY (`presentation_id`) REFERENCES `presentations` (`id`) ON DELETE CASCADE
@@ -12465,6 +13423,8 @@ CREATE TABLE `presentations` (
   `updated_at` timestamp NULL DEFAULT NULL,
   `deleted_at` timestamp NULL DEFAULT NULL,
   `agency_id` bigint unsigned NOT NULL,
+  `rts_prospect_id` bigint unsigned DEFAULT NULL,
+  `calendar_event_id` bigint unsigned DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `presentations_branch_id_foreign` (`branch_id`),
   KEY `presentations_created_by_user_id_foreign` (`created_by_user_id`),
@@ -12474,6 +13434,8 @@ CREATE TABLE `presentations` (
   KEY `presentations_tracked_property_id_index` (`tracked_property_id`),
   KEY `presentations_seller_contact_id_index` (`seller_contact_id`),
   KEY `presentations_deal_id_index` (`deal_id`),
+  KEY `presentations_rts_prospect_idx` (`rts_prospect_id`),
+  KEY `presentations_calendar_event_idx` (`calendar_event_id`),
   CONSTRAINT `presentations_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE RESTRICT,
   CONSTRAINT `presentations_branch_id_foreign` FOREIGN KEY (`branch_id`) REFERENCES `branches` (`id`) ON DELETE CASCADE,
   CONSTRAINT `presentations_created_by_user_id_foreign` FOREIGN KEY (`created_by_user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
@@ -12669,6 +13631,10 @@ CREATE TABLE `properties` (
   `sale_method` varchar(30) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'private_treaty',
   `listing_type_pending` tinyint(1) NOT NULL DEFAULT '0',
   `status` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'draft',
+  `listing_cycle` smallint unsigned NOT NULL DEFAULT '1',
+  `portal_sold_until` date DEFAULT NULL,
+  `under_offer_at` timestamp NULL DEFAULT NULL,
+  `sold_at` timestamp NULL DEFAULT NULL,
   `status_before_letting` varchar(40) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `pre_deal_offer_status` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT 'Wave 2: the on-market status held before a deal flagged this property under-offer; restored on decline/lapse.',
   `pre_tenant_link_status` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
@@ -12790,6 +13756,11 @@ CREATE TABLE `properties` (
   `address_parse_status` varchar(20) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `address_parse_note` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `compliance_status_hidden` tinyint(1) NOT NULL DEFAULT '0',
+  `p24_canonical_ref` varchar(40) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `pp_canonical_ref` varchar(40) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `tracked_property_id` bigint unsigned DEFAULT NULL,
+  `identity_confidence` varchar(10) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `identity_method` varchar(30) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `wizard_token` varchar(64) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `properties_agency_ext_uq` (`agency_id`,`external_id`),
@@ -12820,7 +13791,11 @@ CREATE TABLE `properties` (
   KEY `idx_prop_addr_street` (`agency_id`,`p24_suburb_id`,`street_core`,`street_number`),
   KEY `idx_prop_addr_status` (`agency_id`,`address_parse_status`),
   KEY `idx_prop_addr_lpi` (`agency_id`,`lpi_code`),
+  KEY `idx_prop_agency_p24canon` (`agency_id`,`p24_canonical_ref`),
+  KEY `idx_prop_agency_ppcanon` (`agency_id`,`pp_canonical_ref`),
+  KEY `idx_properties_tp` (`tracked_property_id`),
   KEY `properties_wizard_token_index` (`wizard_token`),
+  KEY `properties_agency_sold_at_idx` (`agency_id`,`sold_at`),
   CONSTRAINT `properties_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE SET NULL,
   CONSTRAINT `properties_agent_id_foreign` FOREIGN KEY (`agent_id`) REFERENCES `users` (`id`) ON DELETE CASCADE,
   CONSTRAINT `properties_branch_id_foreign` FOREIGN KEY (`branch_id`) REFERENCES `branches` (`id`) ON DELETE RESTRICT,
@@ -12997,6 +13972,45 @@ CREATE TABLE `property_buyer_matches` (
   CONSTRAINT `property_buyer_matches_property_id_foreign` FOREIGN KEY (`property_id`) REFERENCES `properties` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `property_complexes`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `property_complexes` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `suburb_id` bigint unsigned DEFAULT NULL,
+  `suburb_name` varchar(120) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `property_type` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `land_size_m2` decimal(12,2) NOT NULL,
+  `name` varchar(200) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `units_count` int unsigned NOT NULL DEFAULT '0',
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_property_complexes_key` (`agency_id`,`suburb_id`,`property_type`,`land_size_m2`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `property_contact_role_history`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `property_contact_role_history` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `property_id` bigint unsigned NOT NULL,
+  `contact_id` bigint unsigned NOT NULL,
+  `role` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `cycle_no` smallint unsigned NOT NULL,
+  `ended_reason` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `ended_at` timestamp NULL DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `pcrh_property_cycle_idx` (`property_id`,`cycle_no`),
+  KEY `pcrh_contact_idx` (`contact_id`),
+  KEY `property_contact_role_history_agency_id_index` (`agency_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `property_expiry_popup_views`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -13027,6 +14041,7 @@ CREATE TABLE `property_external_sources` (
   `property_id` bigint unsigned NOT NULL,
   `portal` varchar(8) COLLATE utf8mb4_unicode_ci NOT NULL,
   `listing_ref` varchar(64) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `canonical_ref` varchar(40) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `listing_url` varchar(2048) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `source_agency_name` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `source_agent_name` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
@@ -13043,6 +14058,7 @@ CREATE TABLE `property_external_sources` (
   UNIQUE KEY `property_ext_src_agency_portal_ref_uq` (`agency_id`,`portal`,`listing_ref`),
   UNIQUE KEY `property_external_sources_property_id_unique` (`property_id`),
   KEY `property_external_sources_imported_by_user_id_foreign` (`imported_by_user_id`),
+  KEY `idx_pes_agency_canonical` (`agency_id`,`canonical_ref`),
   CONSTRAINT `property_external_sources_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
   CONSTRAINT `property_external_sources_imported_by_user_id_foreign` FOREIGN KEY (`imported_by_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
   CONSTRAINT `property_external_sources_property_id_foreign` FOREIGN KEY (`property_id`) REFERENCES `properties` (`id`) ON DELETE CASCADE
@@ -13124,6 +14140,33 @@ CREATE TABLE `property_image_analyses` (
   KEY `property_image_analyses_image_path_index` (`image_path`),
   CONSTRAINT `property_image_analyses_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
   CONSTRAINT `property_image_analyses_property_id_foreign` FOREIGN KEY (`property_id`) REFERENCES `properties` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `property_listing_cycles`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `property_listing_cycles` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `property_id` bigint unsigned NOT NULL,
+  `cycle_no` smallint unsigned NOT NULL,
+  `started_at` timestamp NULL DEFAULT NULL,
+  `start_reason` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'initial',
+  `started_by_user_id` bigint unsigned DEFAULT NULL,
+  `status_at_start` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `ended_at` timestamp NULL DEFAULT NULL,
+  `end_reason` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `sold_stock_id` bigint unsigned DEFAULT NULL,
+  `previous_owner_contact_ids` json DEFAULT NULL,
+  `previous_buyer_contact_ids` json DEFAULT NULL,
+  `previous_agent_id` bigint unsigned DEFAULT NULL,
+  `suggested_seller_contact_id` bigint unsigned DEFAULT NULL,
+  `suggestion_state` varchar(20) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `property_listing_cycles_unique` (`property_id`,`cycle_no`),
+  KEY `property_listing_cycles_agency_id_index` (`agency_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `property_marketing_activities`;
@@ -13649,6 +14692,22 @@ CREATE TABLE `property_third_party_sales` (
   CONSTRAINT `property_third_party_sales_sold_record_id_foreign` FOREIGN KEY (`sold_record_id`) REFERENCES `property_sold_records` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `property_type_map`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `property_type_map` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned DEFAULT NULL,
+  `raw_key` varchar(100) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `type_key` varchar(24) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `confidence` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'exact',
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `ptm_agency_raw_unique` (`agency_id`,`raw_key`),
+  KEY `property_type_map_raw_key_index` (`raw_key`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `property_type_options`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -13745,10 +14804,14 @@ CREATE TABLE `prospecting_claims` (
   `agency_id` bigint unsigned NOT NULL,
   `prospecting_listing_id` bigint unsigned NOT NULL,
   `property_id` bigint unsigned DEFAULT NULL,
+  `rts_prospect_id` bigint unsigned DEFAULT NULL,
   `user_id` bigint unsigned NOT NULL,
   `status` varchar(30) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'claimed',
   `notes` text COLLATE utf8mb4_unicode_ci,
   `claimed_at` timestamp NOT NULL,
+  `hold_until` date DEFAULT NULL,
+  `hold_extended_at` datetime DEFAULT NULL,
+  `hold_extensions` tinyint unsigned NOT NULL DEFAULT '0',
   `pitched_at` timestamp NULL DEFAULT NULL,
   `feedback_at` timestamp NULL DEFAULT NULL,
   `last_updated_at` timestamp NULL DEFAULT NULL,
@@ -13767,6 +14830,7 @@ CREATE TABLE `prospecting_claims` (
   KEY `prospecting_claims_pitched_at_index` (`pitched_at`),
   KEY `pc_agency_property_active_idx` (`agency_id`,`property_id`,`is_active`),
   KEY `prospecting_claims_property_id_foreign` (`property_id`),
+  KEY `prospecting_claims_rts_prospect_idx` (`rts_prospect_id`),
   CONSTRAINT `prospecting_claims_property_id_foreign` FOREIGN KEY (`property_id`) REFERENCES `properties` (`id`) ON DELETE SET NULL,
   CONSTRAINT `prospecting_claims_prospecting_listing_id_foreign` FOREIGN KEY (`prospecting_listing_id`) REFERENCES `prospecting_listings` (`id`),
   CONSTRAINT `prospecting_claims_user_id_foreign` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`)
@@ -13811,12 +14875,14 @@ CREATE TABLE `prospecting_listings` (
   `captured_by_user_id` bigint unsigned NOT NULL,
   `portal_source` enum('p24','pp') COLLATE utf8mb4_unicode_ci NOT NULL,
   `portal_ref` varchar(50) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `canonical_ref` varchar(40) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `listing_type` varchar(10) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'sale',
   `portal_url` varchar(500) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `address` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `normalized_address` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `property_group_id` bigint unsigned DEFAULT NULL,
   `suburb` varchar(100) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `p24_suburb_id` bigint unsigned DEFAULT NULL,
   `latitude` decimal(10,7) DEFAULT NULL COMMENT 'Resolved by AddressResolverService — building-level when street parts present, suburb_centroid as last resort. Indexed for radius queries.',
   `longitude` decimal(10,7) DEFAULT NULL,
   `district` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
@@ -13847,6 +14913,40 @@ CREATE TABLE `prospecting_listings` (
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
   `deleted_at` timestamp NULL DEFAULT NULL,
+  `portal_advert_fact_id` bigint unsigned DEFAULT NULL,
+  `advertiser_type` varchar(12) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `agent_portal_id` varchar(40) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `agency_portal_id` varchar(40) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `rates_amount` int unsigned DEFAULT NULL,
+  `levies_amount` int unsigned DEFAULT NULL,
+  `portal_latitude` decimal(10,7) DEFAULT NULL,
+  `portal_longitude` decimal(10,7) DEFAULT NULL,
+  `portal_geo_source` varchar(12) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `is_reduced` tinyint(1) DEFAULT NULL,
+  `is_exclusive` tinyint(1) DEFAULT NULL,
+  `badges` json DEFAULT NULL,
+  `p24_group_id` varchar(30) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `p24_mandate_id` varchar(30) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `wording_fingerprint` char(40) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `first_photo_fingerprint` char(40) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `details_read_at` timestamp NULL DEFAULT NULL,
+  `details_read_price` int unsigned DEFAULT NULL,
+  `map_point_check` varchar(12) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `map_point_distance_m` int unsigned DEFAULT NULL,
+  `search_text` varchar(700) COLLATE utf8mb4_unicode_ci GENERATED ALWAYS AS (concat_ws(_utf8mb4' ',`address`,`suburb`,`agent_name`,`agency_name`,`portal_ref`)) STORED,
+  `card_heading` varchar(160) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `description_snippet` varchar(200) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `description` text COLLATE utf8mb4_unicode_ci,
+  `photo_urls` json DEFAULT NULL,
+  `photo_count` smallint unsigned DEFAULT NULL,
+  `features` json DEFAULT NULL,
+  `parking` tinyint unsigned DEFAULT NULL,
+  `sole_mandate_wording` tinyint(1) DEFAULT NULL,
+  `sole_mandate_first_seen_at` datetime DEFAULT NULL,
+  `missed_crawls` tinyint unsigned NOT NULL DEFAULT '0',
+  `missed_crawl_id` bigint unsigned DEFAULT NULL,
+  `details_read_by` bigint unsigned DEFAULT NULL,
+  `details_read_card_hash` varchar(40) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `prospecting_listings_agency_id_portal_source_portal_ref_unique` (`agency_id`,`portal_source`,`portal_ref`),
   KEY `prospecting_listings_agency_id_index` (`agency_id`),
@@ -13870,6 +14970,12 @@ CREATE TABLE `prospecting_listings` (
   KEY `prospecting_listings_agency_deleted_first_seen_idx` (`agency_id`,`deleted_at`,`first_seen_at`),
   KEY `pl_possible_property_idx` (`agency_id`,`possible_property_id`),
   KEY `prospecting_listings_agency_listed_date_idx` (`agency_id`,`listed_date`),
+  KEY `idx_pl_agency_canonical` (`agency_id`,`canonical_ref`),
+  KEY `idx_pl_advert_fact` (`portal_advert_fact_id`),
+  KEY `pl_agency_p24_suburb_idx` (`agency_id`,`p24_suburb_id`),
+  KEY `idx_pl_agency_advertiser` (`agency_id`,`advertiser_type`),
+  KEY `idx_pl_p24_group` (`p24_group_id`),
+  KEY `idx_pl_p24_mandate` (`p24_mandate_id`),
   CONSTRAINT `prospecting_listings_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
   CONSTRAINT `prospecting_listings_branch_id_foreign` FOREIGN KEY (`branch_id`) REFERENCES `branches` (`id`) ON DELETE SET NULL,
   CONSTRAINT `prospecting_listings_captured_by_user_id_foreign` FOREIGN KEY (`captured_by_user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE,
@@ -13962,9 +15068,18 @@ CREATE TABLE `prospecting_searches` (
   `captured_at` datetime NOT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
+  `crawl_session_id` char(36) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `crawl_portal` varchar(4) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `crawl_suburb` varchar(120) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `crawl_page` smallint unsigned DEFAULT NULL,
+  `crawl_pages_total` smallint unsigned DEFAULT NULL,
+  `crawl_complete` tinyint(1) DEFAULT NULL,
+  `crawl_started_at` timestamp NULL DEFAULT NULL,
+  `crawl_finished_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `prospecting_searches_agency_id_index` (`agency_id`),
   KEY `prospecting_searches_user_id_index` (`user_id`),
+  KEY `idx_ps_crawl_session` (`crawl_session_id`),
   CONSTRAINT `prospecting_searches_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
   CONSTRAINT `prospecting_searches_user_id_foreign` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -14327,14 +15442,17 @@ CREATE TABLE `rental_application_audit_log` (
   `human_summary` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `created_at` timestamp NOT NULL,
   `deleted_at` timestamp NULL DEFAULT NULL,
+  `on_behalf_of_user_id` bigint unsigned DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `rental_application_audit_log_branch_id_foreign` (`branch_id`),
   KEY `rental_application_audit_log_user_id_foreign` (`user_id`),
   KEY `ra_audit_log_app_created_idx` (`rental_application_id`,`created_at`),
   KEY `ra_audit_log_app_category_idx` (`rental_application_id`,`event_category`),
   KEY `ra_audit_log_agency_created_idx` (`agency_id`,`created_at`),
+  KEY `rental_application_audit_log_obo_fk` (`on_behalf_of_user_id`),
   CONSTRAINT `rental_application_audit_log_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`),
   CONSTRAINT `rental_application_audit_log_branch_id_foreign` FOREIGN KEY (`branch_id`) REFERENCES `branches` (`id`),
+  CONSTRAINT `rental_application_audit_log_obo_fk` FOREIGN KEY (`on_behalf_of_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
   CONSTRAINT `rental_application_audit_log_rental_application_id_foreign` FOREIGN KEY (`rental_application_id`) REFERENCES `rental_applications` (`id`) ON DELETE CASCADE,
   CONSTRAINT `rental_application_audit_log_user_id_foreign` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -14626,6 +15744,33 @@ CREATE TABLE `rental_application_expense_items` (
   CONSTRAINT `rental_application_expense_items_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `rental_application_field_changes`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `rental_application_field_changes` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `rental_application_id` bigint unsigned NOT NULL,
+  `agency_id` bigint unsigned NOT NULL,
+  `batch_uuid` char(36) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `generation` int unsigned DEFAULT NULL,
+  `field_key` varchar(120) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `field_label` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `old_value` text COLLATE utf8mb4_unicode_ci,
+  `new_value` text COLLATE utf8mb4_unicode_ci,
+  `changed_by_user_id` bigint unsigned DEFAULT NULL,
+  `note` text COLLATE utf8mb4_unicode_ci,
+  `emailed_at` timestamp NULL DEFAULT NULL,
+  `created_at` timestamp NOT NULL,
+  PRIMARY KEY (`id`),
+  KEY `rental_application_field_changes_changed_by_user_id_foreign` (`changed_by_user_id`),
+  KEY `rap_field_changes_app_created_idx` (`rental_application_id`,`created_at`),
+  KEY `rap_field_changes_batch_idx` (`batch_uuid`),
+  KEY `rap_field_changes_agency_idx` (`agency_id`),
+  CONSTRAINT `rental_application_field_changes_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`),
+  CONSTRAINT `rental_application_field_changes_changed_by_user_id_foreign` FOREIGN KEY (`changed_by_user_id`) REFERENCES `users` (`id`),
+  CONSTRAINT `rental_application_field_changes_rental_application_id_foreign` FOREIGN KEY (`rental_application_id`) REFERENCES `rental_applications` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `rental_application_generations`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -14757,6 +15902,9 @@ CREATE TABLE `rental_application_qualifying_settings` (
   `invite_policy_sentence` text COLLATE utf8mb4_unicode_ci,
   `prefill_lease_from_application` tinyint(1) DEFAULT NULL,
   `allow_withdraw_after_approval` tinyint(1) DEFAULT NULL,
+  `application_fee` decimal(12,2) DEFAULT NULL,
+  `tenant_info_summary` text COLLATE utf8mb4_unicode_ci,
+  `documents_to_accompany` text COLLATE utf8mb4_unicode_ci,
   PRIMARY KEY (`id`),
   UNIQUE KEY `rental_application_qualifying_settings_agency_id_unique` (`agency_id`),
   CONSTRAINT `rental_application_qualifying_settings_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE
@@ -14769,7 +15917,7 @@ CREATE TABLE `rental_application_signatures` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
   `rental_application_id` bigint unsigned NOT NULL,
   `agency_id` bigint unsigned NOT NULL,
-  `kind` enum('declaration','tpn_consent') COLLATE utf8mb4_unicode_ci NOT NULL,
+  `kind` enum('declaration','tpn_consent','co_declaration','co_tpn_consent') COLLATE utf8mb4_unicode_ci NOT NULL,
   `generation` int unsigned NOT NULL DEFAULT '1',
   `signature_path` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
   `signed_at` timestamp NOT NULL,
@@ -14822,6 +15970,7 @@ CREATE TABLE `rental_applications` (
   `reopened_at` timestamp NULL DEFAULT NULL,
   `reopened_by_user_id` bigint unsigned DEFAULT NULL,
   `reopened_note` text COLLATE utf8mb4_unicode_ci,
+  `correction_fields` json DEFAULT NULL,
   `approved_rental_amount` decimal(12,2) DEFAULT NULL,
   `approved_deposit_amount` decimal(12,2) DEFAULT NULL,
   `approved_subject_to_fica_at` timestamp NULL DEFAULT NULL,
@@ -14878,6 +16027,25 @@ CREATE TABLE `rental_applications` (
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
   `deleted_at` timestamp NULL DEFAULT NULL,
+  `income_tax_no` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `marriage_regime` varchar(80) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `years_employed` varchar(30) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `pay_date` varchar(40) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `previous_landlord_name` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `previous_landlord_tel` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `bank_name` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `bank_account_no` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `judgments` varchar(10) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `car_make` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `car_colour` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `car_year` varchar(10) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `car_reg` varchar(30) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `judgments_details` text COLLATE utf8mb4_unicode_ci,
+  `co_applicant` json DEFAULT NULL,
+  `co_occupants` json DEFAULT NULL,
+  `pets` json DEFAULT NULL,
+  `affordability` json DEFAULT NULL,
+  `co_applicant_contact_id` bigint unsigned DEFAULT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `rental_applications_token_unique` (`token`),
   KEY `rental_applications_branch_id_foreign` (`branch_id`),
@@ -14887,6 +16055,7 @@ CREATE TABLE `rental_applications` (
   KEY `rental_applications_agency_id_status_index` (`agency_id`,`status`),
   KEY `rental_applications_agency_id_contact_id_index` (`agency_id`,`contact_id`),
   KEY `rental_applications_reopened_by_user_id_foreign` (`reopened_by_user_id`),
+  KEY `rental_applications_co_applicant_contact_id_index` (`co_applicant_contact_id`),
   CONSTRAINT `rental_applications_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
   CONSTRAINT `rental_applications_branch_id_foreign` FOREIGN KEY (`branch_id`) REFERENCES `branches` (`id`) ON DELETE SET NULL,
   CONSTRAINT `rental_applications_contact_id_foreign` FOREIGN KEY (`contact_id`) REFERENCES `contacts` (`id`) ON DELETE CASCADE,
@@ -18056,6 +19225,49 @@ CREATE TABLE `rentals` (
   CONSTRAINT `rentals_created_by_user_id_foreign` FOREIGN KEY (`created_by_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `revenue_billing_records`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `revenue_billing_records` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned DEFAULT NULL,
+  `name` varchar(150) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `users` int unsigned DEFAULT NULL,
+  `branches` smallint unsigned NOT NULL DEFAULT '1',
+  `override_monthly` decimal(12,2) DEFAULT NULL,
+  `override_note` varchar(150) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `start_date` date DEFAULT NULL,
+  `term_months` smallint unsigned DEFAULT NULL,
+  `notes` text COLLATE utf8mb4_unicode_ci,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `revenue_billing_records_agency_id_index` (`agency_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `revenue_prospects`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `revenue_prospects` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `name` varchar(150) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `contact` varchar(150) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `stage` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'talking',
+  `users_min` int unsigned DEFAULT NULL,
+  `users_max` int unsigned DEFAULT NULL,
+  `monthly_override` decimal(12,2) DEFAULT NULL,
+  `chance_percent` tinyint unsigned NOT NULL DEFAULT '50',
+  `expected_start_month` date DEFAULT NULL,
+  `notes` text COLLATE utf8mb4_unicode_ci,
+  `agency_id` bigint unsigned DEFAULT NULL,
+  `billing_record_id` bigint unsigned DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `revenue_share_ledger`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -18121,6 +19333,95 @@ CREATE TABLE `rmcp_acknowledgements` (
   CONSTRAINT `rmcp_acknowledgements_branch_id_foreign` FOREIGN KEY (`branch_id`) REFERENCES `branches` (`id`) ON DELETE SET NULL,
   CONSTRAINT `rmcp_acknowledgements_rmcp_version_id_foreign` FOREIGN KEY (`rmcp_version_id`) REFERENCES `rmcp_versions` (`id`) ON DELETE CASCADE,
   CONSTRAINT `rmcp_acknowledgements_user_id_foreign` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `rmcp_board_audit_log`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `rmcp_board_audit_log` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `rmcp_version_id` bigint unsigned NOT NULL,
+  `letter_id` bigint unsigned DEFAULT NULL,
+  `signature_id` bigint unsigned DEFAULT NULL,
+  `event_type` varchar(40) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `actor_user_id` bigint unsigned DEFAULT NULL,
+  `actor_label` varchar(190) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `ip_address` varchar(45) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `user_agent` varchar(500) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `meta` json DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `on_behalf_of_user_id` bigint unsigned DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `rmcp_board_audit_log_agency_id_index` (`agency_id`),
+  KEY `rmcp_board_audit_log_rmcp_version_id_index` (`rmcp_version_id`),
+  KEY `rmcp_board_audit_log_letter_id_index` (`letter_id`),
+  KEY `rmcp_board_audit_log_obo_fk` (`on_behalf_of_user_id`),
+  CONSTRAINT `rmcp_board_audit_log_obo_fk` FOREIGN KEY (`on_behalf_of_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `rmcp_board_letters`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `rmcp_board_letters` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `rmcp_version_id` bigint unsigned NOT NULL,
+  `round` int unsigned NOT NULL,
+  `status` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'sent',
+  `effective_from` date NOT NULL,
+  `next_review_due` date DEFAULT NULL,
+  `content_hash` char(64) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `letter_html` longtext COLLATE utf8mb4_unicode_ci NOT NULL,
+  `sent_by` bigint unsigned DEFAULT NULL,
+  `sent_at` timestamp NULL DEFAULT NULL,
+  `completed_at` timestamp NULL DEFAULT NULL,
+  `signed_pdf_path` varchar(500) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `signed_pdf_sha256` char(64) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `rmcp_board_letters_rmcp_version_id_round_unique` (`rmcp_version_id`,`round`),
+  KEY `rmcp_board_letters_agency_id_index` (`agency_id`),
+  KEY `rmcp_board_letters_rmcp_version_id_index` (`rmcp_version_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `rmcp_board_signatures`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `rmcp_board_signatures` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `letter_id` bigint unsigned NOT NULL,
+  `board_member_id` bigint unsigned DEFAULT NULL,
+  `user_id` bigint unsigned DEFAULT NULL,
+  `member_name` varchar(150) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `member_title` varchar(150) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `member_email` varchar(190) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `token` varchar(64) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `status` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'pending',
+  `sent_at` timestamp NULL DEFAULT NULL,
+  `last_sent_at` timestamp NULL DEFAULT NULL,
+  `send_count` int unsigned NOT NULL DEFAULT '0',
+  `last_send_error` varchar(300) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `viewed_at` timestamp NULL DEFAULT NULL,
+  `signed_at` timestamp NULL DEFAULT NULL,
+  `signature_type` varchar(10) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `signature_path` varchar(500) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `typed_name` varchar(200) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `signed_via` varchar(10) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `ip_address` varchar(45) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `user_agent` varchar(500) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `rmcp_board_signatures_token_unique` (`token`),
+  KEY `rmcp_board_signatures_agency_id_index` (`agency_id`),
+  KEY `rmcp_board_signatures_letter_id_index` (`letter_id`),
+  KEY `rmcp_board_signatures_board_member_id_index` (`board_member_id`),
+  KEY `rmcp_board_signatures_user_id_index` (`user_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `rmcp_compliance_officers_deprecated_20260421`;
@@ -18227,6 +19528,7 @@ CREATE TABLE `rmcp_versions` (
   `approved_at` timestamp NULL DEFAULT NULL,
   `approver_title` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `board_approval_document_path` varchar(500) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `board_letter_id` bigint unsigned DEFAULT NULL,
   `approval_ip` varchar(45) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `approval_notes` text COLLATE utf8mb4_unicode_ci,
   `effective_from` date DEFAULT NULL,
@@ -18238,6 +19540,17 @@ CREATE TABLE `rmcp_versions` (
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
   `deleted_at` timestamp NULL DEFAULT NULL,
+  `signed_copy_path` varchar(500) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `signed_copy_name` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `signed_copy_sha256` varchar(64) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `signed_copy_uploaded_by` bigint unsigned DEFAULT NULL,
+  `signed_copy_uploaded_at` timestamp NULL DEFAULT NULL,
+  `signed_by_name` varchar(190) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `signed_on` date DEFAULT NULL,
+  `submitted_to_fic_on` date DEFAULT NULL,
+  `staff_training_sent_at` timestamp NULL DEFAULT NULL,
+  `staff_training_sent_by` bigint unsigned DEFAULT NULL,
+  `staff_training_sent_count` int unsigned DEFAULT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `rmcp_versions_agency_id_version_number_unique` (`agency_id`,`version_number`),
   KEY `rmcp_versions_approved_by_foreign` (`approved_by`),
@@ -18361,6 +19674,78 @@ CREATE TABLE `rts_agent_areas` (
   CONSTRAINT `rts_agent_areas_user_id_foreign` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `rts_agent_levels`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `rts_agent_levels` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `branch_id` bigint unsigned DEFAULT NULL,
+  `track` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'sales',
+  `user_id` bigint unsigned NOT NULL,
+  `level_id` bigint unsigned NOT NULL,
+  `status` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'active',
+  `started_at` datetime NOT NULL,
+  `requested_signoff_at` datetime DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `rts_agent_levels_unique` (`agency_id`,`track`,`user_id`),
+  KEY `rts_agent_levels_user_id_foreign` (`user_id`),
+  KEY `rts_agent_levels_level_id_foreign` (`level_id`),
+  KEY `rts_agent_levels_queue_idx` (`agency_id`,`track`,`status`,`requested_signoff_at`),
+  CONSTRAINT `rts_agent_levels_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`),
+  CONSTRAINT `rts_agent_levels_level_id_foreign` FOREIGN KEY (`level_id`) REFERENCES `rts_levels` (`id`),
+  CONSTRAINT `rts_agent_levels_user_id_foreign` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `rts_agent_start_events`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `rts_agent_start_events` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `branch_id` bigint unsigned DEFAULT NULL,
+  `track` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'sales',
+  `user_id` bigint unsigned NOT NULL,
+  `actor_user_id` bigint unsigned DEFAULT NULL,
+  `kind` varchar(12) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `occurred_at` datetime NOT NULL,
+  `first_list_date` date DEFAULT NULL,
+  `paused_from` date DEFAULT NULL,
+  `paused_until` date DEFAULT NULL,
+  `reason` varchar(120) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `rts_agent_start_events_agent_idx` (`agency_id`,`user_id`,`occurred_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `rts_agent_starts`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `rts_agent_starts` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `branch_id` bigint unsigned DEFAULT NULL,
+  `track` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'sales',
+  `user_id` bigint unsigned NOT NULL,
+  `started_at` datetime DEFAULT NULL,
+  `started_by_user_id` bigint unsigned DEFAULT NULL,
+  `first_list_date` date DEFAULT NULL,
+  `paused_from` date DEFAULT NULL,
+  `paused_until` date DEFAULT NULL,
+  `pause_reason` varchar(120) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `paused_by_user_id` bigint unsigned DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `rts_agent_starts_agent_unique` (`agency_id`,`track`,`user_id`),
+  KEY `rts_agent_starts_paused_idx` (`agency_id`,`paused_until`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `rts_budgets`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -18417,6 +19802,7 @@ CREATE TABLE `rts_contact_outcomes` (
   `outcome_key` varchar(60) COLLATE utf8mb4_unicode_ci NOT NULL,
   `outcome_label` varchar(120) COLLATE utf8mb4_unicode_ci NOT NULL,
   `kind` varchar(12) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `channel` varchar(20) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `note` text COLLATE utf8mb4_unicode_ci,
   `valuation_booked` tinyint(1) NOT NULL DEFAULT '0',
   `calendar_event_id` bigint unsigned DEFAULT NULL,
@@ -18443,6 +19829,7 @@ CREATE TABLE `rts_contact_outcomes` (
   KEY `rts_outcome_followups` (`agency_id`,`track`,`user_id`,`is_current`,`next_action_at`),
   KEY `rts_outcome_by_contact` (`contact_id`),
   KEY `rts_outcome_recorded_by` (`recorded_by_user_id`),
+  KEY `rts_contact_outcomes_channel_idx` (`channel`),
   CONSTRAINT `rts_contact_outcomes_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
   CONSTRAINT `rts_contact_outcomes_branch_id_foreign` FOREIGN KEY (`branch_id`) REFERENCES `branches` (`id`) ON DELETE SET NULL,
   CONSTRAINT `rts_contact_outcomes_calendar_event_id_foreign` FOREIGN KEY (`calendar_event_id`) REFERENCES `calendar_events` (`id`) ON DELETE SET NULL,
@@ -18452,6 +19839,22 @@ CREATE TABLE `rts_contact_outcomes` (
   CONSTRAINT `rts_contact_outcomes_prospecting_listing_id_foreign` FOREIGN KEY (`prospecting_listing_id`) REFERENCES `prospecting_listings` (`id`) ON DELETE SET NULL,
   CONSTRAINT `rts_contact_outcomes_tracked_property_id_foreign` FOREIGN KEY (`tracked_property_id`) REFERENCES `tracked_properties` (`id`) ON DELETE CASCADE,
   CONSTRAINT `rts_contact_outcomes_user_id_foreign` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `rts_cutovers`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `rts_cutovers` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `track` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'sales',
+  `cut_over_at` datetime NOT NULL,
+  `report` json DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `rts_cutovers_unique` (`agency_id`,`track`),
+  CONSTRAINT `rts_cutovers_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `rts_hidden_areas`;
@@ -18504,6 +19907,74 @@ CREATE TABLE `rts_holds` (
   CONSTRAINT `rts_holds_user_id_foreign` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `rts_level_signoffs`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `rts_level_signoffs` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `branch_id` bigint unsigned DEFAULT NULL,
+  `track` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'sales',
+  `user_id` bigint unsigned NOT NULL,
+  `from_level_id` bigint unsigned NOT NULL,
+  `to_level_id` bigint unsigned DEFAULT NULL,
+  `decided_by_user_id` bigint unsigned DEFAULT NULL,
+  `decision` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `automatic` tinyint(1) NOT NULL DEFAULT '0',
+  `comment` text COLLATE utf8mb4_unicode_ci,
+  `evidence` json DEFAULT NULL,
+  `decided_at` datetime NOT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `rts_level_signoffs_user_id_foreign` (`user_id`),
+  KEY `rts_level_signoffs_agent_idx` (`agency_id`,`track`,`user_id`,`decided_at`),
+  CONSTRAINT `rts_level_signoffs_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`),
+  CONSTRAINT `rts_level_signoffs_user_id_foreign` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `rts_level_tasks`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `rts_level_tasks` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `level_id` bigint unsigned NOT NULL,
+  `task_id` bigint unsigned NOT NULL,
+  `target` int unsigned NOT NULL DEFAULT '0',
+  `points` decimal(12,2) NOT NULL DEFAULT '0.00',
+  `required_for_signoff` tinyint(1) NOT NULL DEFAULT '0',
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `rts_level_tasks_unique` (`level_id`,`task_id`),
+  KEY `rts_level_tasks_task_id_foreign` (`task_id`),
+  KEY `rts_level_tasks_task_idx` (`agency_id`,`task_id`),
+  CONSTRAINT `rts_level_tasks_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`),
+  CONSTRAINT `rts_level_tasks_level_id_foreign` FOREIGN KEY (`level_id`) REFERENCES `rts_levels` (`id`),
+  CONSTRAINT `rts_level_tasks_task_id_foreign` FOREIGN KEY (`task_id`) REFERENCES `rts_tasks` (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `rts_levels`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `rts_levels` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `track` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'sales',
+  `number` smallint unsigned NOT NULL,
+  `name` varchar(80) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `description` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `is_active` tinyint(1) NOT NULL DEFAULT '1',
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `rts_levels_unique` (`agency_id`,`track`,`number`),
+  CONSTRAINT `rts_levels_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `rts_list_items`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -18517,12 +19988,14 @@ CREATE TABLE `rts_list_items` (
   `tracked_property_id` bigint unsigned DEFAULT NULL,
   `prospecting_listing_id` bigint unsigned DEFAULT NULL,
   `property_id` bigint unsigned DEFAULT NULL,
+  `prospect_id` bigint unsigned DEFAULT NULL,
   `property_key` varchar(24) COLLATE utf8mb4_unicode_ci GENERATED ALWAYS AS ((case when (`deleted_at` is not null) then NULL when (`tracked_property_id` is not null) then concat(_utf8mb4't',`tracked_property_id`) when (`prospecting_listing_id` is not null) then concat(_utf8mb4'l',`prospecting_listing_id`) when (`property_id` is not null) then concat(_utf8mb4'p',`property_id`) else NULL end)) STORED,
   `selection` varchar(40) COLLATE utf8mb4_unicode_ci NOT NULL,
   `origin` varchar(12) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'auto',
   `position` smallint unsigned NOT NULL DEFAULT '0',
   `status` varchar(12) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'open',
   `reason` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `reason_facts` json DEFAULT NULL,
   `rolled_from_item_id` bigint unsigned DEFAULT NULL,
   `status_changed_at` timestamp NULL DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
@@ -18533,7 +20006,34 @@ CREATE TABLE `rts_list_items` (
   UNIQUE KEY `rts_list_items_day_key_unique` (`agency_id`,`track`,`user_id`,`list_date`,`property_key`),
   KEY `rts_list_items_day_idx` (`agency_id`,`track`,`user_id`,`list_date`,`position`),
   KEY `rts_list_items_status_idx` (`agency_id`,`track`,`status`,`list_date`),
-  KEY `rts_list_items_tracked_idx` (`tracked_property_id`)
+  KEY `rts_list_items_tracked_idx` (`tracked_property_id`),
+  KEY `rts_list_items_prospect_idx` (`prospect_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `rts_manager_actions`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `rts_manager_actions` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `branch_id` bigint unsigned DEFAULT NULL,
+  `track` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'sales',
+  `user_id` bigint unsigned NOT NULL,
+  `by_user_id` bigint unsigned NOT NULL,
+  `kind` varchar(30) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `subject_key` varchar(80) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `note` text COLLATE utf8mb4_unicode_ci,
+  `value_from` int DEFAULT NULL,
+  `value_to` int DEFAULT NULL,
+  `command_task_id` bigint unsigned DEFAULT NULL,
+  `acted_at` datetime NOT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `rts_manager_actions_user_id_foreign` (`user_id`),
+  KEY `rts_manager_actions_lookup_idx` (`agency_id`,`track`,`user_id`,`kind`,`subject_key`),
+  CONSTRAINT `rts_manager_actions_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`),
+  CONSTRAINT `rts_manager_actions_user_id_foreign` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `rts_outcome_definitions`;
@@ -18549,6 +20049,13 @@ CREATE TABLE `rts_outcome_definitions` (
   `next_action` varchar(40) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'return_after_days',
   `delay_days` smallint unsigned DEFAULT NULL,
   `list_tag` varchar(60) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `stage_after` varchar(30) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `max_tries` tinyint unsigned DEFAULT NULL,
+  `after_max_tries` varchar(20) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `park_reason_key` varchar(40) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `choice_months` json DEFAULT NULL,
+  `default_months` tinyint unsigned DEFAULT NULL,
+  `fallback_days` smallint unsigned DEFAULT NULL,
   `counts_as_no_answer` tinyint(1) NOT NULL DEFAULT '0',
   `records_do_not_contact` tinyint(1) NOT NULL DEFAULT '0',
   `is_active` tinyint(1) NOT NULL DEFAULT '1',
@@ -18564,6 +20071,32 @@ CREATE TABLE `rts_outcome_definitions` (
   KEY `rts_outcome_def_list` (`agency_id`,`track`,`is_active`,`sort_order`),
   CONSTRAINT `rts_outcome_definitions_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
   CONSTRAINT `rts_outcome_definitions_updated_by_user_id_foreign` FOREIGN KEY (`updated_by_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `rts_park_reasons`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `rts_park_reasons` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `track` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'sales',
+  `station` varchar(30) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `step` tinyint unsigned DEFAULT NULL,
+  `kind` varchar(12) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'off_ramp',
+  `counts_as` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'lost',
+  `key` varchar(40) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `label` varchar(120) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `default_revisit_days` smallint unsigned NOT NULL DEFAULT '90',
+  `is_system` tinyint(1) NOT NULL DEFAULT '0',
+  `is_other` tinyint(1) NOT NULL DEFAULT '0',
+  `is_active` tinyint(1) NOT NULL DEFAULT '1',
+  `sort_order` smallint unsigned NOT NULL DEFAULT '0',
+  `updated_by_user_id` bigint unsigned DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `rts_park_reasons_key_unique` (`agency_id`,`track`,`key`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `rts_property_flags`;
@@ -18588,6 +20121,101 @@ CREATE TABLE `rts_property_flags` (
   CONSTRAINT `rts_property_flags_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
   CONSTRAINT `rts_property_flags_set_by_user_id_foreign` FOREIGN KEY (`set_by_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
   CONSTRAINT `rts_property_flags_tracked_property_id_foreign` FOREIGN KEY (`tracked_property_id`) REFERENCES `tracked_properties` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `rts_prospect_events`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `rts_prospect_events` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `track` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'sales',
+  `prospect_id` bigint unsigned NOT NULL,
+  `user_id` bigint unsigned NOT NULL,
+  `actor_user_id` bigint unsigned DEFAULT NULL,
+  `occurred_at` timestamp NOT NULL,
+  `kind` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `from_stage` varchar(30) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `to_stage` varchar(30) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `outcome_id` bigint unsigned DEFAULT NULL,
+  `event_class` varchar(190) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `subject_type` varchar(120) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `subject_id` bigint unsigned DEFAULT NULL,
+  `note` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `meta` json DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `rts_prospect_events_once` (`prospect_id`,`kind`,`to_stage`,`subject_type`,`subject_id`),
+  KEY `rts_prospect_events_stage_idx` (`agency_id`,`track`,`to_stage`,`occurred_at`),
+  KEY `rts_prospect_events_prospect_idx` (`prospect_id`,`occurred_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `rts_prospects`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `rts_prospects` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `branch_id` bigint unsigned DEFAULT NULL,
+  `track` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'sales',
+  `user_id` bigint unsigned NOT NULL,
+  `tracked_property_id` bigint unsigned NOT NULL,
+  `prospecting_listing_id` bigint unsigned DEFAULT NULL,
+  `property_id` bigint unsigned DEFAULT NULL,
+  `stage` varchar(30) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'found',
+  `stage_entered_at` timestamp NULL DEFAULT NULL,
+  `selection` varchar(40) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `reason` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `reason_facts` json DEFAULT NULL,
+  `next_action_key` varchar(40) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `next_action_label` varchar(120) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `next_action_at` date DEFAULT NULL,
+  `tries` tinyint unsigned NOT NULL DEFAULT '0',
+  `last_outcome_id` bigint unsigned DEFAULT NULL,
+  `parked_at` timestamp NULL DEFAULT NULL,
+  `parked_until` date DEFAULT NULL,
+  `park_reason_id` bigint unsigned DEFAULT NULL,
+  `park_reason_label` varchar(120) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `park_note` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `parked_from_stage` varchar(30) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `closed_at` timestamp NULL DEFAULT NULL,
+  `closed_reason` varchar(40) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `released_at` timestamp NULL DEFAULT NULL,
+  `released_by_user_id` bigint unsigned DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `rts_prospects_property_unique` (`agency_id`,`track`,`tracked_property_id`),
+  KEY `rts_prospects_stage_idx` (`agency_id`,`track`,`user_id`,`stage`),
+  KEY `rts_prospects_due_idx` (`user_id`,`next_action_at`),
+  KEY `rts_prospects_parked_idx` (`agency_id`,`track`,`parked_until`),
+  KEY `rts_prospects_listing_idx` (`prospecting_listing_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `rts_result_options`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `rts_result_options` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `track` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'sales',
+  `key` varchar(40) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `label` varchar(120) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `class` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `park_reason_key` varchar(40) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `needs_date` tinyint(1) NOT NULL DEFAULT '0',
+  `revisit_days` smallint unsigned DEFAULT NULL,
+  `is_system` tinyint(1) NOT NULL DEFAULT '0',
+  `is_active` tinyint(1) NOT NULL DEFAULT '1',
+  `sort_order` smallint unsigned NOT NULL DEFAULT '0',
+  `updated_by_user_id` bigint unsigned DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `rts_result_options_key_unique` (`agency_id`,`track`,`key`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `rts_settings`;
@@ -18627,7 +20255,6 @@ CREATE TABLE `rts_settings` (
   `taken_statuses` json DEFAULT NULL,
   `on_market_statuses` json DEFAULT NULL,
   `add_to_day_max` smallint unsigned NOT NULL DEFAULT '100',
-  `scan_page_size` smallint unsigned NOT NULL DEFAULT '200',
   `scan_max_pages` smallint unsigned NOT NULL DEFAULT '8',
   `hot_pocket_weight_buyers` smallint unsigned NOT NULL DEFAULT '1',
   `hot_pocket_weight_leads` smallint unsigned NOT NULL DEFAULT '1',
@@ -18635,6 +20262,37 @@ CREATE TABLE `rts_settings` (
   `deleted_at` timestamp NULL DEFAULT NULL,
   `refresh_portals` json DEFAULT NULL,
   `min_area_properties` smallint unsigned NOT NULL DEFAULT '1',
+  `agent_start_required` tinyint(1) NOT NULL DEFAULT '1',
+  `claim_hold_days` smallint unsigned NOT NULL DEFAULT '30',
+  `claim_warn_days` smallint unsigned NOT NULL DEFAULT '5',
+  `claim_extension_days` smallint unsigned NOT NULL DEFAULT '30',
+  `claim_extensions_allowed` tinyint unsigned NOT NULL DEFAULT '1',
+  `owner_requires_deed` tinyint(1) NOT NULL DEFAULT '1',
+  `source_for_colleagues` varchar(10) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'agency',
+  `default_callback_days` smallint unsigned NOT NULL DEFAULT '3',
+  `due_claimed_days` smallint unsigned NOT NULL DEFAULT '5',
+  `due_owner_days` smallint unsigned NOT NULL DEFAULT '3',
+  `due_contacted_days` smallint unsigned NOT NULL DEFAULT '7',
+  `due_held_days` smallint unsigned NOT NULL DEFAULT '2',
+  `fill_from_claims_first` tinyint(1) NOT NULL DEFAULT '1',
+  `flag_offramp_excess_pct` smallint unsigned NOT NULL DEFAULT '25',
+  `target_listings_per_month` smallint unsigned NOT NULL DEFAULT '2',
+  `target_window_days` smallint unsigned NOT NULL DEFAULT '90',
+  `target_min_sample` smallint unsigned NOT NULL DEFAULT '30',
+  `target_rates` json DEFAULT NULL,
+  `target_overrides` json DEFAULT NULL,
+  `summary_ahead_from_pct` smallint unsigned NOT NULL DEFAULT '105',
+  `capture_needs_review` tinyint(1) NOT NULL DEFAULT '0',
+  `levels_signoff_required` tinyint(1) NOT NULL DEFAULT '1',
+  `level_periods_required` tinyint unsigned NOT NULL DEFAULT '4',
+  `flag_min_sample` smallint unsigned NOT NULL DEFAULT '20',
+  `flag_below_pct` tinyint unsigned NOT NULL DEFAULT '60',
+  `flag_window_days` smallint unsigned NOT NULL DEFAULT '30',
+  `suggest_window_weeks` tinyint unsigned NOT NULL DEFAULT '8',
+  `suggest_growth_pct` tinyint unsigned NOT NULL DEFAULT '10',
+  `capture_back_date_working_days` smallint unsigned NOT NULL DEFAULT '5',
+  `expired_competitor_lookback_days` smallint unsigned NOT NULL DEFAULT '30',
+  `prospect_stall_days` smallint unsigned NOT NULL DEFAULT '14',
   PRIMARY KEY (`id`),
   UNIQUE KEY `rts_settings_agency_track_unique` (`agency_id`,`track`),
   KEY `rts_settings_updated_by_user_id_foreign` (`updated_by_user_id`),
@@ -18658,6 +20316,225 @@ CREATE TABLE `rts_settings_audit` (
   KEY `rts_settings_audit_agency_track_idx` (`agency_id`,`track`,`id`),
   CONSTRAINT `rts_settings_audit_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`),
   CONSTRAINT `rts_settings_audit_changed_by_user_id_foreign` FOREIGN KEY (`changed_by_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `rts_steps`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `rts_steps` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `track` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'sales',
+  `key` varchar(40) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `group` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `position` smallint unsigned NOT NULL DEFAULT '0',
+  `label` varchar(120) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `is_enabled` tinyint(1) NOT NULL DEFAULT '1',
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `rts_steps_unique` (`agency_id`,`track`,`key`),
+  KEY `rts_steps_order_idx` (`agency_id`,`track`,`position`),
+  CONSTRAINT `rts_steps_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `rts_task_completion_records`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `rts_task_completion_records` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `completion_id` bigint unsigned NOT NULL,
+  `record_type` varchar(190) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `record_id` bigint unsigned NOT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `rts_task_completion_records_unique` (`completion_id`,`record_type`,`record_id`),
+  KEY `rts_task_completion_records_agency_id_foreign` (`agency_id`),
+  KEY `rts_task_completion_records_record_idx` (`record_type`,`record_id`),
+  CONSTRAINT `rts_task_completion_records_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`),
+  CONSTRAINT `rts_task_completion_records_completion_id_foreign` FOREIGN KEY (`completion_id`) REFERENCES `rts_task_completions` (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `rts_task_completions`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `rts_task_completions` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `branch_id` bigint unsigned DEFAULT NULL,
+  `user_id` bigint unsigned NOT NULL,
+  `recorded_by_user_id` bigint unsigned NOT NULL,
+  `recorded_by_kind` varchar(10) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `track` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'sales',
+  `task_id` bigint unsigned NOT NULL,
+  `step_id` bigint unsigned NOT NULL,
+  `level_id` bigint unsigned DEFAULT NULL,
+  `occurred_at` datetime NOT NULL,
+  `period_unit` varchar(10) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `period_start` datetime NOT NULL,
+  `activity_date` date DEFAULT NULL,
+  `period` varchar(7) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `quantity` int unsigned NOT NULL DEFAULT '1',
+  `points_awarded` decimal(12,2) NOT NULL DEFAULT '0.00',
+  `points_legacy` decimal(12,2) DEFAULT NULL,
+  `state` varchar(12) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'confirmed',
+  `source` varchar(12) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `legacy_source` varchar(20) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `legacy_entry_id` bigint unsigned DEFAULT NULL,
+  `subject_type` varchar(190) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `subject_id` bigint unsigned DEFAULT NULL,
+  `event_id` varchar(40) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `idempotency_key` varchar(64) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `evidence_note` text COLLATE utf8mb4_unicode_ci,
+  `evidence` json DEFAULT NULL,
+  `confirmed_by_user_id` bigint unsigned DEFAULT NULL,
+  `confirmed_at` datetime DEFAULT NULL,
+  `revoked_at` datetime DEFAULT NULL,
+  `revoke_reason` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `override_audit` json DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  `review_comment` text COLLATE utf8mb4_unicode_ci,
+  `reviewed_by_user_id` bigint unsigned DEFAULT NULL,
+  `reviewed_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `rts_task_completions_idem_unique` (`idempotency_key`),
+  UNIQUE KEY `rts_task_completions_legacy_entry_unique` (`legacy_entry_id`),
+  KEY `rts_task_completions_user_id_foreign` (`user_id`),
+  KEY `rts_task_completions_recorded_by_user_id_foreign` (`recorded_by_user_id`),
+  KEY `rts_task_completions_task_id_foreign` (`task_id`),
+  KEY `rts_task_completions_step_id_foreign` (`step_id`),
+  KEY `rts_task_completions_user_idx` (`agency_id`,`user_id`,`occurred_at`),
+  KEY `rts_task_completions_task_idx` (`agency_id`,`task_id`,`period_start`),
+  KEY `rts_task_completions_subject_idx` (`subject_type`,`subject_id`),
+  KEY `rts_task_completions_branch_id_index` (`branch_id`),
+  KEY `rts_task_completions_user_period_idx` (`agency_id`,`user_id`,`period`),
+  KEY `rts_task_completions_date_idx` (`agency_id`,`activity_date`),
+  CONSTRAINT `rts_task_completions_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`),
+  CONSTRAINT `rts_task_completions_recorded_by_user_id_foreign` FOREIGN KEY (`recorded_by_user_id`) REFERENCES `users` (`id`),
+  CONSTRAINT `rts_task_completions_step_id_foreign` FOREIGN KEY (`step_id`) REFERENCES `rts_steps` (`id`),
+  CONSTRAINT `rts_task_completions_task_id_foreign` FOREIGN KEY (`task_id`) REFERENCES `rts_tasks` (`id`),
+  CONSTRAINT `rts_task_completions_user_id_foreign` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `rts_task_mapping_audit`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `rts_task_mapping_audit` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `track` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'sales',
+  `task_id` bigint unsigned NOT NULL,
+  `task_label` varchar(160) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `action` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `changed_by_user_id` bigint unsigned DEFAULT NULL,
+  `old_values` json DEFAULT NULL,
+  `new_values` json DEFAULT NULL,
+  `note` varchar(500) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `changed_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `rts_task_mapping_audit_agency_id_index` (`agency_id`),
+  KEY `rts_task_mapping_audit_task_id_index` (`task_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `rts_tasks`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `rts_tasks` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `track` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'sales',
+  `step_id` bigint unsigned NOT NULL,
+  `key` varchar(60) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `label` varchar(160) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `type` varchar(10) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `event_key` varchar(190) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `event_filter` json DEFAULT NULL,
+  `recurrence_unit` varchar(10) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'day',
+  `capture_kind` varchar(10) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'none',
+  `evidence_required` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'none',
+  `is_system` tinyint(1) NOT NULL DEFAULT '0',
+  `is_active` tinyint(1) NOT NULL DEFAULT '1',
+  `sort_order` smallint unsigned NOT NULL DEFAULT '0',
+  `legacy_activity_definition_id` bigint unsigned DEFAULT NULL,
+  `mapping_default` json DEFAULT NULL,
+  `needs_step` tinyint(1) NOT NULL DEFAULT '0',
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `rts_tasks_unique` (`agency_id`,`track`,`key`),
+  KEY `rts_tasks_step_id_foreign` (`step_id`),
+  KEY `rts_tasks_event_idx` (`agency_id`,`event_key`,`is_active`),
+  KEY `rts_tasks_order_idx` (`agency_id`,`track`,`step_id`,`sort_order`),
+  CONSTRAINT `rts_tasks_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`),
+  CONSTRAINT `rts_tasks_step_id_foreign` FOREIGN KEY (`step_id`) REFERENCES `rts_steps` (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `rts_training_pointers`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `rts_training_pointers` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `track` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'sales',
+  `ratio_key` varchar(60) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `kind` varchar(10) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `target_id` bigint unsigned DEFAULT NULL,
+  `target_key` varchar(120) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `label` varchar(200) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `set_by_user_id` bigint unsigned DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `rts_training_pointers_unique` (`agency_id`,`track`,`ratio_key`),
+  CONSTRAINT `rts_training_pointers_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `rts_user_preferences`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `rts_user_preferences` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `user_id` bigint unsigned NOT NULL,
+  `belt_open` varchar(16) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `rts_user_preferences_user_id_unique` (`user_id`),
+  CONSTRAINT `rts_user_preferences_user_id_foreign` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `rts_user_task_overrides`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `rts_user_task_overrides` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `user_id` bigint unsigned NOT NULL,
+  `task_id` bigint unsigned NOT NULL,
+  `level_id` bigint unsigned DEFAULT NULL,
+  `level_key` bigint unsigned NOT NULL DEFAULT '0',
+  `target` int unsigned DEFAULT NULL,
+  `points` decimal(12,2) DEFAULT NULL,
+  `set_by_user_id` bigint unsigned DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `rts_user_task_overrides_unique` (`user_id`,`task_id`,`level_key`),
+  KEY `rts_user_task_overrides_task_id_foreign` (`task_id`),
+  KEY `rts_user_task_overrides_set_by_user_id_foreign` (`set_by_user_id`),
+  KEY `rts_user_task_overrides_task_idx` (`agency_id`,`task_id`),
+  CONSTRAINT `rts_user_task_overrides_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`),
+  CONSTRAINT `rts_user_task_overrides_set_by_user_id_foreign` FOREIGN KEY (`set_by_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `rts_user_task_overrides_task_id_foreign` FOREIGN KEY (`task_id`) REFERENCES `rts_tasks` (`id`),
+  CONSTRAINT `rts_user_task_overrides_user_id_foreign` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `rts_weekday_targets`;
@@ -19235,6 +21112,35 @@ CREATE TABLE `shared_drives` (
   CONSTRAINT `shared_drives_created_by_user_id_foreign` FOREIGN KEY (`created_by_user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `shared_properties`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `shared_properties` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `address_text` varchar(500) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `street_number` varchar(20) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `street_name` varchar(191) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `unit_number` varchar(30) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `complex_name` varchar(191) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `suburb` varchar(120) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `suburb_normalised` varchar(120) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `town` varchar(120) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `province` varchar(60) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `latitude` decimal(10,7) DEFAULT NULL,
+  `longitude` decimal(10,7) DEFAULT NULL,
+  `geo_confidence` varchar(20) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `property_type` varchar(60) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `bedrooms` tinyint unsigned DEFAULT NULL,
+  `bathrooms` decimal(4,1) DEFAULT NULL,
+  `garages` tinyint unsigned DEFAULT NULL,
+  `floor_size_m2` int unsigned DEFAULT NULL,
+  `erf_size_m2` int unsigned DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_sp_suburb_street` (`suburb_normalised`,`street_name`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `signature_adoptions`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -19656,6 +21562,52 @@ CREATE TABLE `soft_delete_restorations` (
   KEY `soft_delete_restorations_restored_by_user_id_index` (`restored_by_user_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `sold_stock`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `sold_stock` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `branch_id` bigint unsigned DEFAULT NULL,
+  `property_id` bigint unsigned NOT NULL,
+  `deal_id` bigint unsigned DEFAULT NULL,
+  `cycle_no` smallint unsigned NOT NULL DEFAULT '1',
+  `title` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `description` text COLLATE utf8mb4_unicode_ci,
+  `features` json DEFAULT NULL,
+  `beds` smallint unsigned DEFAULT NULL,
+  `baths` smallint unsigned DEFAULT NULL,
+  `size_m2` int unsigned DEFAULT NULL,
+  `address` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `suburb` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `city` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `property_type` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `listing_type` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `asking_price` decimal(14,2) DEFAULT NULL,
+  `sale_price` decimal(14,2) DEFAULT NULL,
+  `sale_date` date DEFAULT NULL,
+  `listed_date` date DEFAULT NULL,
+  `days_on_market` int unsigned DEFAULT NULL,
+  `agent_id` bigint unsigned DEFAULT NULL,
+  `second_agent_id` bigint unsigned DEFAULT NULL,
+  `agent_ids` json DEFAULT NULL,
+  `seller_contact_ids` json DEFAULT NULL,
+  `buyer_contact_ids` json DEFAULT NULL,
+  `photos` json DEFAULT NULL,
+  `source` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'status',
+  `snapshotted_by_user_id` bigint unsigned DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `sold_stock_property_cycle_unique` (`property_id`,`cycle_no`),
+  KEY `sold_stock_agency_sale_date_idx` (`agency_id`,`sale_date`),
+  KEY `sold_stock_agency_suburb_idx` (`agency_id`,`suburb`),
+  KEY `sold_stock_agency_branch_idx` (`agency_id`,`branch_id`),
+  KEY `sold_stock_agency_id_index` (`agency_id`),
+  KEY `sold_stock_deal_id_index` (`deal_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `staff_take_on_records`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -19933,10 +21885,13 @@ CREATE TABLE `title_deed_audit_log` (
   `before` json DEFAULT NULL,
   `after` json DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
+  `on_behalf_of_user_id` bigint unsigned DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `title_deed_audit_log_title_deed_id_created_at_index` (`title_deed_id`,`created_at`),
   KEY `title_deed_audit_log_agency_id_index` (`agency_id`),
-  CONSTRAINT `td_audit_deed_fk` FOREIGN KEY (`title_deed_id`) REFERENCES `title_deeds` (`id`)
+  KEY `title_deed_audit_log_obo_fk` (`on_behalf_of_user_id`),
+  CONSTRAINT `td_audit_deed_fk` FOREIGN KEY (`title_deed_id`) REFERENCES `title_deeds` (`id`),
+  CONSTRAINT `title_deed_audit_log_obo_fk` FOREIGN KEY (`on_behalf_of_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `title_deed_consent_links`;
@@ -20406,6 +22361,9 @@ CREATE TABLE `tracked_properties` (
   `address_raw` text COLLATE utf8mb4_unicode_ci,
   `address_parse_status` varchar(20) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `address_parse_note` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `shared_property_id` bigint unsigned DEFAULT NULL,
+  `complex_id` bigint unsigned DEFAULT NULL,
+  `search_text` varchar(600) COLLATE utf8mb4_unicode_ci GENERATED ALWAYS AS (concat_ws(_utf8mb4' ',`street_number`,`street_name`,`complex_name`,`suburb`)) STORED,
   PRIMARY KEY (`id`),
   UNIQUE KEY `tracked_properties_external_id_unique` (`external_id`),
   KEY `tracked_properties_promoted_by_user_id_foreign` (`promoted_by_user_id`),
@@ -20425,6 +22383,9 @@ CREATE TABLE `tracked_properties` (
   KEY `idx_tp_addr_erf` (`agency_id`,`erf_number`,`erf_portion`),
   KEY `idx_tp_addr_status` (`agency_id`,`address_parse_status`),
   KEY `idx_tp_addr_lpi` (`agency_id`,`lpi_code`),
+  KEY `idx_tp_shared_property` (`shared_property_id`),
+  KEY `idx_tp_complex` (`complex_id`),
+  KEY `idx_tp_agency_search` (`agency_id`,`search_text`),
   CONSTRAINT `tracked_properties_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
   CONSTRAINT `tracked_properties_deeds_captured_by_user_id_foreign` FOREIGN KEY (`deeds_captured_by_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
   CONSTRAINT `tracked_properties_owner_contact_id_foreign` FOREIGN KEY (`owner_contact_id`) REFERENCES `contacts` (`id`) ON DELETE SET NULL,
@@ -20478,6 +22439,58 @@ CREATE TABLE `tracked_property_addresses` (
   CONSTRAINT `tracked_property_addresses_verified_by_user_id_foreign` FOREIGN KEY (`verified_by_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Per-TP address history; one is_primary=true per tracked_property cached onto tracked_properties via observer (Phase A3).';
 /*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `tracked_property_agency_work`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `tracked_property_agency_work` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `tracked_property_id` bigint unsigned NOT NULL,
+  `prospecting_status` varchar(30) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `prospecting_reason` varchar(500) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `status_set_by_user_id` bigint unsigned DEFAULT NULL,
+  `status_set_at` timestamp NULL DEFAULT NULL,
+  `is_own_stock` tinyint(1) NOT NULL DEFAULT '0',
+  `own_stock_property_id` bigint unsigned DEFAULT NULL,
+  `own_stock_source` varchar(20) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `own_stock_synced_at` timestamp NULL DEFAULT NULL,
+  `claimed_by_user_id` bigint unsigned DEFAULT NULL,
+  `claimed_at` timestamp NULL DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `tpaw_agency_tp_unique` (`agency_id`,`tracked_property_id`),
+  KEY `tpaw_agency_status_idx` (`agency_id`,`prospecting_status`),
+  KEY `tpaw_agency_own_idx` (`agency_id`,`is_own_stock`),
+  KEY `tpaw_agency_claimer_idx` (`agency_id`,`claimed_by_user_id`),
+  KEY `tpaw_tp_fk` (`tracked_property_id`),
+  CONSTRAINT `tpaw_agency_fk` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE RESTRICT,
+  CONSTRAINT `tpaw_tp_fk` FOREIGN KEY (`tracked_property_id`) REFERENCES `tracked_properties` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `tracked_property_agency_work_events`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `tracked_property_agency_work_events` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `tracked_property_id` bigint unsigned NOT NULL,
+  `kind` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `from_value` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `to_value` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `reason` varchar(500) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `user_id` bigint unsigned DEFAULT NULL,
+  `occurred_at` timestamp NOT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `tpawe_agency_tp_when_idx` (`agency_id`,`tracked_property_id`,`occurred_at`),
+  KEY `tpawe_tp_fk` (`tracked_property_id`),
+  CONSTRAINT `tpawe_agency_fk` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE RESTRICT,
+  CONSTRAINT `tpawe_tp_fk` FOREIGN KEY (`tracked_property_id`) REFERENCES `tracked_properties` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `tracked_property_comments`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -20510,6 +22523,10 @@ CREATE TABLE `tracked_property_external_refs` (
   `tracked_property_id` bigint unsigned NOT NULL,
   `source_type` varchar(50) COLLATE utf8mb4_unicode_ci NOT NULL,
   `source_ref` varchar(200) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `canonical_ref` varchar(40) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `match_confidence` varchar(10) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `match_method` varchar(30) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `matched_at` timestamp NULL DEFAULT NULL,
   `source_payload` json DEFAULT NULL,
   `first_seen_at` timestamp NOT NULL,
   `last_seen_at` timestamp NOT NULL,
@@ -20519,6 +22536,8 @@ CREATE TABLE `tracked_property_external_refs` (
   PRIMARY KEY (`id`),
   UNIQUE KEY `unq_tracked_external_ref` (`agency_id`,`source_type`,`source_ref`),
   KEY `idx_tracked_ext_refs_lookup` (`tracked_property_id`,`source_type`),
+  KEY `idx_tper_agency_canonical` (`agency_id`,`canonical_ref`),
+  KEY `idx_tper_canonical` (`canonical_ref`),
   CONSTRAINT `tracked_property_external_refs_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
   CONSTRAINT `tracked_property_external_refs_tracked_property_id_foreign` FOREIGN KEY (`tracked_property_id`) REFERENCES `tracked_properties` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -20528,6 +22547,7 @@ DROP TABLE IF EXISTS `tracked_property_owners`;
 /*!50503 SET character_set_client = utf8mb4 */;
 CREATE TABLE `tracked_property_owners` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
   `tracked_property_id` bigint unsigned NOT NULL,
   `contact_id` bigint unsigned DEFAULT NULL,
   `matched_contact_at` timestamp NULL DEFAULT NULL,
@@ -20547,6 +22567,8 @@ CREATE TABLE `tracked_property_owners` (
   KEY `tracked_property_owners_contact_id_foreign` (`contact_id`),
   KEY `tracked_property_owners_tracked_property_id_index` (`tracked_property_id`),
   KEY `tracked_property_owners_id_number_index` (`id_number`),
+  KEY `tpo_agency_id_index` (`agency_id`),
+  CONSTRAINT `tpo_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE RESTRICT,
   CONSTRAINT `tracked_property_owners_contact_id_foreign` FOREIGN KEY (`contact_id`) REFERENCES `contacts` (`id`) ON DELETE SET NULL,
   CONSTRAINT `tracked_property_owners_tracked_property_id_foreign` FOREIGN KEY (`tracked_property_id`) REFERENCES `tracked_properties` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -20711,6 +22733,28 @@ CREATE TABLE `training_lessons` (
   CONSTRAINT `training_lessons_course_id_foreign` FOREIGN KEY (`course_id`) REFERENCES `training_courses` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `training_platform_voices`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `training_platform_voices` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `voice_key` varchar(60) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `name` varchar(80) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `about` varchar(200) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `reference_file` varchar(200) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `reference_seconds` decimal(5,1) DEFAULT NULL,
+  `consent_confirmed_at` timestamp NOT NULL,
+  `consent_by_user_id` bigint unsigned DEFAULT NULL,
+  `is_default` tinyint(1) NOT NULL DEFAULT '0',
+  `is_active` tinyint(1) NOT NULL DEFAULT '1',
+  `created_by_user_id` bigint unsigned DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `training_platform_voices_voice_key_unique` (`voice_key`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `training_progress`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -20732,6 +22776,19 @@ CREATE TABLE `training_progress` (
   CONSTRAINT `training_progress_course_id_foreign` FOREIGN KEY (`course_id`) REFERENCES `training_courses` (`id`) ON DELETE CASCADE,
   CONSTRAINT `training_progress_lesson_id_foreign` FOREIGN KEY (`lesson_id`) REFERENCES `training_lessons` (`id`) ON DELETE CASCADE,
   CONSTRAINT `training_progress_user_id_foreign` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `training_settings`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `training_settings` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `key` varchar(60) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `value` text COLLATE utf8mb4_unicode_ci,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `training_settings_key_unique` (`key`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `training_video_groups`;
@@ -20757,21 +22814,44 @@ DROP TABLE IF EXISTS `training_videos`;
 /*!50503 SET character_set_client = utf8mb4 */;
 CREATE TABLE `training_videos` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `source` varchar(10) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'youtube',
+  `screen_key` varchar(80) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `voice_key` varchar(60) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `status` varchar(12) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'ready',
+  `failure_reason` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `training_video_group_id` bigint unsigned DEFAULT NULL,
   `title` varchar(200) COLLATE utf8mb4_unicode_ci NOT NULL,
   `description` text COLLATE utf8mb4_unicode_ci,
-  `youtube_url` varchar(500) COLLATE utf8mb4_unicode_ci NOT NULL,
-  `youtube_video_id` char(11) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `youtube_url` varchar(500) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `youtube_video_id` char(11) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `created_by` bigint unsigned DEFAULT NULL,
   `updated_by` bigint unsigned DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
   `deleted_at` timestamp NULL DEFAULT NULL,
+  `file_name` varchar(64) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `original_size_bytes` bigint unsigned DEFAULT NULL,
+  `size_bytes` bigint unsigned DEFAULT NULL,
+  `duration_seconds` int unsigned DEFAULT NULL,
+  `width` int unsigned DEFAULT NULL,
+  `height` int unsigned DEFAULT NULL,
+  `processing_started_at` timestamp NULL DEFAULT NULL,
+  `progress_percent` tinyint unsigned DEFAULT NULL,
+  `pending_upload_id` varchar(32) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `source_hash` char(40) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `generated_at` timestamp NULL DEFAULT NULL,
+  `tts_voice` varchar(80) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `captions_file` varchar(64) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `chapters` json DEFAULT NULL,
+  `generated_by` bigint unsigned DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `training_videos_training_video_group_id_foreign` (`training_video_group_id`),
   KEY `training_videos_created_by_foreign` (`created_by`),
   KEY `training_videos_updated_by_foreign` (`updated_by`),
   KEY `training_videos_youtube_video_id_index` (`youtube_video_id`),
+  KEY `training_videos_status_index` (`status`),
+  KEY `training_videos_screen_key_index` (`screen_key`),
+  KEY `training_videos_screen_voice_idx` (`screen_key`,`voice_key`),
   CONSTRAINT `training_videos_created_by_foreign` FOREIGN KEY (`created_by`) REFERENCES `users` (`id`) ON DELETE SET NULL,
   CONSTRAINT `training_videos_training_video_group_id_foreign` FOREIGN KEY (`training_video_group_id`) REFERENCES `training_video_groups` (`id`) ON DELETE SET NULL,
   CONSTRAINT `training_videos_updated_by_foreign` FOREIGN KEY (`updated_by`) REFERENCES `users` (`id`) ON DELETE SET NULL
@@ -21297,6 +23377,65 @@ CREATE TABLE `users` (
   CONSTRAINT `users_supervised_by_foreign` FOREIGN KEY (`supervised_by`) REFERENCES `users` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `video_ad_posts`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `video_ad_posts` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `video_ad_id` bigint unsigned NOT NULL,
+  `social_account_id` bigint unsigned DEFAULT NULL,
+  `format` varchar(8) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `message` text COLLATE utf8mb4_unicode_ci NOT NULL,
+  `status` varchar(12) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'scheduled',
+  `scheduled_for` datetime DEFAULT NULL,
+  `published_at` datetime DEFAULT NULL,
+  `platform_post_id` varchar(120) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `dry_run` tinyint(1) NOT NULL DEFAULT '0',
+  `failure_reason` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `created_by` bigint unsigned DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `video_ad_posts_video_ad_id_foreign` (`video_ad_id`),
+  KEY `video_ad_posts_created_by_foreign` (`created_by`),
+  KEY `video_ad_posts_status_scheduled_for_index` (`status`,`scheduled_for`),
+  CONSTRAINT `video_ad_posts_created_by_foreign` FOREIGN KEY (`created_by`) REFERENCES `users` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `video_ad_posts_video_ad_id_foreign` FOREIGN KEY (`video_ad_id`) REFERENCES `video_ads` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `video_ads`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `video_ads` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `feature_key` varchar(80) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `ad_number` int unsigned NOT NULL,
+  `name` varchar(40) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `snapshot` json NOT NULL,
+  `length_seconds` smallint unsigned NOT NULL,
+  `formats` json NOT NULL,
+  `voice_key` varchar(80) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `status` varchar(12) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'queued',
+  `progress_percent` tinyint unsigned DEFAULT NULL,
+  `stage` varchar(20) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `failure_reason` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `render_batch_id` varchar(64) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `files` json DEFAULT NULL,
+  `post_caption` text COLLATE utf8mb4_unicode_ci,
+  `post_hashtags` json DEFAULT NULL,
+  `generated_by` bigint unsigned DEFAULT NULL,
+  `generated_at` timestamp NULL DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `video_ads_feature_key_ad_number_unique` (`feature_key`,`ad_number`),
+  KEY `video_ads_generated_by_foreign` (`generated_by`),
+  KEY `video_ads_status_deleted_at_index` (`status`,`deleted_at`),
+  CONSTRAINT `video_ads_generated_by_foreign` FOREIGN KEY (`generated_by`) REFERENCES `users` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `viewing_feedback_migration_log`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -21788,877 +23927,939 @@ CREATE TABLE `worksheets` (
 /*!40101 SET NAMES utf8mb4 */;
 /*!40014 SET FOREIGN_KEY_CHECKS=0 */;
 /*!40014 SET UNIQUE_CHECKS=0 */;
-INSERT INTO `agency_timeline_default_items` (`id`, `kind`, `title`, `body`, `sort_order`, `offset_days`, `is_public`, `agency_can_complete`, `is_go_live`, `auto_complete_trigger`, `created_at`, `updated_at`, `deleted_at`) VALUES (1,'block','Where we are','Training is complete. The first month is your take-on month: we use it to set CoreX up for {{agency_name}}, bring your data across and get everyone comfortable on the system.',10,NULL,1,0,0,NULL,'2026-10-26 17:08:23','2026-10-26 17:08:23',NULL);
-INSERT INTO `agency_timeline_default_items` (`id`, `kind`, `title`, `body`, `sort_order`, `offset_days`, `is_public`, `agency_can_complete`, `is_go_live`, `auto_complete_trigger`, `created_at`, `updated_at`, `deleted_at`) VALUES (2,'block','Training going forward','Ad hoc training is free and unlimited. Anyone in your team can ask for a session at any time, as often as needed, until everyone is confident on the system. This applies during the take-on month and after go-live.',20,NULL,1,0,0,NULL,'2026-10-26 17:08:23','2026-10-26 17:08:23',NULL);
-INSERT INTO `agency_timeline_default_items` (`id`, `kind`, `title`, `body`, `sort_order`, `offset_days`, `is_public`, `agency_can_complete`, `is_go_live`, `auto_complete_trigger`, `created_at`, `updated_at`, `deleted_at`) VALUES (3,'block','What we need from you','1. Complete the take-on questionnaire. This is where you choose how CoreX works for {{agency_name}} - your processes, roles, documents and preferences - so we set it up your way, not ours.\n\n2. Your data from your current CRM. Please export whatever your current CRM allows (listings, contacts, buyers, sellers, deals, documents) and send it to us. If you are not sure how, we will help: we can connect via AnyDesk to one of your team\'s computers and find the best way together. Once you have given notice to your current provider, we contact Property24 for the data transfer document; you sign it, P24 releases your listing data to us, and we import it into CoreX.\n\n3. Your website decision - either we link CoreX to your current website, or we build you a new one.\n\n4. Sign the CoreX Subscription Agreement and debit order form. We will send the agreement with the debit order form attached for signature.',30,NULL,1,0,0,NULL,'2026-10-26 17:08:23','2026-10-26 17:08:23',NULL);
-INSERT INTO `agency_timeline_default_items` (`id`, `kind`, `title`, `body`, `sort_order`, `offset_days`, `is_public`, `agency_can_complete`, `is_go_live`, `auto_complete_trigger`, `created_at`, `updated_at`, `deleted_at`) VALUES (4,'block','Finances','No charge for the take-on month. Billing starts on {{billing_start_date}}.',40,NULL,1,0,0,NULL,'2026-10-26 17:08:23','2026-10-26 17:08:23',NULL);
-INSERT INTO `agency_timeline_default_items` (`id`, `kind`, `title`, `body`, `sort_order`, `offset_days`, `is_public`, `agency_can_complete`, `is_go_live`, `auto_complete_trigger`, `created_at`, `updated_at`, `deleted_at`) VALUES (5,'milestone','Take-on questionnaire completed','Choose how CoreX works for your agency.',10,3,1,1,0,NULL,'2026-10-26 17:08:23','2026-10-26 17:08:23',NULL);
-INSERT INTO `agency_timeline_default_items` (`id`, `kind`, `title`, `body`, `sort_order`, `offset_days`, `is_public`, `agency_can_complete`, `is_go_live`, `auto_complete_trigger`, `created_at`, `updated_at`, `deleted_at`) VALUES (6,'milestone','CRM data exported and sent to us','AnyDesk session if needed. Notice given to current provider and Property24 transfer document signed.',20,10,1,1,0,NULL,'2026-10-26 17:08:23','2026-10-26 17:08:23',NULL);
-INSERT INTO `agency_timeline_default_items` (`id`, `kind`, `title`, `body`, `sort_order`, `offset_days`, `is_public`, `agency_can_complete`, `is_go_live`, `auto_complete_trigger`, `created_at`, `updated_at`, `deleted_at`) VALUES (7,'milestone','Sign the CoreX Subscription Agreement and debit order form','To be signed before billing starts.',30,10,1,0,0,'contract_signed','2026-10-26 17:08:23','2026-10-26 17:08:23',NULL);
-INSERT INTO `agency_timeline_default_items` (`id`, `kind`, `title`, `body`, `sort_order`, `offset_days`, `is_public`, `agency_can_complete`, `is_go_live`, `auto_complete_trigger`, `created_at`, `updated_at`, `deleted_at`) VALUES (8,'milestone','Data imported, CoreX set up per your questionnaire, website work starts',NULL,40,13,1,0,0,NULL,'2026-10-26 17:08:23','2026-10-26 17:08:23',NULL);
-INSERT INTO `agency_timeline_default_items` (`id`, `kind`, `title`, `body`, `sort_order`, `offset_days`, `is_public`, `agency_can_complete`, `is_go_live`, `auto_complete_trigger`, `created_at`, `updated_at`, `deleted_at`) VALUES (9,'milestone','Agency setup wizard completed','Walk through the guided setup in CoreX.',50,20,1,0,0,'setup_wizard_completed','2026-10-26 17:08:23','2026-10-26 17:08:23',NULL);
-INSERT INTO `agency_timeline_default_items` (`id`, `kind`, `title`, `body`, `sort_order`, `offset_days`, `is_public`, `agency_can_complete`, `is_go_live`, `auto_complete_trigger`, `created_at`, `updated_at`, `deleted_at`) VALUES (10,'milestone','Team works in CoreX alongside ad hoc training',NULL,60,29,1,0,0,NULL,'2026-10-26 17:08:23','2026-10-26 17:08:23',NULL);
-INSERT INTO `agency_timeline_default_items` (`id`, `kind`, `title`, `body`, `sort_order`, `offset_days`, `is_public`, `agency_can_complete`, `is_go_live`, `auto_complete_trigger`, `created_at`, `updated_at`, `deleted_at`) VALUES (11,'milestone','{{agency_name}} live on CoreX','Billing starts the day after go-live.',70,30,1,0,1,NULL,'2026-10-26 17:08:23','2026-10-26 17:08:23',NULL);
-INSERT INTO `article_sources` (`id`, `name`, `url`, `type`, `is_active`, `last_run_at`, `last_status`, `last_error`, `last_new_articles`, `created_by`, `created_at`, `updated_at`, `deleted_at`) VALUES (1,'BusinessTech Property','https://businesstech.co.za/news/category/property/feed/','rss',1,NULL,NULL,NULL,NULL,NULL,'2026-10-26 17:13:14','2026-10-26 17:13:14',NULL);
-INSERT INTO `article_sources` (`id`, `name`, `url`, `type`, `is_active`, `last_run_at`, `last_status`, `last_error`, `last_new_articles`, `created_by`, `created_at`, `updated_at`, `deleted_at`) VALUES (2,'Daily Investor Property','https://dailyinvestor.com/category/south-africa/property/feed/','rss',1,NULL,NULL,NULL,NULL,NULL,'2026-10-26 17:13:14','2026-10-26 17:13:14',NULL);
-INSERT INTO `article_sources` (`id`, `name`, `url`, `type`, `is_active`, `last_run_at`, `last_status`, `last_error`, `last_new_articles`, `created_by`, `created_at`, `updated_at`, `deleted_at`) VALUES (3,'IOL Property','https://www.iol.co.za/news/south-africa/rss','rss',1,NULL,NULL,NULL,NULL,NULL,'2026-10-26 17:13:14','2026-10-26 17:13:14',NULL);
-INSERT INTO `article_sources` (`id`, `name`, `url`, `type`, `is_active`, `last_run_at`, `last_status`, `last_error`, `last_new_articles`, `created_by`, `created_at`, `updated_at`, `deleted_at`) VALUES (4,'Property24 Advice','https://www.property24.com/articles/rss','rss',1,NULL,NULL,NULL,NULL,NULL,'2026-10-26 17:13:14','2026-10-26 17:13:14',NULL);
-INSERT INTO `article_sources` (`id`, `name`, `url`, `type`, `is_active`, `last_run_at`, `last_status`, `last_error`, `last_new_articles`, `created_by`, `created_at`, `updated_at`, `deleted_at`) VALUES (5,'MyBroadband Property','https://mybroadband.co.za/news/category/property/feed/','rss',1,NULL,NULL,NULL,NULL,NULL,'2026-10-26 17:13:14','2026-10-26 17:13:14',NULL);
-INSERT INTO `calculator_fee_scales` (`id`, `type`, `brackets`, `source_document`, `effective_date`, `additional_costs_note`, `uploaded_by`, `created_at`, `updated_at`) VALUES (1,'conveyancing','[{\"fee\": 6435, \"max\": 100000}, {\"fee\": 7460, \"max\": 150000}, {\"fee\": 8485, \"max\": 200000}, {\"fee\": 9510, \"max\": 250000}, {\"fee\": 10535, \"max\": 290000}, {\"fee\": 11560, \"max\": 350000}, {\"fee\": 12585, \"max\": 400000}, {\"fee\": 13610, \"max\": 440000}, {\"fee\": 14635, \"max\": 500000}, {\"fee\": 16620, \"max\": 600000}, {\"fee\": 18605, \"max\": 700000}, {\"fee\": 20590, \"max\": 800000}, {\"fee\": 22575, \"max\": 900000}, {\"fee\": 24560, \"max\": 1000000}, {\"fee\": 26545, \"max\": 1200000}, {\"fee\": 28530, \"max\": 1400000}, {\"fee\": 30515, \"max\": 1600000}, {\"fee\": 32500, \"max\": 1800000}, {\"fee\": 34485, \"max\": 2000000}, {\"fee\": 36470, \"max\": 2200000}, {\"fee\": 38455, \"max\": 2400000}, {\"fee\": 40440, \"max\": 2600000}, {\"fee\": 42425, \"max\": 2800000}, {\"fee\": 44410, \"max\": 3000000}, {\"fee\": 46395, \"max\": 3200000}, {\"fee\": 48380, \"max\": 3400000}, {\"fee\": 50365, \"max\": 3600000}, {\"fee\": 52350, \"max\": 3800000}, {\"fee\": 54335, \"max\": 4000000}, {\"fee\": 56320, \"max\": 4200000}, {\"fee\": 58305, \"max\": 4400000}, {\"fee\": 60290, \"max\": 4600000}, {\"fee\": 62275, \"max\": 4800000}, {\"fee\": 64260, \"max\": 5000000}, {\"fee\": 69260, \"max\": 5750000}, {\"fee\": 69260, \"max\": 6000000}, {\"fee\": 74260, \"max\": 6750000}, {\"fee\": 74260, \"max\": 7000000}, {\"fee\": 79260, \"max\": 7750000}, {\"fee\": 79260, \"max\": 8000000}, {\"fee\": 84260, \"max\": 8750000}, {\"fee\": 84260, \"max\": 9000000}, {\"fee\": 89260, \"max\": 9750000}, {\"fee\": 89260, \"max\": 10000000}]','Van Dyk & Swart Inc. 2025','2025-03-01',NULL,NULL,'2026-10-26 16:47:42','2026-10-26 16:47:42');
-INSERT INTO `calculator_fee_scales` (`id`, `type`, `brackets`, `source_document`, `effective_date`, `additional_costs_note`, `uploaded_by`, `created_at`, `updated_at`) VALUES (2,'deeds_office','[{\"fee\": 50, \"max\": 100000}, {\"fee\": 114, \"max\": 200000}, {\"fee\": 727, \"max\": 300000}, {\"fee\": 906, \"max\": 600000}, {\"fee\": 1275, \"max\": 800000}, {\"fee\": 1464, \"max\": 1000000}, {\"fee\": 1646, \"max\": 1200000}, {\"fee\": 1646, \"max\": 2000000}, {\"fee\": 2281, \"max\": 3000000}, {\"fee\": 2281, \"max\": 4000000}, {\"fee\": 2767, \"max\": 5000000}, {\"fee\": 2767, \"max\": 6000000}, {\"fee\": 3296, \"max\": 7000000}, {\"fee\": 3296, \"max\": 8000000}, {\"fee\": 3853, \"max\": 9000000}, {\"fee\": 3853, \"max\": 10000000}]','Van Dyk & Swart Inc. 2025','2025-03-01',NULL,NULL,'2026-10-26 16:47:42','2026-10-26 16:47:42');
-INSERT INTO `calculator_fee_scales` (`id`, `type`, `brackets`, `source_document`, `effective_date`, `additional_costs_note`, `uploaded_by`, `created_at`, `updated_at`) VALUES (3,'transfer_duty','[{\"to\": 1210000, \"from\": 0, \"rate\": 0}, {\"to\": 1663800, \"from\": 1210000, \"rate\": 0.03}, {\"to\": 2329300, \"from\": 1663800, \"rate\": 0.06}, {\"to\": 2994800, \"from\": 2329300, \"rate\": 0.08}, {\"to\": 12100000, \"from\": 2994800, \"rate\": 0.11}, {\"to\": 999999999, \"from\": 12100000, \"rate\": 0.13}]','Van Dyk & Swart Inc. 2025','2025-03-01',NULL,NULL,'2026-10-26 16:47:42','2026-10-26 16:47:42');
-INSERT INTO `contact_types` (`id`, `name`, `color`, `sort_order`, `esign_role`, `is_active`, `created_at`, `updated_at`, `deleted_at`) VALUES (3,'Seller','#e67e22',1,'seller',1,'2026-10-26 16:48:28','2026-10-26 16:59:32',NULL);
-INSERT INTO `contact_types` (`id`, `name`, `color`, `sort_order`, `esign_role`, `is_active`, `created_at`, `updated_at`, `deleted_at`) VALUES (4,'Buyer','#27ae60',2,'buyer',1,'2026-10-26 16:48:28','2026-10-26 16:59:32',NULL);
-INSERT INTO `contact_types` (`id`, `name`, `color`, `sort_order`, `esign_role`, `is_active`, `created_at`, `updated_at`, `deleted_at`) VALUES (5,'Witness','#7f8c8d',5,NULL,1,'2026-10-26 16:48:28','2026-10-26 16:48:28',NULL);
-INSERT INTO `contact_types` (`id`, `name`, `color`, `sort_order`, `esign_role`, `is_active`, `created_at`, `updated_at`, `deleted_at`) VALUES (6,'Lessor','#6366f1',3,'lessor',1,'2026-10-26 16:59:32','2026-10-26 16:59:32',NULL);
-INSERT INTO `contact_types` (`id`, `name`, `color`, `sort_order`, `esign_role`, `is_active`, `created_at`, `updated_at`, `deleted_at`) VALUES (7,'Lessee','#6366f1',4,'lessee',1,'2026-10-26 16:59:32','2026-10-26 16:59:32',NULL);
-INSERT INTO `contact_types` (`id`, `name`, `color`, `sort_order`, `esign_role`, `is_active`, `created_at`, `updated_at`, `deleted_at`) VALUES (8,'Owner','#6366f1',5,NULL,1,'2026-10-26 16:59:38','2026-10-26 16:59:38',NULL);
-INSERT INTO `contact_types` (`id`, `name`, `color`, `sort_order`, `esign_role`, `is_active`, `created_at`, `updated_at`, `deleted_at`) VALUES (9,'Other','#6366f1',6,NULL,1,'2026-10-26 16:59:38','2026-10-26 16:59:38',NULL);
-INSERT INTO `contact_types` (`id`, `name`, `color`, `sort_order`, `esign_role`, `is_active`, `created_at`, `updated_at`, `deleted_at`) VALUES (10,'Tenant','#6366f1',0,'lessee',1,'2026-10-26 17:05:29','2026-10-26 17:05:29',NULL);
-INSERT INTO `designations` (`id`, `name`, `sort_order`, `is_enabled`, `created_at`, `updated_at`, `deleted_at`) VALUES (1,'Candidate Property Practitioner',10,1,'2026-10-26 16:47:02','2026-10-26 16:47:02',NULL);
-INSERT INTO `designations` (`id`, `name`, `sort_order`, `is_enabled`, `created_at`, `updated_at`, `deleted_at`) VALUES (2,'Property Practitioner',20,1,'2026-10-26 16:47:02','2026-10-26 16:47:02',NULL);
-INSERT INTO `designations` (`id`, `name`, `sort_order`, `is_enabled`, `created_at`, `updated_at`, `deleted_at`) VALUES (3,'Principal',30,1,'2026-10-26 16:47:02','2026-10-26 16:47:02',NULL);
-INSERT INTO `document_library_types` (`id`, `key`, `label`, `sort_order`, `is_active`, `created_at`, `updated_at`, `deleted_at`) VALUES (1,'suburb_stats','Suburb Stats',1,1,'2026-10-26 16:48:05','2026-10-26 16:48:05',NULL);
-INSERT INTO `document_library_types` (`id`, `key`, `label`, `sort_order`, `is_active`, `created_at`, `updated_at`, `deleted_at`) VALUES (2,'suburb_sales','Suburb Sales',2,1,'2026-10-26 16:48:05','2026-10-26 16:48:05',NULL);
-INSERT INTO `document_library_types` (`id`, `key`, `label`, `sort_order`, `is_active`, `created_at`, `updated_at`, `deleted_at`) VALUES (3,'vicinity_sales','Vicinity Sales',3,1,'2026-10-26 16:48:05','2026-10-26 16:48:05',NULL);
-INSERT INTO `document_library_types` (`id`, `key`, `label`, `sort_order`, `is_active`, `created_at`, `updated_at`, `deleted_at`) VALUES (4,'cma','CMA',4,1,'2026-10-26 16:48:05','2026-10-26 16:48:05',NULL);
-INSERT INTO `document_library_types` (`id`, `key`, `label`, `sort_order`, `is_active`, `created_at`, `updated_at`, `deleted_at`) VALUES (5,'market_article','Market Article',5,1,'2026-10-26 16:48:05','2026-10-26 16:48:05',NULL);
-INSERT INTO `document_library_types` (`id`, `key`, `label`, `sort_order`, `is_active`, `created_at`, `updated_at`, `deleted_at`) VALUES (6,'market_report','Market Report',6,1,'2026-10-26 16:48:05','2026-10-26 16:48:05',NULL);
-INSERT INTO `document_library_types` (`id`, `key`, `label`, `sort_order`, `is_active`, `created_at`, `updated_at`, `deleted_at`) VALUES (7,'other','Other',7,1,'2026-10-26 16:48:05','2026-10-26 16:48:05',NULL);
-INSERT INTO `document_types` (`id`, `slug`, `label`, `sort_order`, `is_active`, `grouping`, `contact_roles`, `fica_slot`, `buyer_pack_eligible`, `esign_warning_required`, `listing_types`, `created_at`, `updated_at`, `deleted_at`) VALUES (1,'mandate','Mandate',1,1,'shared','[\"seller_owner\"]','none',0,0,NULL,'2026-10-26 16:48:06','2026-10-26 16:48:06',NULL);
-INSERT INTO `document_types` (`id`, `slug`, `label`, `sort_order`, `is_active`, `grouping`, `contact_roles`, `fica_slot`, `buyer_pack_eligible`, `esign_warning_required`, `listing_types`, `created_at`, `updated_at`, `deleted_at`) VALUES (2,'fica','FICA',2,1,'contact','[\"seller_owner\"]','fica_form',0,0,NULL,'2026-10-26 16:48:06','2026-10-26 16:48:06',NULL);
-INSERT INTO `document_types` (`id`, `slug`, `label`, `sort_order`, `is_active`, `grouping`, `contact_roles`, `fica_slot`, `buyer_pack_eligible`, `esign_warning_required`, `listing_types`, `created_at`, `updated_at`, `deleted_at`) VALUES (3,'ids','IDs / Identity',3,1,'contact','[\"seller_owner\"]','id',0,0,NULL,'2026-10-26 16:48:06','2026-10-26 16:48:06',NULL);
-INSERT INTO `document_types` (`id`, `slug`, `label`, `sort_order`, `is_active`, `grouping`, `contact_roles`, `fica_slot`, `buyer_pack_eligible`, `esign_warning_required`, `listing_types`, `created_at`, `updated_at`, `deleted_at`) VALUES (4,'por','Proof of Residence',4,1,'contact','[\"seller_owner\"]','por',0,0,NULL,'2026-10-26 16:48:06','2026-10-26 16:48:06',NULL);
-INSERT INTO `document_types` (`id`, `slug`, `label`, `sort_order`, `is_active`, `grouping`, `contact_roles`, `fica_slot`, `buyer_pack_eligible`, `esign_warning_required`, `listing_types`, `created_at`, `updated_at`, `deleted_at`) VALUES (5,'condition_report','Condition Report',5,1,'property',NULL,'none',1,0,NULL,'2026-10-26 16:48:06','2026-10-26 16:48:06',NULL);
-INSERT INTO `document_types` (`id`, `slug`, `label`, `sort_order`, `is_active`, `grouping`, `contact_roles`, `fica_slot`, `buyer_pack_eligible`, `esign_warning_required`, `listing_types`, `created_at`, `updated_at`, `deleted_at`) VALUES (6,'listing_form','Listing Form',6,1,'shared','[\"seller_owner\"]','none',0,0,NULL,'2026-10-26 16:48:06','2026-10-26 16:48:06',NULL);
-INSERT INTO `document_types` (`id`, `slug`, `label`, `sort_order`, `is_active`, `grouping`, `contact_roles`, `fica_slot`, `buyer_pack_eligible`, `esign_warning_required`, `listing_types`, `created_at`, `updated_at`, `deleted_at`) VALUES (7,'rates_taxes','Rates & Taxes',7,1,'property',NULL,'none',1,0,NULL,'2026-10-26 16:48:06','2026-10-26 16:48:06',NULL);
-INSERT INTO `document_types` (`id`, `slug`, `label`, `sort_order`, `is_active`, `grouping`, `contact_roles`, `fica_slot`, `buyer_pack_eligible`, `esign_warning_required`, `listing_types`, `created_at`, `updated_at`, `deleted_at`) VALUES (8,'body_corporate','Body Corporate',8,1,'property',NULL,'none',1,0,NULL,'2026-10-26 16:48:06','2026-10-26 16:48:06',NULL);
-INSERT INTO `document_types` (`id`, `slug`, `label`, `sort_order`, `is_active`, `grouping`, `contact_roles`, `fica_slot`, `buyer_pack_eligible`, `esign_warning_required`, `listing_types`, `created_at`, `updated_at`, `deleted_at`) VALUES (9,'house_rules','House Rules',9,1,'property',NULL,'none',1,0,NULL,'2026-10-26 16:48:06','2026-10-26 16:48:06',NULL);
-INSERT INTO `document_types` (`id`, `slug`, `label`, `sort_order`, `is_active`, `grouping`, `contact_roles`, `fica_slot`, `buyer_pack_eligible`, `esign_warning_required`, `listing_types`, `created_at`, `updated_at`, `deleted_at`) VALUES (10,'offer_to_purchase','Offer to Purchase',10,0,'shared','[\"seller_owner\", \"buyer\"]','none',0,1,NULL,'2026-10-26 16:48:06','2026-10-26 17:02:18','2026-10-26 17:02:18');
-INSERT INTO `document_types` (`id`, `slug`, `label`, `sort_order`, `is_active`, `grouping`, `contact_roles`, `fica_slot`, `buyer_pack_eligible`, `esign_warning_required`, `listing_types`, `created_at`, `updated_at`, `deleted_at`) VALUES (11,'disclosure','Disclosure',11,1,'shared','[\"seller_owner\"]','none',1,0,NULL,'2026-10-26 16:48:06','2026-10-26 16:48:06',NULL);
-INSERT INTO `document_types` (`id`, `slug`, `label`, `sort_order`, `is_active`, `grouping`, `contact_roles`, `fica_slot`, `buyer_pack_eligible`, `esign_warning_required`, `listing_types`, `created_at`, `updated_at`, `deleted_at`) VALUES (12,'other','Other',12,1,'shared',NULL,'none',0,0,NULL,'2026-10-26 16:48:06','2026-10-26 16:48:06',NULL);
-INSERT INTO `document_types` (`id`, `slug`, `label`, `sort_order`, `is_active`, `grouping`, `contact_roles`, `fica_slot`, `buyer_pack_eligible`, `esign_warning_required`, `listing_types`, `created_at`, `updated_at`, `deleted_at`) VALUES (13,'addendum','Addendums',13,1,'shared',NULL,'none',0,0,NULL,'2026-10-26 16:49:37','2026-10-26 16:49:37',NULL);
-INSERT INTO `document_types` (`id`, `slug`, `label`, `sort_order`, `is_active`, `grouping`, `contact_roles`, `fica_slot`, `buyer_pack_eligible`, `esign_warning_required`, `listing_types`, `created_at`, `updated_at`, `deleted_at`) VALUES (14,'rental_agreement','Rental Agreements',14,1,'shared',NULL,'none',0,0,NULL,'2026-10-26 16:49:37','2026-10-26 16:49:37',NULL);
-INSERT INTO `document_types` (`id`, `slug`, `label`, `sort_order`, `is_active`, `grouping`, `contact_roles`, `fica_slot`, `buyer_pack_eligible`, `esign_warning_required`, `listing_types`, `created_at`, `updated_at`, `deleted_at`) VALUES (15,'lease_agreement','Lease Agreement',15,1,'shared',NULL,'none',0,0,NULL,'2026-10-26 16:49:37','2026-10-26 16:49:37',NULL);
-INSERT INTO `document_types` (`id`, `slug`, `label`, `sort_order`, `is_active`, `grouping`, `contact_roles`, `fica_slot`, `buyer_pack_eligible`, `esign_warning_required`, `listing_types`, `created_at`, `updated_at`, `deleted_at`) VALUES (16,'notice','Notice',16,1,'shared',NULL,'none',0,0,NULL,'2026-10-26 16:49:37','2026-10-26 16:49:37',NULL);
-INSERT INTO `document_types` (`id`, `slug`, `label`, `sort_order`, `is_active`, `grouping`, `contact_roles`, `fica_slot`, `buyer_pack_eligible`, `esign_warning_required`, `listing_types`, `created_at`, `updated_at`, `deleted_at`) VALUES (17,'inspection_report','Inspection Report',17,1,'shared',NULL,'none',1,0,NULL,'2026-10-26 16:49:37','2026-10-26 16:49:37',NULL);
-INSERT INTO `document_types` (`id`, `slug`, `label`, `sort_order`, `is_active`, `grouping`, `contact_roles`, `fica_slot`, `buyer_pack_eligible`, `esign_warning_required`, `listing_types`, `created_at`, `updated_at`, `deleted_at`) VALUES (18,'power_of_attorney','Power of Attorney',18,1,'shared',NULL,'none',0,0,NULL,'2026-10-26 16:49:37','2026-10-26 16:49:37',NULL);
+INSERT INTO `agency_timeline_default_items` (`id`, `kind`, `title`, `body`, `sort_order`, `offset_days`, `is_public`, `agency_can_complete`, `is_go_live`, `auto_complete_trigger`, `created_at`, `updated_at`, `deleted_at`) VALUES (1,'block','Where we are','Training is complete. The first month is your take-on month: we use it to set CoreX up for {{agency_name}}, bring your data across and get everyone comfortable on the system.',10,NULL,1,0,0,NULL,'2026-11-03 14:37:42','2026-11-03 14:37:42',NULL);
+INSERT INTO `agency_timeline_default_items` (`id`, `kind`, `title`, `body`, `sort_order`, `offset_days`, `is_public`, `agency_can_complete`, `is_go_live`, `auto_complete_trigger`, `created_at`, `updated_at`, `deleted_at`) VALUES (2,'block','Training going forward','Ad hoc training is free and unlimited. Anyone in your team can ask for a session at any time, as often as needed, until everyone is confident on the system. This applies during the take-on month and after go-live.',20,NULL,1,0,0,NULL,'2026-11-03 14:37:42','2026-11-03 14:37:42',NULL);
+INSERT INTO `agency_timeline_default_items` (`id`, `kind`, `title`, `body`, `sort_order`, `offset_days`, `is_public`, `agency_can_complete`, `is_go_live`, `auto_complete_trigger`, `created_at`, `updated_at`, `deleted_at`) VALUES (3,'block','What we need from you','1. Complete the take-on questionnaire. This is where you choose how CoreX works for {{agency_name}} - your processes, roles, documents and preferences - so we set it up your way, not ours.\n\n2. Your data from your current CRM. Please export whatever your current CRM allows (listings, contacts, buyers, sellers, deals, documents) and send it to us. If you are not sure how, we will help: we can connect via AnyDesk to one of your team\'s computers and find the best way together. Once you have given notice to your current provider, we contact Property24 for the data transfer document; you sign it, P24 releases your listing data to us, and we import it into CoreX.\n\n3. Your website decision - either we link CoreX to your current website, or we build you a new one.\n\n4. Sign the CoreX Subscription Agreement and debit order form. We will send the agreement with the debit order form attached for signature.',30,NULL,1,0,0,NULL,'2026-11-03 14:37:42','2026-11-03 14:37:42',NULL);
+INSERT INTO `agency_timeline_default_items` (`id`, `kind`, `title`, `body`, `sort_order`, `offset_days`, `is_public`, `agency_can_complete`, `is_go_live`, `auto_complete_trigger`, `created_at`, `updated_at`, `deleted_at`) VALUES (4,'block','Finances','No charge for the take-on month. Billing starts on {{billing_start_date}}.',40,NULL,1,0,0,NULL,'2026-11-03 14:37:42','2026-11-03 14:37:42',NULL);
+INSERT INTO `agency_timeline_default_items` (`id`, `kind`, `title`, `body`, `sort_order`, `offset_days`, `is_public`, `agency_can_complete`, `is_go_live`, `auto_complete_trigger`, `created_at`, `updated_at`, `deleted_at`) VALUES (5,'milestone','Take-on questionnaire completed','Choose how CoreX works for your agency.',10,3,1,1,0,NULL,'2026-11-03 14:37:42','2026-11-03 14:37:42',NULL);
+INSERT INTO `agency_timeline_default_items` (`id`, `kind`, `title`, `body`, `sort_order`, `offset_days`, `is_public`, `agency_can_complete`, `is_go_live`, `auto_complete_trigger`, `created_at`, `updated_at`, `deleted_at`) VALUES (6,'milestone','CRM data exported and sent to us','AnyDesk session if needed. Notice given to current provider and Property24 transfer document signed.',20,10,1,1,0,NULL,'2026-11-03 14:37:42','2026-11-03 14:37:42',NULL);
+INSERT INTO `agency_timeline_default_items` (`id`, `kind`, `title`, `body`, `sort_order`, `offset_days`, `is_public`, `agency_can_complete`, `is_go_live`, `auto_complete_trigger`, `created_at`, `updated_at`, `deleted_at`) VALUES (7,'milestone','Sign the CoreX Subscription Agreement and debit order form','To be signed before billing starts.',30,10,1,0,0,'contract_signed','2026-11-03 14:37:42','2026-11-03 14:37:42',NULL);
+INSERT INTO `agency_timeline_default_items` (`id`, `kind`, `title`, `body`, `sort_order`, `offset_days`, `is_public`, `agency_can_complete`, `is_go_live`, `auto_complete_trigger`, `created_at`, `updated_at`, `deleted_at`) VALUES (8,'milestone','Data imported, CoreX set up per your questionnaire, website work starts',NULL,40,13,1,0,0,NULL,'2026-11-03 14:37:42','2026-11-03 14:37:42',NULL);
+INSERT INTO `agency_timeline_default_items` (`id`, `kind`, `title`, `body`, `sort_order`, `offset_days`, `is_public`, `agency_can_complete`, `is_go_live`, `auto_complete_trigger`, `created_at`, `updated_at`, `deleted_at`) VALUES (9,'milestone','Agency setup wizard completed','Walk through the guided setup in CoreX.',50,20,1,0,0,'setup_wizard_completed','2026-11-03 14:37:42','2026-11-03 14:37:42',NULL);
+INSERT INTO `agency_timeline_default_items` (`id`, `kind`, `title`, `body`, `sort_order`, `offset_days`, `is_public`, `agency_can_complete`, `is_go_live`, `auto_complete_trigger`, `created_at`, `updated_at`, `deleted_at`) VALUES (10,'milestone','Team works in CoreX alongside ad hoc training',NULL,60,29,1,0,0,NULL,'2026-11-03 14:37:42','2026-11-03 14:37:42',NULL);
+INSERT INTO `agency_timeline_default_items` (`id`, `kind`, `title`, `body`, `sort_order`, `offset_days`, `is_public`, `agency_can_complete`, `is_go_live`, `auto_complete_trigger`, `created_at`, `updated_at`, `deleted_at`) VALUES (11,'milestone','{{agency_name}} live on CoreX','Billing starts the day after go-live.',70,30,1,0,1,NULL,'2026-11-03 14:37:42','2026-11-03 14:37:42',NULL);
+INSERT INTO `article_sources` (`id`, `name`, `url`, `type`, `is_active`, `last_run_at`, `last_status`, `last_error`, `last_new_articles`, `created_by`, `created_at`, `updated_at`, `deleted_at`) VALUES (1,'BusinessTech Property','https://businesstech.co.za/news/category/property/feed/','rss',1,NULL,NULL,NULL,NULL,NULL,'2026-11-03 14:43:08','2026-11-03 14:43:08',NULL);
+INSERT INTO `article_sources` (`id`, `name`, `url`, `type`, `is_active`, `last_run_at`, `last_status`, `last_error`, `last_new_articles`, `created_by`, `created_at`, `updated_at`, `deleted_at`) VALUES (2,'Daily Investor Property','https://dailyinvestor.com/category/south-africa/property/feed/','rss',1,NULL,NULL,NULL,NULL,NULL,'2026-11-03 14:43:08','2026-11-03 14:43:08',NULL);
+INSERT INTO `article_sources` (`id`, `name`, `url`, `type`, `is_active`, `last_run_at`, `last_status`, `last_error`, `last_new_articles`, `created_by`, `created_at`, `updated_at`, `deleted_at`) VALUES (3,'IOL Property','https://www.iol.co.za/news/south-africa/rss','rss',1,NULL,NULL,NULL,NULL,NULL,'2026-11-03 14:43:08','2026-11-03 14:43:08',NULL);
+INSERT INTO `article_sources` (`id`, `name`, `url`, `type`, `is_active`, `last_run_at`, `last_status`, `last_error`, `last_new_articles`, `created_by`, `created_at`, `updated_at`, `deleted_at`) VALUES (4,'Property24 Advice','https://www.property24.com/articles/rss','rss',1,NULL,NULL,NULL,NULL,NULL,'2026-11-03 14:43:08','2026-11-03 14:43:08',NULL);
+INSERT INTO `article_sources` (`id`, `name`, `url`, `type`, `is_active`, `last_run_at`, `last_status`, `last_error`, `last_new_articles`, `created_by`, `created_at`, `updated_at`, `deleted_at`) VALUES (5,'MyBroadband Property','https://mybroadband.co.za/news/category/property/feed/','rss',1,NULL,NULL,NULL,NULL,NULL,'2026-11-03 14:43:08','2026-11-03 14:43:08',NULL);
+INSERT INTO `calculator_fee_scales` (`id`, `type`, `brackets`, `source_document`, `effective_date`, `additional_costs_note`, `uploaded_by`, `created_at`, `updated_at`) VALUES (1,'conveyancing','[{\"fee\": 6435, \"max\": 100000}, {\"fee\": 7460, \"max\": 150000}, {\"fee\": 8485, \"max\": 200000}, {\"fee\": 9510, \"max\": 250000}, {\"fee\": 10535, \"max\": 290000}, {\"fee\": 11560, \"max\": 350000}, {\"fee\": 12585, \"max\": 400000}, {\"fee\": 13610, \"max\": 440000}, {\"fee\": 14635, \"max\": 500000}, {\"fee\": 16620, \"max\": 600000}, {\"fee\": 18605, \"max\": 700000}, {\"fee\": 20590, \"max\": 800000}, {\"fee\": 22575, \"max\": 900000}, {\"fee\": 24560, \"max\": 1000000}, {\"fee\": 26545, \"max\": 1200000}, {\"fee\": 28530, \"max\": 1400000}, {\"fee\": 30515, \"max\": 1600000}, {\"fee\": 32500, \"max\": 1800000}, {\"fee\": 34485, \"max\": 2000000}, {\"fee\": 36470, \"max\": 2200000}, {\"fee\": 38455, \"max\": 2400000}, {\"fee\": 40440, \"max\": 2600000}, {\"fee\": 42425, \"max\": 2800000}, {\"fee\": 44410, \"max\": 3000000}, {\"fee\": 46395, \"max\": 3200000}, {\"fee\": 48380, \"max\": 3400000}, {\"fee\": 50365, \"max\": 3600000}, {\"fee\": 52350, \"max\": 3800000}, {\"fee\": 54335, \"max\": 4000000}, {\"fee\": 56320, \"max\": 4200000}, {\"fee\": 58305, \"max\": 4400000}, {\"fee\": 60290, \"max\": 4600000}, {\"fee\": 62275, \"max\": 4800000}, {\"fee\": 64260, \"max\": 5000000}, {\"fee\": 69260, \"max\": 5750000}, {\"fee\": 69260, \"max\": 6000000}, {\"fee\": 74260, \"max\": 6750000}, {\"fee\": 74260, \"max\": 7000000}, {\"fee\": 79260, \"max\": 7750000}, {\"fee\": 79260, \"max\": 8000000}, {\"fee\": 84260, \"max\": 8750000}, {\"fee\": 84260, \"max\": 9000000}, {\"fee\": 89260, \"max\": 9750000}, {\"fee\": 89260, \"max\": 10000000}]','Van Dyk & Swart Inc. 2025','2025-03-01',NULL,NULL,'2026-11-03 14:17:15','2026-11-03 14:17:15');
+INSERT INTO `calculator_fee_scales` (`id`, `type`, `brackets`, `source_document`, `effective_date`, `additional_costs_note`, `uploaded_by`, `created_at`, `updated_at`) VALUES (2,'deeds_office','[{\"fee\": 50, \"max\": 100000}, {\"fee\": 114, \"max\": 200000}, {\"fee\": 727, \"max\": 300000}, {\"fee\": 906, \"max\": 600000}, {\"fee\": 1275, \"max\": 800000}, {\"fee\": 1464, \"max\": 1000000}, {\"fee\": 1646, \"max\": 1200000}, {\"fee\": 1646, \"max\": 2000000}, {\"fee\": 2281, \"max\": 3000000}, {\"fee\": 2281, \"max\": 4000000}, {\"fee\": 2767, \"max\": 5000000}, {\"fee\": 2767, \"max\": 6000000}, {\"fee\": 3296, \"max\": 7000000}, {\"fee\": 3296, \"max\": 8000000}, {\"fee\": 3853, \"max\": 9000000}, {\"fee\": 3853, \"max\": 10000000}]','Van Dyk & Swart Inc. 2025','2025-03-01',NULL,NULL,'2026-11-03 14:17:15','2026-11-03 14:17:15');
+INSERT INTO `calculator_fee_scales` (`id`, `type`, `brackets`, `source_document`, `effective_date`, `additional_costs_note`, `uploaded_by`, `created_at`, `updated_at`) VALUES (3,'transfer_duty','[{\"to\": 1210000, \"from\": 0, \"rate\": 0}, {\"to\": 1663800, \"from\": 1210000, \"rate\": 0.03}, {\"to\": 2329300, \"from\": 1663800, \"rate\": 0.06}, {\"to\": 2994800, \"from\": 2329300, \"rate\": 0.08}, {\"to\": 12100000, \"from\": 2994800, \"rate\": 0.11}, {\"to\": 999999999, \"from\": 12100000, \"rate\": 0.13}]','Van Dyk & Swart Inc. 2025','2025-03-01',NULL,NULL,'2026-11-03 14:17:15','2026-11-03 14:17:15');
+INSERT INTO `contact_types` (`id`, `name`, `color`, `sort_order`, `esign_role`, `is_active`, `created_at`, `updated_at`, `deleted_at`) VALUES (3,'Seller','#e67e22',1,'seller',1,'2026-11-03 14:18:00','2026-11-03 14:28:51',NULL);
+INSERT INTO `contact_types` (`id`, `name`, `color`, `sort_order`, `esign_role`, `is_active`, `created_at`, `updated_at`, `deleted_at`) VALUES (4,'Buyer','#27ae60',2,'buyer',1,'2026-11-03 14:18:00','2026-11-03 14:28:51',NULL);
+INSERT INTO `contact_types` (`id`, `name`, `color`, `sort_order`, `esign_role`, `is_active`, `created_at`, `updated_at`, `deleted_at`) VALUES (5,'Witness','#7f8c8d',5,NULL,1,'2026-11-03 14:18:00','2026-11-03 14:18:00',NULL);
+INSERT INTO `contact_types` (`id`, `name`, `color`, `sort_order`, `esign_role`, `is_active`, `created_at`, `updated_at`, `deleted_at`) VALUES (6,'Lessor','#6366f1',3,'lessor',1,'2026-11-03 14:28:51','2026-11-03 14:28:51',NULL);
+INSERT INTO `contact_types` (`id`, `name`, `color`, `sort_order`, `esign_role`, `is_active`, `created_at`, `updated_at`, `deleted_at`) VALUES (7,'Lessee','#6366f1',4,'lessee',1,'2026-11-03 14:28:51','2026-11-03 14:28:51',NULL);
+INSERT INTO `contact_types` (`id`, `name`, `color`, `sort_order`, `esign_role`, `is_active`, `created_at`, `updated_at`, `deleted_at`) VALUES (8,'Owner','#6366f1',5,NULL,1,'2026-11-03 14:28:56','2026-11-03 14:28:56',NULL);
+INSERT INTO `contact_types` (`id`, `name`, `color`, `sort_order`, `esign_role`, `is_active`, `created_at`, `updated_at`, `deleted_at`) VALUES (9,'Other','#6366f1',6,NULL,1,'2026-11-03 14:28:56','2026-11-03 14:28:56',NULL);
+INSERT INTO `contact_types` (`id`, `name`, `color`, `sort_order`, `esign_role`, `is_active`, `created_at`, `updated_at`, `deleted_at`) VALUES (10,'Tenant','#6366f1',0,'lessee',1,'2026-11-03 14:34:43','2026-11-03 14:34:43',NULL);
+INSERT INTO `designations` (`id`, `name`, `sort_order`, `is_enabled`, `created_at`, `updated_at`, `deleted_at`) VALUES (1,'Candidate Property Practitioner',10,1,'2026-11-03 14:16:36','2026-11-03 14:16:36',NULL);
+INSERT INTO `designations` (`id`, `name`, `sort_order`, `is_enabled`, `created_at`, `updated_at`, `deleted_at`) VALUES (2,'Property Practitioner',20,1,'2026-11-03 14:16:36','2026-11-03 14:16:36',NULL);
+INSERT INTO `designations` (`id`, `name`, `sort_order`, `is_enabled`, `created_at`, `updated_at`, `deleted_at`) VALUES (3,'Principal',30,1,'2026-11-03 14:16:36','2026-11-03 14:16:36',NULL);
+INSERT INTO `document_library_types` (`id`, `key`, `label`, `sort_order`, `is_active`, `created_at`, `updated_at`, `deleted_at`) VALUES (1,'suburb_stats','Suburb Stats',1,1,'2026-11-03 14:17:37','2026-11-03 14:17:37',NULL);
+INSERT INTO `document_library_types` (`id`, `key`, `label`, `sort_order`, `is_active`, `created_at`, `updated_at`, `deleted_at`) VALUES (2,'suburb_sales','Suburb Sales',2,1,'2026-11-03 14:17:37','2026-11-03 14:17:37',NULL);
+INSERT INTO `document_library_types` (`id`, `key`, `label`, `sort_order`, `is_active`, `created_at`, `updated_at`, `deleted_at`) VALUES (3,'vicinity_sales','Vicinity Sales',3,1,'2026-11-03 14:17:37','2026-11-03 14:17:37',NULL);
+INSERT INTO `document_library_types` (`id`, `key`, `label`, `sort_order`, `is_active`, `created_at`, `updated_at`, `deleted_at`) VALUES (4,'cma','CMA',4,1,'2026-11-03 14:17:37','2026-11-03 14:17:37',NULL);
+INSERT INTO `document_library_types` (`id`, `key`, `label`, `sort_order`, `is_active`, `created_at`, `updated_at`, `deleted_at`) VALUES (5,'market_article','Market Article',5,1,'2026-11-03 14:17:37','2026-11-03 14:17:37',NULL);
+INSERT INTO `document_library_types` (`id`, `key`, `label`, `sort_order`, `is_active`, `created_at`, `updated_at`, `deleted_at`) VALUES (6,'market_report','Market Report',6,1,'2026-11-03 14:17:37','2026-11-03 14:17:37',NULL);
+INSERT INTO `document_library_types` (`id`, `key`, `label`, `sort_order`, `is_active`, `created_at`, `updated_at`, `deleted_at`) VALUES (7,'other','Other',7,1,'2026-11-03 14:17:37','2026-11-03 14:17:37',NULL);
+INSERT INTO `document_types` (`id`, `slug`, `label`, `sort_order`, `is_active`, `grouping`, `contact_roles`, `fica_slot`, `buyer_pack_eligible`, `esign_warning_required`, `listing_types`, `created_at`, `updated_at`, `deleted_at`) VALUES (1,'mandate','Mandate',1,1,'shared','[\"seller_owner\"]','none',0,0,NULL,'2026-11-03 14:17:37','2026-11-03 14:17:37',NULL);
+INSERT INTO `document_types` (`id`, `slug`, `label`, `sort_order`, `is_active`, `grouping`, `contact_roles`, `fica_slot`, `buyer_pack_eligible`, `esign_warning_required`, `listing_types`, `created_at`, `updated_at`, `deleted_at`) VALUES (2,'fica','FICA',2,1,'contact','[\"seller_owner\"]','fica_form',0,0,NULL,'2026-11-03 14:17:37','2026-11-03 14:17:37',NULL);
+INSERT INTO `document_types` (`id`, `slug`, `label`, `sort_order`, `is_active`, `grouping`, `contact_roles`, `fica_slot`, `buyer_pack_eligible`, `esign_warning_required`, `listing_types`, `created_at`, `updated_at`, `deleted_at`) VALUES (3,'ids','IDs / Identity',3,1,'contact','[\"seller_owner\"]','id',0,0,NULL,'2026-11-03 14:17:37','2026-11-03 14:17:37',NULL);
+INSERT INTO `document_types` (`id`, `slug`, `label`, `sort_order`, `is_active`, `grouping`, `contact_roles`, `fica_slot`, `buyer_pack_eligible`, `esign_warning_required`, `listing_types`, `created_at`, `updated_at`, `deleted_at`) VALUES (4,'por','Proof of Residence',4,1,'contact','[\"seller_owner\"]','por',0,0,NULL,'2026-11-03 14:17:37','2026-11-03 14:17:37',NULL);
+INSERT INTO `document_types` (`id`, `slug`, `label`, `sort_order`, `is_active`, `grouping`, `contact_roles`, `fica_slot`, `buyer_pack_eligible`, `esign_warning_required`, `listing_types`, `created_at`, `updated_at`, `deleted_at`) VALUES (5,'condition_report','Condition Report',5,1,'property',NULL,'none',1,0,NULL,'2026-11-03 14:17:37','2026-11-03 14:17:37',NULL);
+INSERT INTO `document_types` (`id`, `slug`, `label`, `sort_order`, `is_active`, `grouping`, `contact_roles`, `fica_slot`, `buyer_pack_eligible`, `esign_warning_required`, `listing_types`, `created_at`, `updated_at`, `deleted_at`) VALUES (6,'listing_form','Listing Form',6,1,'shared','[\"seller_owner\"]','none',0,0,NULL,'2026-11-03 14:17:37','2026-11-03 14:17:37',NULL);
+INSERT INTO `document_types` (`id`, `slug`, `label`, `sort_order`, `is_active`, `grouping`, `contact_roles`, `fica_slot`, `buyer_pack_eligible`, `esign_warning_required`, `listing_types`, `created_at`, `updated_at`, `deleted_at`) VALUES (7,'rates_taxes','Rates & Taxes',7,1,'property',NULL,'none',1,0,NULL,'2026-11-03 14:17:37','2026-11-03 14:17:37',NULL);
+INSERT INTO `document_types` (`id`, `slug`, `label`, `sort_order`, `is_active`, `grouping`, `contact_roles`, `fica_slot`, `buyer_pack_eligible`, `esign_warning_required`, `listing_types`, `created_at`, `updated_at`, `deleted_at`) VALUES (8,'body_corporate','Body Corporate',8,1,'property',NULL,'none',1,0,NULL,'2026-11-03 14:17:37','2026-11-03 14:17:37',NULL);
+INSERT INTO `document_types` (`id`, `slug`, `label`, `sort_order`, `is_active`, `grouping`, `contact_roles`, `fica_slot`, `buyer_pack_eligible`, `esign_warning_required`, `listing_types`, `created_at`, `updated_at`, `deleted_at`) VALUES (9,'house_rules','House Rules',9,1,'property',NULL,'none',1,0,NULL,'2026-11-03 14:17:37','2026-11-03 14:17:37',NULL);
+INSERT INTO `document_types` (`id`, `slug`, `label`, `sort_order`, `is_active`, `grouping`, `contact_roles`, `fica_slot`, `buyer_pack_eligible`, `esign_warning_required`, `listing_types`, `created_at`, `updated_at`, `deleted_at`) VALUES (10,'offer_to_purchase','Offer to Purchase',10,0,'shared','[\"seller_owner\", \"buyer\"]','none',0,1,NULL,'2026-11-03 14:17:37','2026-11-03 14:31:38','2026-11-03 14:31:38');
+INSERT INTO `document_types` (`id`, `slug`, `label`, `sort_order`, `is_active`, `grouping`, `contact_roles`, `fica_slot`, `buyer_pack_eligible`, `esign_warning_required`, `listing_types`, `created_at`, `updated_at`, `deleted_at`) VALUES (11,'disclosure','Disclosure',11,1,'shared','[\"seller_owner\"]','none',1,0,NULL,'2026-11-03 14:17:37','2026-11-03 14:17:37',NULL);
+INSERT INTO `document_types` (`id`, `slug`, `label`, `sort_order`, `is_active`, `grouping`, `contact_roles`, `fica_slot`, `buyer_pack_eligible`, `esign_warning_required`, `listing_types`, `created_at`, `updated_at`, `deleted_at`) VALUES (12,'other','Other',12,1,'shared',NULL,'none',0,0,NULL,'2026-11-03 14:17:37','2026-11-03 14:17:37',NULL);
+INSERT INTO `document_types` (`id`, `slug`, `label`, `sort_order`, `is_active`, `grouping`, `contact_roles`, `fica_slot`, `buyer_pack_eligible`, `esign_warning_required`, `listing_types`, `created_at`, `updated_at`, `deleted_at`) VALUES (13,'addendum','Addendums',13,1,'shared',NULL,'none',0,0,NULL,'2026-11-03 14:19:13','2026-11-03 14:19:13',NULL);
+INSERT INTO `document_types` (`id`, `slug`, `label`, `sort_order`, `is_active`, `grouping`, `contact_roles`, `fica_slot`, `buyer_pack_eligible`, `esign_warning_required`, `listing_types`, `created_at`, `updated_at`, `deleted_at`) VALUES (14,'rental_agreement','Rental Agreements',14,1,'shared',NULL,'none',0,0,NULL,'2026-11-03 14:19:13','2026-11-03 14:19:13',NULL);
+INSERT INTO `document_types` (`id`, `slug`, `label`, `sort_order`, `is_active`, `grouping`, `contact_roles`, `fica_slot`, `buyer_pack_eligible`, `esign_warning_required`, `listing_types`, `created_at`, `updated_at`, `deleted_at`) VALUES (15,'lease_agreement','Lease Agreement',15,1,'shared',NULL,'none',0,0,NULL,'2026-11-03 14:19:13','2026-11-03 14:19:13',NULL);
+INSERT INTO `document_types` (`id`, `slug`, `label`, `sort_order`, `is_active`, `grouping`, `contact_roles`, `fica_slot`, `buyer_pack_eligible`, `esign_warning_required`, `listing_types`, `created_at`, `updated_at`, `deleted_at`) VALUES (16,'notice','Notice',16,1,'shared',NULL,'none',0,0,NULL,'2026-11-03 14:19:13','2026-11-03 14:19:13',NULL);
+INSERT INTO `document_types` (`id`, `slug`, `label`, `sort_order`, `is_active`, `grouping`, `contact_roles`, `fica_slot`, `buyer_pack_eligible`, `esign_warning_required`, `listing_types`, `created_at`, `updated_at`, `deleted_at`) VALUES (17,'inspection_report','Inspection Report',17,1,'shared',NULL,'none',1,0,NULL,'2026-11-03 14:19:13','2026-11-03 14:19:13',NULL);
+INSERT INTO `document_types` (`id`, `slug`, `label`, `sort_order`, `is_active`, `grouping`, `contact_roles`, `fica_slot`, `buyer_pack_eligible`, `esign_warning_required`, `listing_types`, `created_at`, `updated_at`, `deleted_at`) VALUES (18,'power_of_attorney','Power of Attorney',18,1,'shared',NULL,'none',0,0,NULL,'2026-11-03 14:19:13','2026-11-03 14:19:13',NULL);
 INSERT INTO `document_types` (`id`, `slug`, `label`, `sort_order`, `is_active`, `grouping`, `contact_roles`, `fica_slot`, `buyer_pack_eligible`, `esign_warning_required`, `listing_types`, `created_at`, `updated_at`, `deleted_at`) VALUES (19,'bank_statement','Bank Statement',19,1,'contact',NULL,'none',0,0,NULL,NULL,NULL,NULL);
 INSERT INTO `document_types` (`id`, `slug`, `label`, `sort_order`, `is_active`, `grouping`, `contact_roles`, `fica_slot`, `buyer_pack_eligible`, `esign_warning_required`, `listing_types`, `created_at`, `updated_at`, `deleted_at`) VALUES (20,'tax_clearance','Tax Clearance',20,1,'contact',NULL,'none',0,0,NULL,NULL,NULL,NULL);
 INSERT INTO `document_types` (`id`, `slug`, `label`, `sort_order`, `is_active`, `grouping`, `contact_roles`, `fica_slot`, `buyer_pack_eligible`, `esign_warning_required`, `listing_types`, `created_at`, `updated_at`, `deleted_at`) VALUES (21,'company_registration','Company Registration',21,1,'contact',NULL,'none',0,0,NULL,NULL,NULL,NULL);
 INSERT INTO `document_types` (`id`, `slug`, `label`, `sort_order`, `is_active`, `grouping`, `contact_roles`, `fica_slot`, `buyer_pack_eligible`, `esign_warning_required`, `listing_types`, `created_at`, `updated_at`, `deleted_at`) VALUES (22,'trust_deed','Trust Deed',22,1,'contact',NULL,'none',0,0,NULL,NULL,NULL,NULL);
-INSERT INTO `document_types` (`id`, `slug`, `label`, `sort_order`, `is_active`, `grouping`, `contact_roles`, `fica_slot`, `buyer_pack_eligible`, `esign_warning_required`, `listing_types`, `created_at`, `updated_at`, `deleted_at`) VALUES (23,'otp','OTP (Offer to Purchase)',23,1,'shared','[\"seller_owner\", \"buyer\"]','none',0,1,NULL,'2026-10-26 16:54:06','2026-10-26 16:54:06',NULL);
-INSERT INTO `document_types` (`id`, `slug`, `label`, `sort_order`, `is_active`, `grouping`, `contact_roles`, `fica_slot`, `buyer_pack_eligible`, `esign_warning_required`, `listing_types`, `created_at`, `updated_at`, `deleted_at`) VALUES (24,'sale_agreement','Sale Agreement',24,1,'shared',NULL,'none',0,1,NULL,'2026-10-26 16:54:06','2026-10-26 16:54:06',NULL);
-INSERT INTO `document_types` (`id`, `slug`, `label`, `sort_order`, `is_active`, `grouping`, `contact_roles`, `fica_slot`, `buyer_pack_eligible`, `esign_warning_required`, `listing_types`, `created_at`, `updated_at`, `deleted_at`) VALUES (25,'deed_of_alienation','Deed of Alienation',25,1,'shared',NULL,'none',0,1,NULL,'2026-10-26 16:54:06','2026-10-26 16:54:06',NULL);
-INSERT INTO `document_types` (`id`, `slug`, `label`, `sort_order`, `is_active`, `grouping`, `contact_roles`, `fica_slot`, `buyer_pack_eligible`, `esign_warning_required`, `listing_types`, `created_at`, `updated_at`, `deleted_at`) VALUES (26,'deed_of_sale','Deed of Sale',26,1,'shared',NULL,'none',0,1,NULL,'2026-10-26 16:54:06','2026-10-26 16:54:06',NULL);
-INSERT INTO `document_types` (`id`, `slug`, `label`, `sort_order`, `is_active`, `grouping`, `contact_roles`, `fica_slot`, `buyer_pack_eligible`, `esign_warning_required`, `listing_types`, `created_at`, `updated_at`, `deleted_at`) VALUES (27,'coc_request','COC Request',900,1,'shared',NULL,'none',0,0,NULL,'2026-10-26 16:59:49','2026-10-26 16:59:49',NULL);
-INSERT INTO `document_types` (`id`, `slug`, `label`, `sort_order`, `is_active`, `grouping`, `contact_roles`, `fica_slot`, `buyer_pack_eligible`, `esign_warning_required`, `listing_types`, `created_at`, `updated_at`, `deleted_at`) VALUES (28,'work_authorisation','Work Authorisation',905,1,'shared',NULL,'none',0,0,NULL,'2026-10-26 17:01:14','2026-10-26 17:01:14',NULL);
-INSERT INTO `document_types` (`id`, `slug`, `label`, `sort_order`, `is_active`, `grouping`, `contact_roles`, `fica_slot`, `buyer_pack_eligible`, `esign_warning_required`, `listing_types`, `created_at`, `updated_at`, `deleted_at`) VALUES (29,'proforma_invoice','Proforma Invoice',906,1,'deal','[\"seller_owner\"]','none',0,0,NULL,'2026-10-26 17:02:05','2026-10-26 17:02:05',NULL);
+INSERT INTO `document_types` (`id`, `slug`, `label`, `sort_order`, `is_active`, `grouping`, `contact_roles`, `fica_slot`, `buyer_pack_eligible`, `esign_warning_required`, `listing_types`, `created_at`, `updated_at`, `deleted_at`) VALUES (23,'otp','OTP (Offer to Purchase)',23,1,'shared','[\"seller_owner\", \"buyer\"]','none',0,1,NULL,'2026-11-03 14:23:32','2026-11-03 14:23:32',NULL);
+INSERT INTO `document_types` (`id`, `slug`, `label`, `sort_order`, `is_active`, `grouping`, `contact_roles`, `fica_slot`, `buyer_pack_eligible`, `esign_warning_required`, `listing_types`, `created_at`, `updated_at`, `deleted_at`) VALUES (24,'sale_agreement','Sale Agreement',24,1,'shared',NULL,'none',0,1,NULL,'2026-11-03 14:23:32','2026-11-03 14:23:32',NULL);
+INSERT INTO `document_types` (`id`, `slug`, `label`, `sort_order`, `is_active`, `grouping`, `contact_roles`, `fica_slot`, `buyer_pack_eligible`, `esign_warning_required`, `listing_types`, `created_at`, `updated_at`, `deleted_at`) VALUES (25,'deed_of_alienation','Deed of Alienation',25,1,'shared',NULL,'none',0,1,NULL,'2026-11-03 14:23:32','2026-11-03 14:23:32',NULL);
+INSERT INTO `document_types` (`id`, `slug`, `label`, `sort_order`, `is_active`, `grouping`, `contact_roles`, `fica_slot`, `buyer_pack_eligible`, `esign_warning_required`, `listing_types`, `created_at`, `updated_at`, `deleted_at`) VALUES (26,'deed_of_sale','Deed of Sale',26,1,'shared',NULL,'none',0,1,NULL,'2026-11-03 14:23:32','2026-11-03 14:23:32',NULL);
+INSERT INTO `document_types` (`id`, `slug`, `label`, `sort_order`, `is_active`, `grouping`, `contact_roles`, `fica_slot`, `buyer_pack_eligible`, `esign_warning_required`, `listing_types`, `created_at`, `updated_at`, `deleted_at`) VALUES (27,'coc_request','COC Request',900,1,'shared',NULL,'none',0,0,NULL,'2026-11-03 14:29:06','2026-11-03 14:29:06',NULL);
+INSERT INTO `document_types` (`id`, `slug`, `label`, `sort_order`, `is_active`, `grouping`, `contact_roles`, `fica_slot`, `buyer_pack_eligible`, `esign_warning_required`, `listing_types`, `created_at`, `updated_at`, `deleted_at`) VALUES (28,'work_authorisation','Work Authorisation',905,1,'shared',NULL,'none',0,0,NULL,'2026-11-03 14:30:31','2026-11-03 14:30:31',NULL);
+INSERT INTO `document_types` (`id`, `slug`, `label`, `sort_order`, `is_active`, `grouping`, `contact_roles`, `fica_slot`, `buyer_pack_eligible`, `esign_warning_required`, `listing_types`, `created_at`, `updated_at`, `deleted_at`) VALUES (29,'proforma_invoice','Proforma Invoice',906,1,'deal','[\"seller_owner\"]','none',0,0,NULL,'2026-11-03 14:31:24','2026-11-03 14:31:24',NULL);
 INSERT INTO `document_types` (`id`, `slug`, `label`, `sort_order`, `is_active`, `grouping`, `contact_roles`, `fica_slot`, `buyer_pack_eligible`, `esign_warning_required`, `listing_types`, `created_at`, `updated_at`, `deleted_at`) VALUES (30,'payslip','Payslip',907,1,'contact',NULL,'none',0,0,NULL,NULL,NULL,NULL);
 INSERT INTO `document_types` (`id`, `slug`, `label`, `sort_order`, `is_active`, `grouping`, `contact_roles`, `fica_slot`, `buyer_pack_eligible`, `esign_warning_required`, `listing_types`, `created_at`, `updated_at`, `deleted_at`) VALUES (31,'financial_statements','Financial Statements',908,1,'contact',NULL,'none',0,0,NULL,NULL,NULL,NULL);
 INSERT INTO `document_types` (`id`, `slug`, `label`, `sort_order`, `is_active`, `grouping`, `contact_roles`, `fica_slot`, `buyer_pack_eligible`, `esign_warning_required`, `listing_types`, `created_at`, `updated_at`, `deleted_at`) VALUES (32,'tpn_report','TPN Report',909,1,'contact',NULL,'none',0,0,NULL,NULL,NULL,NULL);
-INSERT INTO `document_types` (`id`, `slug`, `label`, `sort_order`, `is_active`, `grouping`, `contact_roles`, `fica_slot`, `buyer_pack_eligible`, `esign_warning_required`, `listing_types`, `created_at`, `updated_at`, `deleted_at`) VALUES (33,'mandate_extension','Extension',910,1,'property',NULL,'none',0,0,'[\"sale\", \"rental\"]','2026-10-26 17:10:43','2026-10-26 17:10:43',NULL);
+INSERT INTO `document_types` (`id`, `slug`, `label`, `sort_order`, `is_active`, `grouping`, `contact_roles`, `fica_slot`, `buyer_pack_eligible`, `esign_warning_required`, `listing_types`, `created_at`, `updated_at`, `deleted_at`) VALUES (33,'mandate_extension','Extension',910,1,'property',NULL,'none',0,0,'[\"sale\", \"rental\"]','2026-11-03 14:40:03','2026-11-03 14:40:03',NULL);
 INSERT INTO `document_types` (`id`, `slug`, `label`, `sort_order`, `is_active`, `grouping`, `contact_roles`, `fica_slot`, `buyer_pack_eligible`, `esign_warning_required`, `listing_types`, `created_at`, `updated_at`, `deleted_at`) VALUES (34,'title_deed_copy','Title deed (copy)',911,1,'shared',NULL,'none',0,0,NULL,NULL,NULL,NULL);
-INSERT INTO `docuperfect_document_types` (`id`, `name`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (1,'Mandates',0,'2026-10-26 16:47:36','2026-10-26 16:47:36',NULL);
-INSERT INTO `docuperfect_document_types` (`id`, `name`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (2,'OTPs',10,'2026-10-26 16:47:36','2026-10-26 16:47:36',NULL);
-INSERT INTO `docuperfect_document_types` (`id`, `name`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (3,'Addendums',20,'2026-10-26 16:47:36','2026-10-26 16:47:36',NULL);
-INSERT INTO `docuperfect_document_types` (`id`, `name`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (4,'Condition Reports',30,'2026-10-26 16:47:36','2026-10-26 16:47:36',NULL);
-INSERT INTO `docuperfect_document_types` (`id`, `name`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (5,'FICA',40,'2026-10-26 16:47:36','2026-10-26 16:47:36',NULL);
-INSERT INTO `docuperfect_document_types` (`id`, `name`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (6,'Rental Agreements',50,'2026-10-26 16:47:36','2026-10-26 16:47:36',NULL);
-INSERT INTO `docuperfect_document_types` (`id`, `name`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (7,'Other',60,'2026-10-26 16:47:36','2026-10-26 16:47:36',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (1,'Mandate Commission % (Step 4)','text',NULL,900,'deal','commission',NULL,'2026-10-26 16:53:52','2026-10-26 16:53:52',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (2,'Mandate Start Date (Step 4)','text',NULL,900,'deal','mandate_start',NULL,'2026-10-26 16:53:52','2026-10-26 16:53:52',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (3,'Mandate Expiry Date (Step 4)','text',NULL,900,'deal','mandate_expiry',NULL,'2026-10-26 16:53:52','2026-10-26 16:53:52',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (4,'Rental Amount[words]','text',NULL,91,'computed','rental_amount_words',NULL,'2026-10-26 17:04:32','2026-10-26 17:04:32',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (5,'Lease Notice Period','text',NULL,941,'computed','notice_period',NULL,'2026-10-26 17:11:32','2026-10-26 17:11:32',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (6,'Lease Notice Period Unit','text',NULL,942,'computed','notice_period_unit',NULL,'2026-10-26 17:11:32','2026-10-26 17:11:32',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (7,'Lease Earliest Notice Date','date',NULL,943,'computed','earliest_notice_date',NULL,'2026-10-26 17:11:32','2026-10-26 17:11:32',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (8,'Lease Early Cancellation Allowed','text',NULL,944,'computed','early_cancellation_allowed',NULL,'2026-10-26 17:11:32','2026-10-26 17:11:32',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (9,'Lease Early Cancellation Notice','text',NULL,945,'computed','early_cancellation_notice',NULL,'2026-10-26 17:11:32','2026-10-26 17:11:32',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (10,'Lease Early Cancellation Notice Unit','text',NULL,946,'computed','early_cancellation_notice_unit',NULL,'2026-10-26 17:11:32','2026-10-26 17:11:32',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (11,'Lease Early Cancellation Penalty','text',NULL,947,'computed','early_cancellation_penalty',NULL,'2026-10-26 17:11:32','2026-10-26 17:11:32',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (12,'Lessor Contact Type Id','number',NULL,1,'contact','contact_type_id','Lessor','2026-10-26 17:14:11','2026-10-26 17:14:11',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (13,'Lessor Contact Source Id','number',NULL,2,'contact','contact_source_id','Lessor','2026-10-26 17:14:11','2026-10-26 17:14:11',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (14,'Lessor Created By User Id','number',NULL,3,'contact','created_by_user_id','Lessor','2026-10-26 17:14:11','2026-10-26 17:14:11',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (15,'Lessor Agent Id','number',NULL,4,'contact','agent_id','Lessor','2026-10-26 17:14:11','2026-10-26 17:14:11',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (16,'Lessor Second Agent Id','number',NULL,5,'contact','second_agent_id','Lessor','2026-10-26 17:14:11','2026-10-26 17:14:11',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (17,'Lessor Client User Id','number',NULL,6,'contact','client_user_id','Lessor','2026-10-26 17:14:11','2026-10-26 17:14:11',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (18,'Lessor First Name','text',NULL,7,'contact','first_name','Lessor','2026-10-26 17:14:11','2026-10-26 17:14:11',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (19,'Lessor Last Name','text',NULL,8,'contact','last_name','Lessor','2026-10-26 17:14:11','2026-10-26 17:14:11',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (20,'Lessor Phone','text',NULL,9,'contact','phone','Lessor','2026-10-26 17:14:11','2026-10-26 17:14:11',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (21,'Lessor Email','text',NULL,10,'contact','email','Lessor','2026-10-26 17:14:11','2026-10-26 17:14:11',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (22,'Lessor Notes','text',NULL,11,'contact','notes','Lessor','2026-10-26 17:14:11','2026-10-26 17:14:11',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (23,'Lessor Birthday','date',NULL,12,'contact','birthday','Lessor','2026-10-26 17:14:11','2026-10-26 17:14:11',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (24,'Lessor Birthday Reminder','text',NULL,13,'contact','birthday_reminder','Lessor','2026-10-26 17:14:11','2026-10-26 17:14:11',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (25,'Lessor Id Number','text',NULL,14,'contact','id_number','Lessor','2026-10-26 17:14:11','2026-10-26 17:14:11',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (26,'Lessor Id Number Captured At','date',NULL,15,'contact','id_number_captured_at','Lessor','2026-10-26 17:14:11','2026-10-26 17:14:11',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (27,'Lessor Id Number Source','text',NULL,16,'contact','id_number_source','Lessor','2026-10-26 17:14:11','2026-10-26 17:14:11',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (28,'Lessor Passport Number','text',NULL,17,'contact','passport_number','Lessor','2026-10-26 17:14:11','2026-10-26 17:14:11',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (29,'Lessor Address','text',NULL,18,'contact','address','Lessor','2026-10-26 17:14:11','2026-10-26 17:14:11',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (30,'Lessor Unit Number','text',NULL,19,'contact','unit_number','Lessor','2026-10-26 17:14:11','2026-10-26 17:14:11',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (31,'Lessor Floor Number','text',NULL,20,'contact','floor_number','Lessor','2026-10-26 17:14:11','2026-10-26 17:14:11',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (32,'Lessor Unit Section Block','text',NULL,21,'contact','unit_section_block','Lessor','2026-10-26 17:14:11','2026-10-26 17:14:11',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (33,'Lessor Complex Name','text',NULL,22,'contact','complex_name','Lessor','2026-10-26 17:14:11','2026-10-26 17:14:11',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (34,'Lessor Street Number','text',NULL,23,'contact','street_number','Lessor','2026-10-26 17:14:11','2026-10-26 17:14:11',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (35,'Lessor Street Name','text',NULL,24,'contact','street_name','Lessor','2026-10-26 17:14:11','2026-10-26 17:14:11',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (36,'Lessor Suburb','text',NULL,25,'contact','suburb','Lessor','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (37,'Lessor City','text',NULL,26,'contact','city','Lessor','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (38,'Lessor Province','text',NULL,27,'contact','province','Lessor','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (39,'Lessor P24 Suburb Id','number',NULL,28,'contact','p24_suburb_id','Lessor','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (40,'Lessor P24 City Id','number',NULL,29,'contact','p24_city_id','Lessor','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (41,'Lessor P24 Province Id','number',NULL,30,'contact','p24_province_id','Lessor','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (42,'Lessor Loaded At','date',NULL,31,'contact','loaded_at','Lessor','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (43,'Lessor Modified At','date',NULL,32,'contact','modified_at','Lessor','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (44,'Lessor Last Contacted At','date',NULL,33,'contact','last_contacted_at','Lessor','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (45,'Lessor Contacted Marked At','date',NULL,34,'contact','contacted_marked_at','Lessor','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (46,'Lessor Whatsapp Count','text',NULL,35,'contact','whatsapp_count','Lessor','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (47,'Lessor Email Count','text',NULL,36,'contact','email_count','Lessor','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (48,'Lessor Bank Name','text',NULL,37,'contact','bank_name','Lessor','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (49,'Lessor Bank Account Name','text',NULL,38,'contact','bank_account_name','Lessor','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (50,'Lessor Bank Account Number','text',NULL,39,'contact','bank_account_number','Lessor','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (51,'Lessor Bank Branch Name','text',NULL,40,'contact','bank_branch_name','Lessor','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (52,'Lessor Bank Branch Code','text',NULL,41,'contact','bank_branch_code','Lessor','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (53,'Lessor Bank Account Type','text',NULL,42,'contact','bank_account_type','Lessor','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (54,'Lessor Preapproval Amount','number',NULL,43,'contact','preapproval_amount','Lessor','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (55,'Lessor Preapproval Expires At','date',NULL,44,'contact','preapproval_expires_at','Lessor','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (56,'Lessor Preapproval Institution','text',NULL,45,'contact','preapproval_institution','Lessor','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (57,'Lessor Purged At','date',NULL,46,'contact','purged_at','Lessor','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (58,'Lessor Purged Reason','text',NULL,47,'contact','purged_reason','Lessor','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (59,'Lessor Opt Out Email','text',NULL,48,'contact','opt_out_email','Lessor','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (60,'Lessor Opt Out Sms','text',NULL,49,'contact','opt_out_sms','Lessor','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (61,'Lessor Opt Out Whatsapp','text',NULL,50,'contact','opt_out_whatsapp','Lessor','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (62,'Lessor Opt Out Call','text',NULL,51,'contact','opt_out_call','Lessor','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (63,'Lessor Last Consent Check At','date',NULL,52,'contact','last_consent_check_at','Lessor','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (64,'Lessor Is Buyer','text',NULL,53,'contact','is_buyer','Lessor','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (65,'Lessor Buyer State','text',NULL,54,'contact','buyer_state','Lessor','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (66,'Lessor Last Activity At','date',NULL,55,'contact','last_activity_at','Lessor','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (67,'Lessor Buyer Pipeline Entered At','date',NULL,56,'contact','buyer_pipeline_entered_at','Lessor','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (68,'Lessor Buyer Pipeline Notes','text',NULL,57,'contact','buyer_pipeline_notes','Lessor','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (69,'Lessor Buyer Source','text',NULL,58,'contact','buyer_source','Lessor','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (70,'Lessor Rental Application Status','text',NULL,59,'contact','rental_application_status','Lessor','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (71,'Lessor Rental Application Status Updated At','date',NULL,60,'contact','rental_application_status_updated_at','Lessor','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (72,'Lessor Agency Id','number',NULL,61,'contact','agency_id','Lessor','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (73,'Lessor Branch Id','number',NULL,62,'contact','branch_id','Lessor','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (74,'Lessor Messaging Opt Out At','date',NULL,63,'contact','messaging_opt_out_at','Lessor','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (75,'Lessor Messaging Opt Out Reason','text',NULL,64,'contact','messaging_opt_out_reason','Lessor','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (76,'Lessor Messaging Opt Out Recorded By User Id','number',NULL,65,'contact','messaging_opt_out_recorded_by_user_id','Lessor','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (77,'Lessor Messaging Opt Out Source','text',NULL,66,'contact','messaging_opt_out_source','Lessor','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (78,'Lessor Messaging Opt Out Kind','text',NULL,67,'contact','messaging_opt_out_kind','Lessor','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (79,'Lessor Messaging All Blocked','text',NULL,68,'contact','messaging_all_blocked','Lessor','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (80,'Lessor Messaging Opted In At','date',NULL,69,'contact','messaging_opted_in_at','Lessor','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (81,'Lessor Outreach Permission Asked At','date',NULL,70,'contact','outreach_permission_asked_at','Lessor','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (82,'Lessor Messaging Opt In Reason','text',NULL,71,'contact','messaging_opt_in_reason','Lessor','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (83,'Lessor Messaging Opt In Recorded By User Id','number',NULL,72,'contact','messaging_opt_in_recorded_by_user_id','Lessor','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (84,'Lessor Id Type','text',NULL,73,'contact','id_type','Lessor','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (85,'Lessor Contact Kind','text',NULL,74,'contact','contact_kind','Lessor','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (86,'Lessor Entity Name','text',NULL,75,'contact','entity_name','Lessor','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (87,'Lessor Entity Reg No','text',NULL,76,'contact','entity_reg_no','Lessor','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (88,'Lessor Entity Shape','text',NULL,77,'contact','entity_shape','Lessor','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (89,'Lessor Buyer Matches Last Regenerated At','date',NULL,78,'contact','buyer_matches_last_regenerated_at','Lessor','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (90,'Lessor Full Name','text',NULL,79,'contact','first_name+last_name','Lessor','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (91,'Lessee Contact Type Id','number',NULL,1,'contact','contact_type_id','Lessee','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (92,'Lessee Contact Source Id','number',NULL,2,'contact','contact_source_id','Lessee','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (93,'Lessee Created By User Id','number',NULL,3,'contact','created_by_user_id','Lessee','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (94,'Lessee Agent Id','number',NULL,4,'contact','agent_id','Lessee','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (95,'Lessee Second Agent Id','number',NULL,5,'contact','second_agent_id','Lessee','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (96,'Lessee Client User Id','number',NULL,6,'contact','client_user_id','Lessee','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (97,'Lessee First Name','text',NULL,7,'contact','first_name','Lessee','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (98,'Lessee Last Name','text',NULL,8,'contact','last_name','Lessee','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (99,'Lessee Phone','text',NULL,9,'contact','phone','Lessee','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (100,'Lessee Email','text',NULL,10,'contact','email','Lessee','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (101,'Lessee Notes','text',NULL,11,'contact','notes','Lessee','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (102,'Lessee Birthday','date',NULL,12,'contact','birthday','Lessee','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (103,'Lessee Birthday Reminder','text',NULL,13,'contact','birthday_reminder','Lessee','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (104,'Lessee Id Number','text',NULL,14,'contact','id_number','Lessee','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (105,'Lessee Id Number Captured At','date',NULL,15,'contact','id_number_captured_at','Lessee','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (106,'Lessee Id Number Source','text',NULL,16,'contact','id_number_source','Lessee','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (107,'Lessee Passport Number','text',NULL,17,'contact','passport_number','Lessee','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (108,'Lessee Address','text',NULL,18,'contact','address','Lessee','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (109,'Lessee Unit Number','text',NULL,19,'contact','unit_number','Lessee','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (110,'Lessee Floor Number','text',NULL,20,'contact','floor_number','Lessee','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (111,'Lessee Unit Section Block','text',NULL,21,'contact','unit_section_block','Lessee','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (112,'Lessee Complex Name','text',NULL,22,'contact','complex_name','Lessee','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (113,'Lessee Street Number','text',NULL,23,'contact','street_number','Lessee','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (114,'Lessee Street Name','text',NULL,24,'contact','street_name','Lessee','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (115,'Lessee Suburb','text',NULL,25,'contact','suburb','Lessee','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (116,'Lessee City','text',NULL,26,'contact','city','Lessee','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (117,'Lessee Province','text',NULL,27,'contact','province','Lessee','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (118,'Lessee P24 Suburb Id','number',NULL,28,'contact','p24_suburb_id','Lessee','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (119,'Lessee P24 City Id','number',NULL,29,'contact','p24_city_id','Lessee','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (120,'Lessee P24 Province Id','number',NULL,30,'contact','p24_province_id','Lessee','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (121,'Lessee Loaded At','date',NULL,31,'contact','loaded_at','Lessee','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (122,'Lessee Modified At','date',NULL,32,'contact','modified_at','Lessee','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (123,'Lessee Last Contacted At','date',NULL,33,'contact','last_contacted_at','Lessee','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (124,'Lessee Contacted Marked At','date',NULL,34,'contact','contacted_marked_at','Lessee','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (125,'Lessee Whatsapp Count','text',NULL,35,'contact','whatsapp_count','Lessee','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (126,'Lessee Email Count','text',NULL,36,'contact','email_count','Lessee','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (127,'Lessee Bank Name','text',NULL,37,'contact','bank_name','Lessee','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (128,'Lessee Bank Account Name','text',NULL,38,'contact','bank_account_name','Lessee','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (129,'Lessee Bank Account Number','text',NULL,39,'contact','bank_account_number','Lessee','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (130,'Lessee Bank Branch Name','text',NULL,40,'contact','bank_branch_name','Lessee','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (131,'Lessee Bank Branch Code','text',NULL,41,'contact','bank_branch_code','Lessee','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (132,'Lessee Bank Account Type','text',NULL,42,'contact','bank_account_type','Lessee','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (133,'Lessee Preapproval Amount','number',NULL,43,'contact','preapproval_amount','Lessee','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (134,'Lessee Preapproval Expires At','date',NULL,44,'contact','preapproval_expires_at','Lessee','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (135,'Lessee Preapproval Institution','text',NULL,45,'contact','preapproval_institution','Lessee','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (136,'Lessee Purged At','date',NULL,46,'contact','purged_at','Lessee','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (137,'Lessee Purged Reason','text',NULL,47,'contact','purged_reason','Lessee','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (138,'Lessee Opt Out Email','text',NULL,48,'contact','opt_out_email','Lessee','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (139,'Lessee Opt Out Sms','text',NULL,49,'contact','opt_out_sms','Lessee','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (140,'Lessee Opt Out Whatsapp','text',NULL,50,'contact','opt_out_whatsapp','Lessee','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (141,'Lessee Opt Out Call','text',NULL,51,'contact','opt_out_call','Lessee','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (142,'Lessee Last Consent Check At','date',NULL,52,'contact','last_consent_check_at','Lessee','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (143,'Lessee Is Buyer','text',NULL,53,'contact','is_buyer','Lessee','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (144,'Lessee Buyer State','text',NULL,54,'contact','buyer_state','Lessee','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (145,'Lessee Last Activity At','date',NULL,55,'contact','last_activity_at','Lessee','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (146,'Lessee Buyer Pipeline Entered At','date',NULL,56,'contact','buyer_pipeline_entered_at','Lessee','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (147,'Lessee Buyer Pipeline Notes','text',NULL,57,'contact','buyer_pipeline_notes','Lessee','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (148,'Lessee Buyer Source','text',NULL,58,'contact','buyer_source','Lessee','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (149,'Lessee Rental Application Status','text',NULL,59,'contact','rental_application_status','Lessee','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (150,'Lessee Rental Application Status Updated At','date',NULL,60,'contact','rental_application_status_updated_at','Lessee','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (151,'Lessee Agency Id','number',NULL,61,'contact','agency_id','Lessee','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (152,'Lessee Branch Id','number',NULL,62,'contact','branch_id','Lessee','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (153,'Lessee Messaging Opt Out At','date',NULL,63,'contact','messaging_opt_out_at','Lessee','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (154,'Lessee Messaging Opt Out Reason','text',NULL,64,'contact','messaging_opt_out_reason','Lessee','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (155,'Lessee Messaging Opt Out Recorded By User Id','number',NULL,65,'contact','messaging_opt_out_recorded_by_user_id','Lessee','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (156,'Lessee Messaging Opt Out Source','text',NULL,66,'contact','messaging_opt_out_source','Lessee','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (157,'Lessee Messaging Opt Out Kind','text',NULL,67,'contact','messaging_opt_out_kind','Lessee','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (158,'Lessee Messaging All Blocked','text',NULL,68,'contact','messaging_all_blocked','Lessee','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (159,'Lessee Messaging Opted In At','date',NULL,69,'contact','messaging_opted_in_at','Lessee','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (160,'Lessee Outreach Permission Asked At','date',NULL,70,'contact','outreach_permission_asked_at','Lessee','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (161,'Lessee Messaging Opt In Reason','text',NULL,71,'contact','messaging_opt_in_reason','Lessee','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (162,'Lessee Messaging Opt In Recorded By User Id','number',NULL,72,'contact','messaging_opt_in_recorded_by_user_id','Lessee','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (163,'Lessee Id Type','text',NULL,73,'contact','id_type','Lessee','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (164,'Lessee Contact Kind','text',NULL,74,'contact','contact_kind','Lessee','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (165,'Lessee Entity Name','text',NULL,75,'contact','entity_name','Lessee','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (166,'Lessee Entity Reg No','text',NULL,76,'contact','entity_reg_no','Lessee','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (167,'Lessee Entity Shape','text',NULL,77,'contact','entity_shape','Lessee','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (168,'Lessee Buyer Matches Last Regenerated At','date',NULL,78,'contact','buyer_matches_last_regenerated_at','Lessee','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (169,'Lessee Full Name','text',NULL,79,'contact','first_name+last_name','Lessee','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (170,'Seller Contact Type Id','number',NULL,1,'contact','contact_type_id','Seller','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (171,'Seller Contact Source Id','number',NULL,2,'contact','contact_source_id','Seller','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (172,'Seller Created By User Id','number',NULL,3,'contact','created_by_user_id','Seller','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (173,'Seller Agent Id','number',NULL,4,'contact','agent_id','Seller','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (174,'Seller Second Agent Id','number',NULL,5,'contact','second_agent_id','Seller','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (175,'Seller Client User Id','number',NULL,6,'contact','client_user_id','Seller','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (176,'Seller First Name','text',NULL,7,'contact','first_name','Seller','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (177,'Seller Last Name','text',NULL,8,'contact','last_name','Seller','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (178,'Seller Phone','text',NULL,9,'contact','phone','Seller','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (179,'Seller Email','text',NULL,10,'contact','email','Seller','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (180,'Seller Notes','text',NULL,11,'contact','notes','Seller','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (181,'Seller Birthday','date',NULL,12,'contact','birthday','Seller','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (182,'Seller Birthday Reminder','text',NULL,13,'contact','birthday_reminder','Seller','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (183,'Seller Id Number','text',NULL,14,'contact','id_number','Seller','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (184,'Seller Id Number Captured At','date',NULL,15,'contact','id_number_captured_at','Seller','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (185,'Seller Id Number Source','text',NULL,16,'contact','id_number_source','Seller','2026-10-26 17:14:12','2026-10-26 17:14:12',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (186,'Seller Passport Number','text',NULL,17,'contact','passport_number','Seller','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (187,'Seller Address','text',NULL,18,'contact','address','Seller','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (188,'Seller Unit Number','text',NULL,19,'contact','unit_number','Seller','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (189,'Seller Floor Number','text',NULL,20,'contact','floor_number','Seller','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (190,'Seller Unit Section Block','text',NULL,21,'contact','unit_section_block','Seller','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (191,'Seller Complex Name','text',NULL,22,'contact','complex_name','Seller','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (192,'Seller Street Number','text',NULL,23,'contact','street_number','Seller','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (193,'Seller Street Name','text',NULL,24,'contact','street_name','Seller','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (194,'Seller Suburb','text',NULL,25,'contact','suburb','Seller','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (195,'Seller City','text',NULL,26,'contact','city','Seller','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (196,'Seller Province','text',NULL,27,'contact','province','Seller','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (197,'Seller P24 Suburb Id','number',NULL,28,'contact','p24_suburb_id','Seller','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (198,'Seller P24 City Id','number',NULL,29,'contact','p24_city_id','Seller','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (199,'Seller P24 Province Id','number',NULL,30,'contact','p24_province_id','Seller','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (200,'Seller Loaded At','date',NULL,31,'contact','loaded_at','Seller','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (201,'Seller Modified At','date',NULL,32,'contact','modified_at','Seller','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (202,'Seller Last Contacted At','date',NULL,33,'contact','last_contacted_at','Seller','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (203,'Seller Contacted Marked At','date',NULL,34,'contact','contacted_marked_at','Seller','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (204,'Seller Whatsapp Count','text',NULL,35,'contact','whatsapp_count','Seller','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (205,'Seller Email Count','text',NULL,36,'contact','email_count','Seller','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (206,'Seller Bank Name','text',NULL,37,'contact','bank_name','Seller','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (207,'Seller Bank Account Name','text',NULL,38,'contact','bank_account_name','Seller','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (208,'Seller Bank Account Number','text',NULL,39,'contact','bank_account_number','Seller','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (209,'Seller Bank Branch Name','text',NULL,40,'contact','bank_branch_name','Seller','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (210,'Seller Bank Branch Code','text',NULL,41,'contact','bank_branch_code','Seller','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (211,'Seller Bank Account Type','text',NULL,42,'contact','bank_account_type','Seller','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (212,'Seller Preapproval Amount','number',NULL,43,'contact','preapproval_amount','Seller','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (213,'Seller Preapproval Expires At','date',NULL,44,'contact','preapproval_expires_at','Seller','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (214,'Seller Preapproval Institution','text',NULL,45,'contact','preapproval_institution','Seller','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (215,'Seller Purged At','date',NULL,46,'contact','purged_at','Seller','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (216,'Seller Purged Reason','text',NULL,47,'contact','purged_reason','Seller','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (217,'Seller Opt Out Email','text',NULL,48,'contact','opt_out_email','Seller','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (218,'Seller Opt Out Sms','text',NULL,49,'contact','opt_out_sms','Seller','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (219,'Seller Opt Out Whatsapp','text',NULL,50,'contact','opt_out_whatsapp','Seller','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (220,'Seller Opt Out Call','text',NULL,51,'contact','opt_out_call','Seller','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (221,'Seller Last Consent Check At','date',NULL,52,'contact','last_consent_check_at','Seller','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (222,'Seller Is Buyer','text',NULL,53,'contact','is_buyer','Seller','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (223,'Seller Buyer State','text',NULL,54,'contact','buyer_state','Seller','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (224,'Seller Last Activity At','date',NULL,55,'contact','last_activity_at','Seller','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (225,'Seller Buyer Pipeline Entered At','date',NULL,56,'contact','buyer_pipeline_entered_at','Seller','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (226,'Seller Buyer Pipeline Notes','text',NULL,57,'contact','buyer_pipeline_notes','Seller','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (227,'Seller Buyer Source','text',NULL,58,'contact','buyer_source','Seller','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (228,'Seller Rental Application Status','text',NULL,59,'contact','rental_application_status','Seller','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (229,'Seller Rental Application Status Updated At','date',NULL,60,'contact','rental_application_status_updated_at','Seller','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (230,'Seller Agency Id','number',NULL,61,'contact','agency_id','Seller','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (231,'Seller Branch Id','number',NULL,62,'contact','branch_id','Seller','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (232,'Seller Messaging Opt Out At','date',NULL,63,'contact','messaging_opt_out_at','Seller','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (233,'Seller Messaging Opt Out Reason','text',NULL,64,'contact','messaging_opt_out_reason','Seller','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (234,'Seller Messaging Opt Out Recorded By User Id','number',NULL,65,'contact','messaging_opt_out_recorded_by_user_id','Seller','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (235,'Seller Messaging Opt Out Source','text',NULL,66,'contact','messaging_opt_out_source','Seller','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (236,'Seller Messaging Opt Out Kind','text',NULL,67,'contact','messaging_opt_out_kind','Seller','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (237,'Seller Messaging All Blocked','text',NULL,68,'contact','messaging_all_blocked','Seller','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (238,'Seller Messaging Opted In At','date',NULL,69,'contact','messaging_opted_in_at','Seller','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (239,'Seller Outreach Permission Asked At','date',NULL,70,'contact','outreach_permission_asked_at','Seller','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (240,'Seller Messaging Opt In Reason','text',NULL,71,'contact','messaging_opt_in_reason','Seller','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (241,'Seller Messaging Opt In Recorded By User Id','number',NULL,72,'contact','messaging_opt_in_recorded_by_user_id','Seller','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (242,'Seller Id Type','text',NULL,73,'contact','id_type','Seller','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (243,'Seller Contact Kind','text',NULL,74,'contact','contact_kind','Seller','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (244,'Seller Entity Name','text',NULL,75,'contact','entity_name','Seller','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (245,'Seller Entity Reg No','text',NULL,76,'contact','entity_reg_no','Seller','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (246,'Seller Entity Shape','text',NULL,77,'contact','entity_shape','Seller','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (247,'Seller Buyer Matches Last Regenerated At','date',NULL,78,'contact','buyer_matches_last_regenerated_at','Seller','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (248,'Seller Full Name','text',NULL,79,'contact','first_name+last_name','Seller','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (249,'Buyer Contact Type Id','number',NULL,1,'contact','contact_type_id','Buyer','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (250,'Buyer Contact Source Id','number',NULL,2,'contact','contact_source_id','Buyer','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (251,'Buyer Created By User Id','number',NULL,3,'contact','created_by_user_id','Buyer','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (252,'Buyer Agent Id','number',NULL,4,'contact','agent_id','Buyer','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (253,'Buyer Second Agent Id','number',NULL,5,'contact','second_agent_id','Buyer','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (254,'Buyer Client User Id','number',NULL,6,'contact','client_user_id','Buyer','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (255,'Buyer First Name','text',NULL,7,'contact','first_name','Buyer','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (256,'Buyer Last Name','text',NULL,8,'contact','last_name','Buyer','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (257,'Buyer Phone','text',NULL,9,'contact','phone','Buyer','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (258,'Buyer Email','text',NULL,10,'contact','email','Buyer','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (259,'Buyer Notes','text',NULL,11,'contact','notes','Buyer','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (260,'Buyer Birthday','date',NULL,12,'contact','birthday','Buyer','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (261,'Buyer Birthday Reminder','text',NULL,13,'contact','birthday_reminder','Buyer','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (262,'Buyer Id Number','text',NULL,14,'contact','id_number','Buyer','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (263,'Buyer Id Number Captured At','date',NULL,15,'contact','id_number_captured_at','Buyer','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (264,'Buyer Id Number Source','text',NULL,16,'contact','id_number_source','Buyer','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (265,'Buyer Passport Number','text',NULL,17,'contact','passport_number','Buyer','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (266,'Buyer Address','text',NULL,18,'contact','address','Buyer','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (267,'Buyer Unit Number','text',NULL,19,'contact','unit_number','Buyer','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (268,'Buyer Floor Number','text',NULL,20,'contact','floor_number','Buyer','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (269,'Buyer Unit Section Block','text',NULL,21,'contact','unit_section_block','Buyer','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (270,'Buyer Complex Name','text',NULL,22,'contact','complex_name','Buyer','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (271,'Buyer Street Number','text',NULL,23,'contact','street_number','Buyer','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (272,'Buyer Street Name','text',NULL,24,'contact','street_name','Buyer','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (273,'Buyer Suburb','text',NULL,25,'contact','suburb','Buyer','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (274,'Buyer City','text',NULL,26,'contact','city','Buyer','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (275,'Buyer Province','text',NULL,27,'contact','province','Buyer','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (276,'Buyer P24 Suburb Id','number',NULL,28,'contact','p24_suburb_id','Buyer','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (277,'Buyer P24 City Id','number',NULL,29,'contact','p24_city_id','Buyer','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (278,'Buyer P24 Province Id','number',NULL,30,'contact','p24_province_id','Buyer','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (279,'Buyer Loaded At','date',NULL,31,'contact','loaded_at','Buyer','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (280,'Buyer Modified At','date',NULL,32,'contact','modified_at','Buyer','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (281,'Buyer Last Contacted At','date',NULL,33,'contact','last_contacted_at','Buyer','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (282,'Buyer Contacted Marked At','date',NULL,34,'contact','contacted_marked_at','Buyer','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (283,'Buyer Whatsapp Count','text',NULL,35,'contact','whatsapp_count','Buyer','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (284,'Buyer Email Count','text',NULL,36,'contact','email_count','Buyer','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (285,'Buyer Bank Name','text',NULL,37,'contact','bank_name','Buyer','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (286,'Buyer Bank Account Name','text',NULL,38,'contact','bank_account_name','Buyer','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (287,'Buyer Bank Account Number','text',NULL,39,'contact','bank_account_number','Buyer','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (288,'Buyer Bank Branch Name','text',NULL,40,'contact','bank_branch_name','Buyer','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (289,'Buyer Bank Branch Code','text',NULL,41,'contact','bank_branch_code','Buyer','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (290,'Buyer Bank Account Type','text',NULL,42,'contact','bank_account_type','Buyer','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (291,'Buyer Preapproval Amount','number',NULL,43,'contact','preapproval_amount','Buyer','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (292,'Buyer Preapproval Expires At','date',NULL,44,'contact','preapproval_expires_at','Buyer','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (293,'Buyer Preapproval Institution','text',NULL,45,'contact','preapproval_institution','Buyer','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (294,'Buyer Purged At','date',NULL,46,'contact','purged_at','Buyer','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (295,'Buyer Purged Reason','text',NULL,47,'contact','purged_reason','Buyer','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (296,'Buyer Opt Out Email','text',NULL,48,'contact','opt_out_email','Buyer','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (297,'Buyer Opt Out Sms','text',NULL,49,'contact','opt_out_sms','Buyer','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (298,'Buyer Opt Out Whatsapp','text',NULL,50,'contact','opt_out_whatsapp','Buyer','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (299,'Buyer Opt Out Call','text',NULL,51,'contact','opt_out_call','Buyer','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (300,'Buyer Last Consent Check At','date',NULL,52,'contact','last_consent_check_at','Buyer','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (301,'Buyer Is Buyer','text',NULL,53,'contact','is_buyer','Buyer','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (302,'Buyer Buyer State','text',NULL,54,'contact','buyer_state','Buyer','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (303,'Buyer Last Activity At','date',NULL,55,'contact','last_activity_at','Buyer','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (304,'Buyer Buyer Pipeline Entered At','date',NULL,56,'contact','buyer_pipeline_entered_at','Buyer','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (305,'Buyer Buyer Pipeline Notes','text',NULL,57,'contact','buyer_pipeline_notes','Buyer','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (306,'Buyer Buyer Source','text',NULL,58,'contact','buyer_source','Buyer','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (307,'Buyer Rental Application Status','text',NULL,59,'contact','rental_application_status','Buyer','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (308,'Buyer Rental Application Status Updated At','date',NULL,60,'contact','rental_application_status_updated_at','Buyer','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (309,'Buyer Agency Id','number',NULL,61,'contact','agency_id','Buyer','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (310,'Buyer Branch Id','number',NULL,62,'contact','branch_id','Buyer','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (311,'Buyer Messaging Opt Out At','date',NULL,63,'contact','messaging_opt_out_at','Buyer','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (312,'Buyer Messaging Opt Out Reason','text',NULL,64,'contact','messaging_opt_out_reason','Buyer','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (313,'Buyer Messaging Opt Out Recorded By User Id','number',NULL,65,'contact','messaging_opt_out_recorded_by_user_id','Buyer','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (314,'Buyer Messaging Opt Out Source','text',NULL,66,'contact','messaging_opt_out_source','Buyer','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (315,'Buyer Messaging Opt Out Kind','text',NULL,67,'contact','messaging_opt_out_kind','Buyer','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (316,'Buyer Messaging All Blocked','text',NULL,68,'contact','messaging_all_blocked','Buyer','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (317,'Buyer Messaging Opted In At','date',NULL,69,'contact','messaging_opted_in_at','Buyer','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (318,'Buyer Outreach Permission Asked At','date',NULL,70,'contact','outreach_permission_asked_at','Buyer','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (319,'Buyer Messaging Opt In Reason','text',NULL,71,'contact','messaging_opt_in_reason','Buyer','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (320,'Buyer Messaging Opt In Recorded By User Id','number',NULL,72,'contact','messaging_opt_in_recorded_by_user_id','Buyer','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (321,'Buyer Id Type','text',NULL,73,'contact','id_type','Buyer','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (322,'Buyer Contact Kind','text',NULL,74,'contact','contact_kind','Buyer','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (323,'Buyer Entity Name','text',NULL,75,'contact','entity_name','Buyer','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (324,'Buyer Entity Reg No','text',NULL,76,'contact','entity_reg_no','Buyer','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (325,'Buyer Entity Shape','text',NULL,77,'contact','entity_shape','Buyer','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (326,'Buyer Buyer Matches Last Regenerated At','date',NULL,78,'contact','buyer_matches_last_regenerated_at','Buyer','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (327,'Buyer Full Name','text',NULL,79,'contact','first_name+last_name','Buyer','2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (328,'External Id','text',NULL,1,'property','external_id',NULL,'2026-10-26 17:14:13','2026-10-26 17:14:13',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (329,'Title','text',NULL,2,'property','title',NULL,'2026-10-26 17:14:14','2026-10-26 17:14:14',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (330,'Headline','text',NULL,3,'property','headline',NULL,'2026-10-26 17:14:14','2026-10-26 17:14:14',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (331,'Description','text',NULL,4,'property','description',NULL,'2026-10-26 17:14:14','2026-10-26 17:14:14',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (332,'Excerpt','text',NULL,5,'property','excerpt',NULL,'2026-10-26 17:14:14','2026-10-26 17:14:14',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (333,'Price','number',NULL,6,'property','price',NULL,'2026-10-26 17:14:14','2026-10-26 17:14:14',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (334,'Price On Application','text',NULL,7,'property','price_on_application',NULL,'2026-10-26 17:14:14','2026-10-26 17:14:14',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (335,'Has Deposit','text',NULL,8,'property','has_deposit',NULL,'2026-10-26 17:14:14','2026-10-26 17:14:14',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (336,'Lease Period','text',NULL,9,'property','lease_period',NULL,'2026-10-26 17:14:14','2026-10-26 17:14:14',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (337,'Price Per Day','number',NULL,10,'property','price_per_day',NULL,'2026-10-26 17:14:14','2026-10-26 17:14:14',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (338,'Price Per Week','number',NULL,11,'property','price_per_week',NULL,'2026-10-26 17:14:14','2026-10-26 17:14:14',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (339,'Price Per Year','number',NULL,12,'property','price_per_year',NULL,'2026-10-26 17:14:14','2026-10-26 17:14:14',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (340,'Lease Type','text',NULL,13,'property','lease_type',NULL,'2026-10-26 17:14:14','2026-10-26 17:14:14',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (341,'Gross Price','number',NULL,14,'property','gross_price',NULL,'2026-10-26 17:14:14','2026-10-26 17:14:14',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (342,'Net Price','number',NULL,15,'property','net_price',NULL,'2026-10-26 17:14:14','2026-10-26 17:14:14',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (343,'Yard Price','number',NULL,16,'property','yard_price',NULL,'2026-10-26 17:14:14','2026-10-26 17:14:14',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (344,'Primary Price Display','text',NULL,17,'property','primary_price_display',NULL,'2026-10-26 17:14:14','2026-10-26 17:14:14',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (345,'Rates Taxes','number',NULL,18,'property','rates_taxes',NULL,'2026-10-26 17:14:14','2026-10-26 17:14:14',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (346,'Municipal Valuation','number',NULL,19,'property','municipal_valuation',NULL,'2026-10-26 17:14:14','2026-10-26 17:14:14',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (347,'Municipal Valuation Year','number',NULL,20,'property','municipal_valuation_year',NULL,'2026-10-26 17:14:14','2026-10-26 17:14:14',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (348,'Levy','number',NULL,21,'property','levy',NULL,'2026-10-26 17:14:14','2026-10-26 17:14:14',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (349,'Special Levy','number',NULL,22,'property','special_levy',NULL,'2026-10-26 17:14:14','2026-10-26 17:14:14',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (350,'Rental Amount','number',NULL,23,'property','rental_amount',NULL,'2026-10-26 17:14:14','2026-10-26 17:14:14',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (351,'Deposit Amount','number',NULL,24,'property','deposit_amount',NULL,'2026-10-26 17:14:14','2026-10-26 17:14:14',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (352,'Deposit Amount Is Default','text',NULL,25,'property','deposit_amount_is_default',NULL,'2026-10-26 17:14:14','2026-10-26 17:14:14',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (353,'Commission Percent','number',NULL,26,'property','commission_percent',NULL,'2026-10-26 17:14:14','2026-10-26 17:14:14',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (354,'Admin Fee','number',NULL,27,'property','admin_fee',NULL,'2026-10-26 17:14:14','2026-10-26 17:14:14',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (355,'Rental No Approval Spend Threshold','number',NULL,28,'property','rental_no_approval_spend_threshold',NULL,'2026-10-26 17:14:14','2026-10-26 17:14:14',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (356,'Rental Main Water Valve Location','text',NULL,29,'property','rental_main_water_valve_location',NULL,'2026-10-26 17:14:14','2026-10-26 17:14:14',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (357,'Rental Main Water Valve Photo Path','text',NULL,30,'property','rental_main_water_valve_photo_path',NULL,'2026-10-26 17:14:14','2026-10-26 17:14:14',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (358,'Rental Db Board Location','text',NULL,31,'property','rental_db_board_location',NULL,'2026-10-26 17:14:14','2026-10-26 17:14:14',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (359,'Rental Db Board Photo Path','text',NULL,32,'property','rental_db_board_photo_path',NULL,'2026-10-26 17:14:14','2026-10-26 17:14:14',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (360,'Marketing Fee','number',NULL,33,'property','marketing_fee',NULL,'2026-10-26 17:14:14','2026-10-26 17:14:14',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (361,'Suburb','text',NULL,34,'property','suburb',NULL,'2026-10-26 17:14:14','2026-10-26 17:14:14',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (362,'Suburb Normalised','text',NULL,35,'property','suburb_normalised',NULL,'2026-10-26 17:14:14','2026-10-26 17:14:14',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (363,'P24 Suburb Id','number',NULL,36,'property','p24_suburb_id',NULL,'2026-10-26 17:14:14','2026-10-26 17:14:14',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (364,'P24 City Id','number',NULL,37,'property','p24_city_id',NULL,'2026-10-26 17:14:14','2026-10-26 17:14:14',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (365,'P24 Province Id','number',NULL,38,'property','p24_province_id',NULL,'2026-10-26 17:14:14','2026-10-26 17:14:14',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (366,'P24 Suburb Mismatch','text',NULL,39,'property','p24_suburb_mismatch',NULL,'2026-10-26 17:14:14','2026-10-26 17:14:14',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (367,'Address','text',NULL,40,'property','address',NULL,'2026-10-26 17:14:14','2026-10-26 17:14:14',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (368,'Street Name','text',NULL,41,'property','street_name',NULL,'2026-10-26 17:14:14','2026-10-26 17:14:14',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (369,'Street Name Normalised','text',NULL,42,'property','street_name_normalised',NULL,'2026-10-26 17:14:14','2026-10-26 17:14:14',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (370,'Street Core','text',NULL,43,'property','street_core',NULL,'2026-10-26 17:14:14','2026-10-26 17:14:14',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (371,'Street Type','text',NULL,44,'property','street_type',NULL,'2026-10-26 17:14:14','2026-10-26 17:14:14',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (372,'Street Number','text',NULL,45,'property','street_number',NULL,'2026-10-26 17:14:14','2026-10-26 17:14:14',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (373,'City','text',NULL,46,'property','city',NULL,'2026-10-26 17:14:14','2026-10-26 17:14:14',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (374,'Region','text',NULL,47,'property','region',NULL,'2026-10-26 17:14:14','2026-10-26 17:14:14',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (375,'District','text',NULL,48,'property','district',NULL,'2026-10-26 17:14:14','2026-10-26 17:14:14',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (376,'Province','text',NULL,49,'property','province',NULL,'2026-10-26 17:14:14','2026-10-26 17:14:14',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (377,'Town','text',NULL,50,'property','town',NULL,'2026-10-26 17:14:14','2026-10-26 17:14:14',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (378,'Beds','text',NULL,51,'property','beds',NULL,'2026-10-26 17:14:14','2026-10-26 17:14:14',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (379,'Baths','text',NULL,52,'property','baths',NULL,'2026-10-26 17:14:14','2026-10-26 17:14:14',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (380,'Half Baths','text',NULL,53,'property','half_baths',NULL,'2026-10-26 17:14:14','2026-10-26 17:14:14',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (381,'Garages','text',NULL,54,'property','garages',NULL,'2026-10-26 17:14:14','2026-10-26 17:14:14',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (382,'Size M2','text',NULL,55,'property','size_m2',NULL,'2026-10-26 17:14:14','2026-10-26 17:14:14',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (383,'Floor Area Unit','text',NULL,56,'property','floor_area_unit',NULL,'2026-10-26 17:14:14','2026-10-26 17:14:14',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (384,'Erf Size M2','text',NULL,57,'property','erf_size_m2',NULL,'2026-10-26 17:14:14','2026-10-26 17:14:14',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (385,'Erf Area Unit','text',NULL,58,'property','erf_area_unit',NULL,'2026-10-26 17:14:14','2026-10-26 17:14:14',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (386,'Property Number','text',NULL,59,'property','property_number',NULL,'2026-10-26 17:14:14','2026-10-26 17:14:14',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (387,'Stand Number','text',NULL,60,'property','stand_number',NULL,'2026-10-26 17:14:14','2026-10-26 17:14:14',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (388,'Erf Number','text',NULL,61,'property','erf_number',NULL,'2026-10-26 17:14:14','2026-10-26 17:14:14',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (389,'Erf Portion','text',NULL,62,'property','erf_portion',NULL,'2026-10-26 17:14:14','2026-10-26 17:14:14',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (390,'Sg Province','text',NULL,63,'property','sg_province',NULL,'2026-10-26 17:14:14','2026-10-26 17:14:14',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (391,'Sg Rural Urban','text',NULL,64,'property','sg_rural_urban',NULL,'2026-10-26 17:14:14','2026-10-26 17:14:14',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (392,'Sg Farm Name','text',NULL,65,'property','sg_farm_name',NULL,'2026-10-26 17:14:14','2026-10-26 17:14:14',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (393,'Sg Last Searched At','date',NULL,66,'property','sg_last_searched_at',NULL,'2026-10-26 17:14:14','2026-10-26 17:14:14',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (394,'Title Deed Number','text',NULL,67,'property','title_deed_number',NULL,'2026-10-26 17:14:14','2026-10-26 17:14:14',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (395,'Zone Type','text',NULL,68,'property','zone_type',NULL,'2026-10-26 17:14:14','2026-10-26 17:14:14',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (396,'Address Internal Note','text',NULL,69,'property','address_internal_note',NULL,'2026-10-26 17:14:14','2026-10-26 17:14:14',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (397,'Complex Name','text',NULL,70,'property','complex_name',NULL,'2026-10-26 17:14:14','2026-10-26 17:14:14',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (398,'Scheme Number','text',NULL,71,'property','scheme_number',NULL,'2026-10-26 17:14:14','2026-10-26 17:14:14',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (399,'Unit Number','text',NULL,72,'property','unit_number',NULL,'2026-10-26 17:14:14','2026-10-26 17:14:14',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (400,'Floor Number','text',NULL,73,'property','floor_number',NULL,'2026-10-26 17:14:14','2026-10-26 17:14:14',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (401,'Number Of Floors','number',NULL,74,'property','number_of_floors',NULL,'2026-10-26 17:14:14','2026-10-26 17:14:14',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (402,'Unit Section Block','text',NULL,75,'property','unit_section_block',NULL,'2026-10-26 17:14:14','2026-10-26 17:14:14',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (403,'Property Type','text',NULL,76,'property','property_type',NULL,'2026-10-26 17:14:14','2026-10-26 17:14:14',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (404,'Title Type','text',NULL,77,'property','title_type',NULL,'2026-10-26 17:14:14','2026-10-26 17:14:14',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (405,'Condition Level Id','number',NULL,78,'property','condition_level_id',NULL,'2026-10-26 17:14:14','2026-10-26 17:14:14',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (406,'Category','text',NULL,79,'property','category',NULL,'2026-10-26 17:14:14','2026-10-26 17:14:14',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (407,'Mandate Type','text',NULL,80,'property','mandate_type',NULL,'2026-10-26 17:14:14','2026-10-26 17:14:14',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (408,'Listing Type','text',NULL,81,'property','listing_type',NULL,'2026-10-26 17:14:14','2026-10-26 17:14:14',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (409,'Sale Method','text',NULL,82,'property','sale_method',NULL,'2026-10-26 17:14:14','2026-10-26 17:14:14',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (410,'Listing Type Pending','text',NULL,83,'property','listing_type_pending',NULL,'2026-10-26 17:14:14','2026-10-26 17:14:14',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (411,'Status','text',NULL,84,'property','status',NULL,'2026-10-26 17:14:14','2026-10-26 17:14:14',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (412,'Status Before Letting','text',NULL,85,'property','status_before_letting',NULL,'2026-10-26 17:14:14','2026-10-26 17:14:14',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (413,'Pre Deal Offer Status','text',NULL,86,'property','pre_deal_offer_status',NULL,'2026-10-26 17:14:14','2026-10-26 17:14:14',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (414,'Pre Tenant Link Status','text',NULL,87,'property','pre_tenant_link_status',NULL,'2026-10-26 17:14:14','2026-10-26 17:14:14',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (415,'Pre Auction Status','text',NULL,88,'property','pre_auction_status',NULL,'2026-10-26 17:14:14','2026-10-26 17:14:14',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (416,'Status Label','text',NULL,89,'property','status_label',NULL,'2026-10-26 17:14:14','2026-10-26 17:14:14',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (417,'Images Json','text',NULL,90,'property','images_json',NULL,'2026-10-26 17:14:14','2026-10-26 17:14:14',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (418,'Gallery Expected Count','text',NULL,91,'property','gallery_expected_count',NULL,'2026-10-26 17:14:14','2026-10-26 17:14:14',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (419,'Gallery Stored Count','text',NULL,92,'property','gallery_stored_count',NULL,'2026-10-26 17:14:14','2026-10-26 17:14:14',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (420,'Gallery Import Status','text',NULL,93,'property','gallery_import_status',NULL,'2026-10-26 17:14:14','2026-10-26 17:14:14',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (421,'P24 Source Image Signature','text',NULL,94,'property','p24_source_image_signature',NULL,'2026-10-26 17:14:14','2026-10-26 17:14:14',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (422,'Dawn Images Json','text',NULL,95,'property','dawn_images_json',NULL,'2026-10-26 17:14:14','2026-10-26 17:14:14',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (423,'Noon Images Json','text',NULL,96,'property','noon_images_json',NULL,'2026-10-26 17:14:14','2026-10-26 17:14:14',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (424,'Dusk Images Json','text',NULL,97,'property','dusk_images_json',NULL,'2026-10-26 17:14:14','2026-10-26 17:14:14',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (425,'Gallery Images Json','text',NULL,98,'property','gallery_images_json',NULL,'2026-10-26 17:14:14','2026-10-26 17:14:14',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (426,'Gallery Categories Json','text',NULL,99,'property','gallery_categories_json',NULL,'2026-10-26 17:14:14','2026-10-26 17:14:14',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (427,'Gallery Custom Tags','text',NULL,100,'property','gallery_custom_tags',NULL,'2026-10-26 17:14:14','2026-10-26 17:14:14',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (428,'Gallery Tag Order','text',NULL,101,'property','gallery_tag_order',NULL,'2026-10-26 17:14:14','2026-10-26 17:14:14',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (429,'Gallery Upload Keys','text',NULL,102,'property','gallery_upload_keys',NULL,'2026-10-26 17:14:14','2026-10-26 17:14:14',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (430,'Rental Upload Keys','text',NULL,103,'property','rental_upload_keys',NULL,'2026-10-26 17:14:14','2026-10-26 17:14:14',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (431,'Rental Images Json','text',NULL,104,'property','rental_images_json',NULL,'2026-10-26 17:14:14','2026-10-26 17:14:14',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (432,'Features Json','text',NULL,105,'property','features_json',NULL,'2026-10-26 17:14:14','2026-10-26 17:14:14',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (433,'Features Json Meta','text',NULL,106,'property','features_json_meta',NULL,'2026-10-26 17:14:14','2026-10-26 17:14:14',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (434,'Pet Friendly','text',NULL,107,'property','pet_friendly',NULL,'2026-10-26 17:14:14','2026-10-26 17:14:14',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (435,'Spaces Json','text',NULL,108,'property','spaces_json',NULL,'2026-10-26 17:14:14','2026-10-26 17:14:14',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (436,'Rental Inspection Form Seeded At','date',NULL,109,'property','rental_inspection_form_seeded_at',NULL,'2026-10-26 17:14:14','2026-10-26 17:14:14',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (437,'Spaces Json Legacy Backup','text',NULL,110,'property','spaces_json_legacy_backup',NULL,'2026-10-26 17:14:15','2026-10-26 17:14:15',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (438,'Agent Id','number',NULL,111,'property','agent_id',NULL,'2026-10-26 17:14:15','2026-10-26 17:14:15',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (439,'Pp Second Agent Id','number',NULL,112,'property','pp_second_agent_id',NULL,'2026-10-26 17:14:15','2026-10-26 17:14:15',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (440,'Pp Agent Image Path','text',NULL,113,'property','pp_agent_image_path',NULL,'2026-10-26 17:14:15','2026-10-26 17:14:15',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (441,'Pp Second Agent Image Path','text',NULL,114,'property','pp_second_agent_image_path',NULL,'2026-10-26 17:14:15','2026-10-26 17:14:15',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (442,'Branch Id','number',NULL,115,'property','branch_id',NULL,'2026-10-26 17:14:15','2026-10-26 17:14:15',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (443,'Agency Id','number',NULL,116,'property','agency_id',NULL,'2026-10-26 17:14:15','2026-10-26 17:14:15',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (444,'Published At','date',NULL,117,'property','published_at',NULL,'2026-10-26 17:14:15','2026-10-26 17:14:15',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (445,'Listed Date','date',NULL,118,'property','listed_date',NULL,'2026-10-26 17:14:15','2026-10-26 17:14:15',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (446,'Expiry Date','date',NULL,119,'property','expiry_date',NULL,'2026-10-26 17:14:15','2026-10-26 17:14:15',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (447,'Expiry Date Changed At','date',NULL,120,'property','expiry_date_changed_at',NULL,'2026-10-26 17:14:15','2026-10-26 17:14:15',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (448,'Expiry Lock Engaged At','date',NULL,121,'property','expiry_lock_engaged_at',NULL,'2026-10-26 17:14:15','2026-10-26 17:14:15',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (449,'Occupation Date','date',NULL,122,'property','occupation_date',NULL,'2026-10-26 17:14:15','2026-10-26 17:14:15',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (450,'Lease Start Date','date',NULL,123,'property','lease_start_date',NULL,'2026-10-26 17:14:15','2026-10-26 17:14:15',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (451,'Show Available From On Portals','text',NULL,124,'property','show_available_from_on_portals',NULL,'2026-10-26 17:14:15','2026-10-26 17:14:15',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (452,'Lease End Date','date',NULL,125,'property','lease_end_date',NULL,'2026-10-26 17:14:15','2026-10-26 17:14:15',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (453,'Pp Syndication Enabled','text',NULL,126,'property','pp_syndication_enabled',NULL,'2026-10-26 17:14:15','2026-10-26 17:14:15',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (454,'Pp Syndication Status','text',NULL,127,'property','pp_syndication_status',NULL,'2026-10-26 17:14:15','2026-10-26 17:14:15',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (455,'Pp Ref','text',NULL,128,'property','pp_ref',NULL,'2026-10-26 17:14:15','2026-10-26 17:14:15',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (456,'Pp Listing Feed Ref','text',NULL,129,'property','pp_listing_feed_ref',NULL,'2026-10-26 17:14:15','2026-10-26 17:14:15',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (457,'Pp Last Submitted At','date',NULL,130,'property','pp_last_submitted_at',NULL,'2026-10-26 17:14:15','2026-10-26 17:14:15',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (458,'Pp Activated At','date',NULL,131,'property','pp_activated_at',NULL,'2026-10-26 17:14:15','2026-10-26 17:14:15',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (459,'Pp Exclusive Days','text',NULL,132,'property','pp_exclusive_days',NULL,'2026-10-26 17:14:15','2026-10-26 17:14:15',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (460,'Pp Delay Until','date',NULL,133,'property','pp_delay_until',NULL,'2026-10-26 17:14:15','2026-10-26 17:14:15',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (461,'Pp Last Error','text',NULL,134,'property','pp_last_error',NULL,'2026-10-26 17:14:15','2026-10-26 17:14:15',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (462,'Pp Portal Agent Ids','text',NULL,135,'property','pp_portal_agent_ids',NULL,'2026-10-26 17:14:15','2026-10-26 17:14:15',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (463,'Pp Agent Conflict','text',NULL,136,'property','pp_agent_conflict',NULL,'2026-10-26 17:14:15','2026-10-26 17:14:15',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (464,'Pp Images Last Synced At','date',NULL,137,'property','pp_images_last_synced_at',NULL,'2026-10-26 17:14:15','2026-10-26 17:14:15',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (465,'Pp Listing Last Synced At','date',NULL,138,'property','pp_listing_last_synced_at',NULL,'2026-10-26 17:14:15','2026-10-26 17:14:15',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (466,'Pp Hide Street Name','text',NULL,139,'property','pp_hide_street_name',NULL,'2026-10-26 17:14:15','2026-10-26 17:14:15',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (467,'Pp Hide Street Number','text',NULL,140,'property','pp_hide_street_number',NULL,'2026-10-26 17:14:15','2026-10-26 17:14:15',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (468,'Pp Hide Complex Name','text',NULL,141,'property','pp_hide_complex_name',NULL,'2026-10-26 17:14:15','2026-10-26 17:14:15',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (469,'Pp Hide Unit Number','text',NULL,142,'property','pp_hide_unit_number',NULL,'2026-10-26 17:14:15','2026-10-26 17:14:15',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (470,'P24 Hide Address','text',NULL,143,'property','p24_hide_address',NULL,'2026-10-26 17:14:15','2026-10-26 17:14:15',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (471,'Youtube Video Id','text',NULL,144,'property','youtube_video_id',NULL,'2026-10-26 17:14:15','2026-10-26 17:14:15',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (472,'Matterport Id','text',NULL,145,'property','matterport_id',NULL,'2026-10-26 17:14:15','2026-10-26 17:14:15',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (473,'Eyespy 360 Id','text',NULL,146,'property','eyespy_360_id',NULL,'2026-10-26 17:14:15','2026-10-26 17:14:15',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (474,'Virtual Tour Url','text',NULL,147,'property','virtual_tour_url',NULL,'2026-10-26 17:14:15','2026-10-26 17:14:15',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (475,'Rental Price Type','text',NULL,148,'property','rental_price_type',NULL,'2026-10-26 17:14:15','2026-10-26 17:14:15',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (476,'Furnished Status','text',NULL,149,'property','furnished_status',NULL,'2026-10-26 17:14:15','2026-10-26 17:14:15',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (477,'Water Included','text',NULL,150,'property','water_included',NULL,'2026-10-26 17:14:15','2026-10-26 17:14:15',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (478,'Electricity Included','text',NULL,151,'property','electricity_included',NULL,'2026-10-26 17:14:15','2026-10-26 17:14:15',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (479,'Levies Included','text',NULL,152,'property','levies_included',NULL,'2026-10-26 17:14:15','2026-10-26 17:14:15',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (480,'Rental Details Custom Field Values','text',NULL,153,'property','rental_details_custom_field_values',NULL,'2026-10-26 17:14:15','2026-10-26 17:14:15',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (481,'P24 Syndication Enabled','text',NULL,154,'property','p24_syndication_enabled',NULL,'2026-10-26 17:14:15','2026-10-26 17:14:15',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (482,'P24 Syndication Status','text',NULL,155,'property','p24_syndication_status',NULL,'2026-10-26 17:14:15','2026-10-26 17:14:15',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (483,'P24 Stats Synced At','date',NULL,156,'property','p24_stats_synced_at',NULL,'2026-10-26 17:14:15','2026-10-26 17:14:15',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (484,'Ad Generated Count','text',NULL,157,'property','ad_generated_count',NULL,'2026-10-26 17:14:15','2026-10-26 17:14:15',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (485,'Ad Last Generated At','date',NULL,158,'property','ad_last_generated_at',NULL,'2026-10-26 17:14:15','2026-10-26 17:14:15',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (486,'P24 Ref','text',NULL,159,'property','p24_ref',NULL,'2026-10-26 17:14:15','2026-10-26 17:14:15',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (487,'Source Reference','text',NULL,160,'property','source_reference',NULL,'2026-10-26 17:14:15','2026-10-26 17:14:15',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (488,'Lightstone Id','text',NULL,161,'property','lightstone_id',NULL,'2026-10-26 17:14:15','2026-10-26 17:14:15',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (489,'Development Id','text',NULL,162,'property','development_id',NULL,'2026-10-26 17:14:15','2026-10-26 17:14:15',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (490,'P24 Last Submitted At','date',NULL,163,'property','p24_last_submitted_at',NULL,'2026-10-26 17:14:15','2026-10-26 17:14:15',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (491,'P24 Activated At','date',NULL,164,'property','p24_activated_at',NULL,'2026-10-26 17:14:15','2026-10-26 17:14:15',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (492,'P24 Last Error','text',NULL,165,'property','p24_last_error',NULL,'2026-10-26 17:14:15','2026-10-26 17:14:15',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (493,'P24 Images Last Synced At','date',NULL,166,'property','p24_images_last_synced_at',NULL,'2026-10-26 17:14:15','2026-10-26 17:14:15',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (494,'P24 Listing Last Synced At','date',NULL,167,'property','p24_listing_last_synced_at',NULL,'2026-10-26 17:14:15','2026-10-26 17:14:15',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (495,'P24 Activation Last Checked At','date',NULL,168,'property','p24_activation_last_checked_at',NULL,'2026-10-26 17:14:15','2026-10-26 17:14:15',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (496,'Pp Suburb Id','text',NULL,169,'property','pp_suburb_id',NULL,'2026-10-26 17:14:15','2026-10-26 17:14:15',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (497,'Latitude','number',NULL,170,'property','latitude',NULL,'2026-10-26 17:14:15','2026-10-26 17:14:15',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (498,'Longitude','number',NULL,171,'property','longitude',NULL,'2026-10-26 17:14:15','2026-10-26 17:14:15',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (499,'Geo Source','text',NULL,172,'property','geo_source',NULL,'2026-10-26 17:14:15','2026-10-26 17:14:15',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (500,'Geo Confidence','text',NULL,173,'property','geo_confidence',NULL,'2026-10-26 17:14:15','2026-10-26 17:14:15',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (501,'Geo Resolved At','date',NULL,174,'property','geo_resolved_at',NULL,'2026-10-26 17:14:15','2026-10-26 17:14:15',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (502,'Cma Gps Lat','number',NULL,175,'property','cma_gps_lat',NULL,'2026-10-26 17:14:15','2026-10-26 17:14:15',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (503,'Cma Gps Lng','number',NULL,176,'property','cma_gps_lng',NULL,'2026-10-26 17:14:15','2026-10-26 17:14:15',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (504,'Last Cma At','date',NULL,177,'property','last_cma_at',NULL,'2026-10-26 17:14:15','2026-10-26 17:14:15',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (505,'Last Cma Presentation Id','number',NULL,178,'property','last_cma_presentation_id',NULL,'2026-10-26 17:14:15','2026-10-26 17:14:15',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (506,'Last Activity At','date',NULL,179,'property','last_activity_at',NULL,'2026-10-26 17:14:15','2026-10-26 17:14:15',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (507,'Compliance Snapshot At','date',NULL,180,'property','compliance_snapshot_at',NULL,'2026-10-26 17:14:15','2026-10-26 17:14:15',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (508,'Compliance Snapshot Data','text',NULL,181,'property','compliance_snapshot_data',NULL,'2026-10-26 17:14:15','2026-10-26 17:14:15',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (509,'Syndication Approved At','date',NULL,182,'property','syndication_approved_at',NULL,'2026-10-26 17:14:15','2026-10-26 17:14:15',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (510,'Syndication Approved By User Id','number',NULL,183,'property','syndication_approved_by_user_id',NULL,'2026-10-26 17:14:15','2026-10-26 17:14:15',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (511,'Compliance Evidence Flags','text',NULL,184,'property','compliance_evidence_flags',NULL,'2026-10-26 17:14:15','2026-10-26 17:14:15',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (512,'First Marketed At','date',NULL,185,'property','first_marketed_at',NULL,'2026-10-26 17:14:15','2026-10-26 17:14:15',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (513,'P24 Listing Number','text',NULL,186,'property','p24_listing_number',NULL,'2026-10-26 17:14:15','2026-10-26 17:14:15',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (514,'P24 Imported At','date',NULL,187,'property','p24_imported_at',NULL,'2026-10-26 17:14:15','2026-10-26 17:14:15',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (515,'Imported Released At','date',NULL,188,'property','imported_released_at',NULL,'2026-10-26 17:14:15','2026-10-26 17:14:15',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (516,'Is Demo','text',NULL,189,'property','is_demo',NULL,'2026-10-26 17:14:15','2026-10-26 17:14:15',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (517,'P24 Image Signature','text',NULL,190,'property','p24_image_signature',NULL,'2026-10-26 17:14:15','2026-10-26 17:14:15',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (518,'P24 Portal Agent Ids','text',NULL,191,'property','p24_portal_agent_ids',NULL,'2026-10-26 17:14:15','2026-10-26 17:14:15',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (519,'P24 Agent Conflict','text',NULL,192,'property','p24_agent_conflict',NULL,'2026-10-26 17:14:15','2026-10-26 17:14:15',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (520,'Access Notes','text',NULL,193,'property','access_notes',NULL,'2026-10-26 17:14:15','2026-10-26 17:14:15',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (521,'Rental Variation Tolerance Percent','number',NULL,194,'property','rental_variation_tolerance_percent',NULL,'2026-10-26 17:14:15','2026-10-26 17:14:15',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (522,'Rental Work Terms Updated At','date',NULL,195,'property','rental_work_terms_updated_at',NULL,'2026-10-26 17:14:15','2026-10-26 17:14:15',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (523,'Rental Work Terms Updated By User Id','number',NULL,196,'property','rental_work_terms_updated_by_user_id',NULL,'2026-10-26 17:14:15','2026-10-26 17:14:15',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (524,'Township','text',NULL,197,'property','township',NULL,'2026-10-26 17:14:15','2026-10-26 17:14:15',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (525,'Lpi Code','text',NULL,198,'property','lpi_code',NULL,'2026-10-26 17:14:15','2026-10-26 17:14:15',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (526,'Address Raw','text',NULL,199,'property','address_raw',NULL,'2026-10-26 17:14:15','2026-10-26 17:14:15',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (527,'Address Parse Status','text',NULL,200,'property','address_parse_status',NULL,'2026-10-26 17:14:15','2026-10-26 17:14:15',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (528,'Address Parse Note','text',NULL,201,'property','address_parse_note',NULL,'2026-10-26 17:14:15','2026-10-26 17:14:15',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (529,'Compliance Status Hidden','text',NULL,202,'property','compliance_status_hidden',NULL,'2026-10-26 17:14:15','2026-10-26 17:14:15',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (530,'Wizard Token','text',NULL,203,'property','wizard_token',NULL,'2026-10-26 17:14:15','2026-10-26 17:14:15',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (531,'Qr Code Slug','text',NULL,1,'agent','qr_code_slug',NULL,'2026-10-26 17:14:15','2026-10-26 17:14:15',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (532,'Qr Reroute User Id','number',NULL,2,'agent','qr_reroute_user_id',NULL,'2026-10-26 17:14:15','2026-10-26 17:14:15',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (533,'Name','text',NULL,3,'agent','name',NULL,'2026-10-26 17:14:15','2026-10-26 17:14:15',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (534,'Email','text',NULL,4,'agent','email',NULL,'2026-10-26 17:14:15','2026-10-26 17:14:15',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (535,'Display Email','text',NULL,5,'agent','display_email',NULL,'2026-10-26 17:14:15','2026-10-26 17:14:15',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (536,'Role','text',NULL,6,'agent','role',NULL,'2026-10-26 17:14:15','2026-10-26 17:14:15',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (537,'Is Assistant','text',NULL,7,'agent','is_assistant',NULL,'2026-10-26 17:14:15','2026-10-26 17:14:15',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (538,'Fica Required','text',NULL,8,'agent','fica_required',NULL,'2026-10-26 17:14:15','2026-10-26 17:14:15',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (539,'Assistant Title','text',NULL,9,'agent','assistant_title',NULL,'2026-10-26 17:14:15','2026-10-26 17:14:15',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (540,'Risk Tier','text',NULL,10,'agent','risk_tier',NULL,'2026-10-26 17:14:15','2026-10-26 17:14:15',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (541,'Screening Status','text',NULL,11,'agent','screening_status',NULL,'2026-10-26 17:14:15','2026-10-26 17:14:15',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (542,'Screening Due On','date',NULL,12,'agent','screening_due_on',NULL,'2026-10-26 17:14:15','2026-10-26 17:14:15',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (543,'Designation','text',NULL,13,'agent','designation',NULL,'2026-10-26 17:14:15','2026-10-26 17:14:15',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (544,'Full First Names','text',NULL,14,'agent','full_first_names',NULL,'2026-10-26 17:14:15','2026-10-26 17:14:15',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (545,'Ppra Category','text',NULL,15,'agent','ppra_category',NULL,'2026-10-26 17:14:15','2026-10-26 17:14:15',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (546,'Employment Date','date',NULL,16,'agent','employment_date',NULL,'2026-10-26 17:14:15','2026-10-26 17:14:15',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (547,'Supervised By','number',NULL,17,'agent','supervised_by',NULL,'2026-10-26 17:14:15','2026-10-26 17:14:15',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (548,'Is Admin','text',NULL,18,'agent','is_admin',NULL,'2026-10-26 17:14:15','2026-10-26 17:14:15',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (549,'Target Listings','text',NULL,19,'agent','target_listings',NULL,'2026-10-26 17:14:15','2026-10-26 17:14:15',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (550,'Invited At','date',NULL,20,'agent','invited_at',NULL,'2026-10-26 17:14:15','2026-10-26 17:14:15',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (551,'First Login At','date',NULL,21,'agent','first_login_at',NULL,'2026-10-26 17:14:15','2026-10-26 17:14:15',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (552,'Branch Id','number',NULL,22,'agent','branch_id',NULL,'2026-10-26 17:14:15','2026-10-26 17:14:15',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (553,'Agency Id','number',NULL,23,'agent','agency_id',NULL,'2026-10-26 17:14:15','2026-10-26 17:14:15',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (554,'Anniversary Date','date',NULL,24,'agent','anniversary_date',NULL,'2026-10-26 17:14:15','2026-10-26 17:14:15',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (555,'Sponsored By User Id','number',NULL,25,'agent','sponsored_by_user_id',NULL,'2026-10-26 17:14:15','2026-10-26 17:14:15',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (556,'Agent Tier','text',NULL,26,'agent','agent_tier',NULL,'2026-10-26 17:14:15','2026-10-26 17:14:15',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (557,'Is Mentor Eligible','text',NULL,27,'agent','is_mentor_eligible',NULL,'2026-10-26 17:14:15','2026-10-26 17:14:15',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (558,'Agent Photo Path','text',NULL,28,'agent','agent_photo_path',NULL,'2026-10-26 17:14:15','2026-10-26 17:14:15',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (559,'Ffc Certificate Path','text',NULL,29,'agent','ffc_certificate_path',NULL,'2026-10-26 17:14:16','2026-10-26 17:14:16',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (560,'Pi Insurance Path','text',NULL,30,'agent','pi_insurance_path',NULL,'2026-10-26 17:14:16','2026-10-26 17:14:16',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (561,'Pi Insurance Expiry','date',NULL,31,'agent','pi_insurance_expiry',NULL,'2026-10-26 17:14:16','2026-10-26 17:14:16',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (562,'Tax Clearance Path','text',NULL,32,'agent','tax_clearance_path',NULL,'2026-10-26 17:14:16','2026-10-26 17:14:16',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (563,'Tax Clearance Expiry','date',NULL,33,'agent','tax_clearance_expiry',NULL,'2026-10-26 17:14:16','2026-10-26 17:14:16',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (564,'Phone','text',NULL,34,'agent','phone',NULL,'2026-10-26 17:14:16','2026-10-26 17:14:16',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (565,'Cell','text',NULL,35,'agent','cell',NULL,'2026-10-26 17:14:16','2026-10-26 17:14:16',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (566,'Whatsapp Number','text',NULL,36,'agent','whatsapp_number',NULL,'2026-10-26 17:14:16','2026-10-26 17:14:16',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (567,'Id Number','text',NULL,37,'agent','id_number',NULL,'2026-10-26 17:14:16','2026-10-26 17:14:16',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (568,'Date Of Birth','date',NULL,38,'agent','date_of_birth',NULL,'2026-10-26 17:14:16','2026-10-26 17:14:16',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (569,'Tax Reference Number','text',NULL,39,'agent','tax_reference_number',NULL,'2026-10-26 17:14:16','2026-10-26 17:14:16',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (570,'Id Document Path','text',NULL,40,'agent','id_document_path',NULL,'2026-10-26 17:14:16','2026-10-26 17:14:16',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (571,'Fax','text',NULL,41,'agent','fax',NULL,'2026-10-26 17:14:16','2026-10-26 17:14:16',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (572,'Ffc Number','text',NULL,42,'agent','ffc_number',NULL,'2026-10-26 17:14:16','2026-10-26 17:14:16',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (573,'Ffc Expiry Date','date',NULL,43,'agent','ffc_expiry_date',NULL,'2026-10-26 17:14:16','2026-10-26 17:14:16',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (574,'Ppra Status','text',NULL,44,'agent','ppra_status',NULL,'2026-10-26 17:14:16','2026-10-26 17:14:16',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (575,'Ppra Last Verified At','date',NULL,45,'agent','ppra_last_verified_at',NULL,'2026-10-26 17:14:16','2026-10-26 17:14:16',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (576,'Website','text',NULL,46,'agent','website',NULL,'2026-10-26 17:14:16','2026-10-26 17:14:16',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (577,'About Me','text',NULL,47,'agent','about_me',NULL,'2026-10-26 17:14:16','2026-10-26 17:14:16',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (578,'Theme','text',NULL,48,'agent','theme',NULL,'2026-10-26 17:14:16','2026-10-26 17:14:16',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (579,'Last Presentation Send Channel','text',NULL,49,'agent','last_presentation_send_channel',NULL,'2026-10-26 17:14:16','2026-10-26 17:14:16',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (580,'Last Presentation Send Mode','text',NULL,50,'agent','last_presentation_send_mode',NULL,'2026-10-26 17:14:16','2026-10-26 17:14:16',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (581,'Portal Show Api Token','text',NULL,51,'agent','portal_show_api_token',NULL,'2026-10-26 17:14:16','2026-10-26 17:14:16',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (582,'Portal Show Social Accounts','text',NULL,52,'agent','portal_show_social_accounts',NULL,'2026-10-26 17:14:16','2026-10-26 17:14:16',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (583,'Pp Unique Agent Id','text',NULL,53,'agent','pp_unique_agent_id',NULL,'2026-10-26 17:14:16','2026-10-26 17:14:16',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (584,'Pp External Ref','text',NULL,54,'agent','pp_external_ref',NULL,'2026-10-26 17:14:16','2026-10-26 17:14:16',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (585,'Pp Exclusivity Explainer Seen At','date',NULL,55,'agent','pp_exclusivity_explainer_seen_at',NULL,'2026-10-26 17:14:16','2026-10-26 17:14:16',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (586,'Agent Cut Percent','number',NULL,56,'agent','agent_cut_percent',NULL,'2026-10-26 17:14:16','2026-10-26 17:14:16',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (587,'Paye Method','text',NULL,57,'agent','paye_method',NULL,'2026-10-26 17:14:16','2026-10-26 17:14:16',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (588,'Paye Value','number',NULL,58,'agent','paye_value',NULL,'2026-10-26 17:14:16','2026-10-26 17:14:16',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (589,'Is Active','text',NULL,59,'agent','is_active',NULL,'2026-10-26 17:14:16','2026-10-26 17:14:16',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (590,'Is Principal Practitioner','text',NULL,60,'agent','is_principal_practitioner',NULL,'2026-10-26 17:14:16','2026-10-26 17:14:16',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (591,'Show In Performance Reports','text',NULL,61,'agent','show_in_performance_reports',NULL,'2026-10-26 17:14:16','2026-10-26 17:14:16',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (592,'App Access Revoked At','date',NULL,62,'agent','app_access_revoked_at',NULL,'2026-10-26 17:14:16','2026-10-26 17:14:16',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (593,'Counts For Branch Split','text',NULL,63,'agent','counts_for_branch_split',NULL,'2026-10-26 17:14:16','2026-10-26 17:14:16',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (594,'Can Capture Rentals','text',NULL,64,'agent','can_capture_rentals',NULL,'2026-10-26 17:14:16','2026-10-26 17:14:16',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (595,'Sliding Enabled','text',NULL,65,'agent','sliding_enabled',NULL,'2026-10-26 17:14:16','2026-10-26 17:14:16',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (596,'Sliding Tier1 Cut Percent','number',NULL,66,'agent','sliding_tier1_cut_percent',NULL,'2026-10-26 17:14:16','2026-10-26 17:14:16',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (597,'Sliding Tier2 Cut Percent','number',NULL,67,'agent','sliding_tier2_cut_percent',NULL,'2026-10-26 17:14:16','2026-10-26 17:14:16',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (598,'Sliding Tier3 Cut Percent','number',NULL,68,'agent','sliding_tier3_cut_percent',NULL,'2026-10-26 17:14:16','2026-10-26 17:14:16',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (599,'P24 Agent Id','text',NULL,69,'agent','p24_agent_id',NULL,'2026-10-26 17:14:16','2026-10-26 17:14:16',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (600,'P24 Agent Agency Id','text',NULL,70,'agent','p24_agent_agency_id',NULL,'2026-10-26 17:14:16','2026-10-26 17:14:16',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (601,'P24 Profile Signature','text',NULL,71,'agent','p24_profile_signature',NULL,'2026-10-26 17:14:16','2026-10-26 17:14:16',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (602,'P24 Photo Signature','text',NULL,72,'agent','p24_photo_signature',NULL,'2026-10-26 17:14:16','2026-10-26 17:14:16',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (603,'Source Reference','text',NULL,73,'agent','source_reference',NULL,'2026-10-26 17:14:16','2026-10-26 17:14:16',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (604,'Emergency Contact Name','text',NULL,74,'agent','emergency_contact_name',NULL,'2026-10-26 17:14:16','2026-10-26 17:14:16',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (605,'Emergency Contact Phone','text',NULL,75,'agent','emergency_contact_phone',NULL,'2026-10-26 17:14:16','2026-10-26 17:14:16',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (606,'Emergency Contact Relationship','text',NULL,76,'agent','emergency_contact_relationship',NULL,'2026-10-26 17:14:16','2026-10-26 17:14:16',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (607,'Next Of Kin Name','text',NULL,77,'agent','next_of_kin_name',NULL,'2026-10-26 17:14:16','2026-10-26 17:14:16',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (608,'Next Of Kin Phone','text',NULL,78,'agent','next_of_kin_phone',NULL,'2026-10-26 17:14:16','2026-10-26 17:14:16',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (609,'Next Of Kin Relationship','text',NULL,79,'agent','next_of_kin_relationship',NULL,'2026-10-26 17:14:16','2026-10-26 17:14:16',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (610,'Home Address','text',NULL,80,'agent','home_address',NULL,'2026-10-26 17:14:16','2026-10-26 17:14:16',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (611,'Marital Status','text',NULL,81,'agent','marital_status',NULL,'2026-10-26 17:14:16','2026-10-26 17:14:16',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (612,'Dependents Count','text',NULL,82,'agent','dependents_count',NULL,'2026-10-26 17:14:16','2026-10-26 17:14:16',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (613,'Medical Aid Provider','text',NULL,83,'agent','medical_aid_provider',NULL,'2026-10-26 17:14:16','2026-10-26 17:14:16',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (614,'Medical Aid Number','text',NULL,84,'agent','medical_aid_number',NULL,'2026-10-26 17:14:16','2026-10-26 17:14:16',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (615,'Medical Aid Main Member','text',NULL,85,'agent','medical_aid_main_member',NULL,'2026-10-26 17:14:16','2026-10-26 17:14:16',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (616,'Medical Aid Dependents Count','text',NULL,86,'agent','medical_aid_dependents_count',NULL,'2026-10-26 17:14:16','2026-10-26 17:14:16',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (617,'Show On Website','text',NULL,87,'agent','show_on_website',NULL,'2026-10-26 17:14:16','2026-10-26 17:14:16',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (618,'Exclude From P24','text',NULL,88,'agent','exclude_from_p24',NULL,'2026-10-26 17:14:16','2026-10-26 17:14:16',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (619,'Daily Digest Enabled','text',NULL,89,'agent','daily_digest_enabled',NULL,'2026-10-26 17:14:16','2026-10-26 17:14:16',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (620,'Nav Favourites Autoopen','text',NULL,90,'agent','nav_favourites_autoopen',NULL,'2026-10-26 17:14:16','2026-10-26 17:14:16',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (621,'Website Order','text',NULL,91,'agent','website_order',NULL,'2026-10-26 17:14:16','2026-10-26 17:14:16',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (622,'Website Social Facebook','text',NULL,92,'agent','website_social_facebook',NULL,'2026-10-26 17:14:16','2026-10-26 17:14:16',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (623,'Website Social Instagram','text',NULL,93,'agent','website_social_instagram',NULL,'2026-10-26 17:14:16','2026-10-26 17:14:16',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (624,'Website Social Linkedin','text',NULL,94,'agent','website_social_linkedin',NULL,'2026-10-26 17:14:16','2026-10-26 17:14:16',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (625,'Website Social Youtube','text',NULL,95,'agent','website_social_youtube',NULL,'2026-10-26 17:14:16','2026-10-26 17:14:16',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (626,'Is Sub User','text',NULL,96,'agent','is_sub_user',NULL,'2026-10-26 17:14:16','2026-10-26 17:14:16',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (627,'Must Change Password','text',NULL,97,'agent','must_change_password',NULL,'2026-10-26 17:14:16','2026-10-26 17:14:16',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (628,'Deal Pipeline Template Id','number',NULL,901,'deal','deal_pipeline_template_id',NULL,'2026-10-26 17:14:16','2026-10-26 17:14:16',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (629,'Pipeline Started At','date',NULL,902,'deal','pipeline_started_at',NULL,'2026-10-26 17:14:16','2026-10-26 17:14:16',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (630,'Deal V2 Id','number',NULL,903,'deal','deal_v2_id',NULL,'2026-10-26 17:14:16','2026-10-26 17:14:16',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (631,'Deal No','text',NULL,904,'deal','deal_no',NULL,'2026-10-26 17:14:16','2026-10-26 17:14:16',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (632,'File No','text',NULL,905,'deal','file_no',NULL,'2026-10-26 17:14:16','2026-10-26 17:14:16',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (633,'Branch Id','number',NULL,906,'deal','branch_id',NULL,'2026-10-26 17:14:16','2026-10-26 17:14:16',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (634,'Managed By User Id','number',NULL,907,'deal','managed_by_user_id',NULL,'2026-10-26 17:14:16','2026-10-26 17:14:16',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (635,'Period','text',NULL,908,'deal','period',NULL,'2026-10-26 17:14:16','2026-10-26 17:14:16',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (636,'Deal Date','date',NULL,909,'deal','deal_date',NULL,'2026-10-26 17:14:16','2026-10-26 17:14:16',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (637,'Deal Type','text',NULL,910,'deal','deal_type',NULL,'2026-10-26 17:14:16','2026-10-26 17:14:16',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (638,'Property Address','text',NULL,911,'deal','property_address',NULL,'2026-10-26 17:14:16','2026-10-26 17:14:16',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (639,'Seller Name','text',NULL,912,'deal','seller_name',NULL,'2026-10-26 17:14:16','2026-10-26 17:14:16',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (640,'Buyer Name','text',NULL,913,'deal','buyer_name',NULL,'2026-10-26 17:14:16','2026-10-26 17:14:16',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (641,'Attorney Name','text',NULL,914,'deal','attorney_name',NULL,'2026-10-26 17:14:16','2026-10-26 17:14:16',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (642,'Attorney Provider Id','number',NULL,915,'deal','attorney_provider_id',NULL,'2026-10-26 17:14:16','2026-10-26 17:14:16',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (643,'Attorney Contact Id','number',NULL,916,'deal','attorney_contact_id',NULL,'2026-10-26 17:14:16','2026-10-26 17:14:16',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (644,'Bond Originator Provider Id','number',NULL,917,'deal','bond_originator_provider_id',NULL,'2026-10-26 17:14:16','2026-10-26 17:14:16',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (645,'Bond Originator Contact Id','number',NULL,918,'deal','bond_originator_contact_id',NULL,'2026-10-26 17:14:16','2026-10-26 17:14:16',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (646,'External Agency Provider Id','number',NULL,919,'deal','external_agency_provider_id',NULL,'2026-10-26 17:14:16','2026-10-26 17:14:16',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (647,'External Agency Contact Id','number',NULL,920,'deal','external_agency_contact_id',NULL,'2026-10-26 17:14:16','2026-10-26 17:14:16',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (648,'Bond Attorney Provider Id','number',NULL,921,'deal','bond_attorney_provider_id',NULL,'2026-10-26 17:14:16','2026-10-26 17:14:16',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (649,'Bond Attorney Contact Id','number',NULL,922,'deal','bond_attorney_contact_id',NULL,'2026-10-26 17:14:16','2026-10-26 17:14:16',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (650,'Accepted Status','text',NULL,923,'deal','accepted_status',NULL,'2026-10-26 17:14:16','2026-10-26 17:14:16',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (651,'Granted At','date',NULL,924,'deal','granted_at',NULL,'2026-10-26 17:14:16','2026-10-26 17:14:16',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (652,'Commission Status','text',NULL,925,'deal','commission_status',NULL,'2026-10-26 17:14:16','2026-10-26 17:14:16',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (653,'Registration Date','date',NULL,926,'deal','registration_date',NULL,'2026-10-26 17:14:16','2026-10-26 17:14:16',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (654,'Sale Date','date',NULL,927,'deal','sale_date',NULL,'2026-10-26 17:14:16','2026-10-26 17:14:16',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (655,'Link Source','text',NULL,928,'deal','link_source',NULL,'2026-10-26 17:14:16','2026-10-26 17:14:16',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (656,'Link Confidence','text',NULL,929,'deal','link_confidence',NULL,'2026-10-26 17:14:16','2026-10-26 17:14:16',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (657,'Link Reviewed At','date',NULL,930,'deal','link_reviewed_at',NULL,'2026-10-26 17:14:16','2026-10-26 17:14:16',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (658,'Link Reviewed By User Id','number',NULL,931,'deal','link_reviewed_by_user_id',NULL,'2026-10-26 17:14:16','2026-10-26 17:14:16',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (659,'Remarks','text',NULL,932,'deal','remarks',NULL,'2026-10-26 17:14:16','2026-10-26 17:14:16',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (660,'Property Value','number',NULL,933,'deal','property_value',NULL,'2026-10-26 17:14:16','2026-10-26 17:14:16',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (661,'Sale Price','number',NULL,934,'deal','sale_price',NULL,'2026-10-26 17:14:16','2026-10-26 17:14:16',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (662,'Total Commission','number',NULL,935,'deal','total_commission',NULL,'2026-10-26 17:14:16','2026-10-26 17:14:16',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (663,'Listing External','text',NULL,936,'deal','listing_external',NULL,'2026-10-26 17:14:16','2026-10-26 17:14:16',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (664,'Listing External Agency','text',NULL,937,'deal','listing_external_agency',NULL,'2026-10-26 17:14:16','2026-10-26 17:14:16',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (665,'Listing External Agency Provider Id','number',NULL,938,'deal','listing_external_agency_provider_id',NULL,'2026-10-26 17:14:16','2026-10-26 17:14:16',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (666,'Listing External Agency Contact Id','number',NULL,939,'deal','listing_external_agency_contact_id',NULL,'2026-10-26 17:14:16','2026-10-26 17:14:16',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (667,'Listing Our Share Percent','number',NULL,940,'deal','listing_our_share_percent',NULL,'2026-10-26 17:14:16','2026-10-26 17:14:16',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (668,'Selling External','text',NULL,941,'deal','selling_external',NULL,'2026-10-26 17:14:16','2026-10-26 17:14:16',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (669,'Selling External Agency','text',NULL,942,'deal','selling_external_agency',NULL,'2026-10-26 17:14:16','2026-10-26 17:14:16',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (670,'Selling External Agency Provider Id','number',NULL,943,'deal','selling_external_agency_provider_id',NULL,'2026-10-26 17:14:16','2026-10-26 17:14:16',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (671,'Selling External Agency Contact Id','number',NULL,944,'deal','selling_external_agency_contact_id',NULL,'2026-10-26 17:14:16','2026-10-26 17:14:16',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (672,'Listing Split Percent','number',NULL,945,'deal','listing_split_percent',NULL,'2026-10-26 17:14:16','2026-10-26 17:14:16',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (673,'Selling Split Percent','number',NULL,946,'deal','selling_split_percent',NULL,'2026-10-26 17:14:16','2026-10-26 17:14:16',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (674,'Selling Our Share Percent','number',NULL,947,'deal','selling_our_share_percent',NULL,'2026-10-26 17:14:16','2026-10-26 17:14:16',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (675,'Agency Id','number',NULL,948,'deal','agency_id',NULL,'2026-10-26 17:14:16','2026-10-26 17:14:16',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (676,'Property Id','number',NULL,949,'deal','property_id',NULL,'2026-10-26 17:14:16','2026-10-26 17:14:16',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (677,'Presentation Id','number',NULL,950,'deal','presentation_id',NULL,'2026-10-26 17:14:16','2026-10-26 17:14:16',NULL);
-INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (678,'Is Demo','text',NULL,951,'deal','is_demo',NULL,'2026-10-26 17:14:16','2026-10-26 17:14:16',NULL);
-INSERT INTO `market_report_types` (`id`, `key`, `display_name`, `parser_class`, `expected_fields_json`, `auto_approve`, `sample_file_path`, `created_at`, `updated_at`) VALUES (1,'cma_info_vicinity_sale','CMA Info — Vicinity Sale (Residential / Vacant Land)','App\\Services\\MarketReports\\Parsers\\CmaInfoVicinitySaleParser','[\"subject_property.address\", \"subject_property.suburb_scope\", \"subject_property_type\", \"radius_meters\", \"sales[].distance_m\", \"sales[].erf_number\", \"sales[].address\", \"sales[].erf_usage\", \"sales[].property_type\", \"sales[].extent_m2\", \"sales[].sale_date\", \"sales[].sale_price\", \"sales[].r_per_m2\", \"summary.lower_range\", \"summary.middle_range\", \"summary.upper_range\", \"summary.average\", \"summary.average_r_per_m2\"]',1,NULL,'2026-10-26 16:57:42','2026-10-26 16:57:42');
-INSERT INTO `market_report_types` (`id`, `key`, `display_name`, `parser_class`, `expected_fields_json`, `auto_approve`, `sample_file_path`, `created_at`, `updated_at`) VALUES (2,'learned_layout','Learned layout','App\\Services\\MarketReports\\Parsers\\LearnedLayoutParser','[\"comps[]\", \"suburb_stats[]\", \"valuation\"]',0,NULL,'2026-10-26 17:13:46','2026-10-26 17:13:46');
-INSERT INTO `nexus_permissions` (`id`, `key`, `label`, `section`, `type`, `module`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (1,'access_prospecting','Access Prospecting','prospecting','access','prospecting',1,'2026-10-26 16:49:10','2026-10-26 16:49:10',NULL);
-INSERT INTO `nexus_permissions` (`id`, `key`, `label`, `section`, `type`, `module`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (2,'access_evaluation','Access Evaluation Reports','evaluation','access','evaluation',1,'2026-10-26 16:49:10','2026-10-26 16:49:10',NULL);
-INSERT INTO `nexus_permissions` (`id`, `key`, `label`, `section`, `type`, `module`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (3,'mic.edit_address','Edit / Add Property Address','prospecting','action','mic',50,'2026-10-26 16:54:02','2026-10-26 16:54:02',NULL);
-INSERT INTO `nexus_permissions` (`id`, `key`, `label`, `section`, `type`, `module`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (4,'mic.merge_duplicates','Merge Duplicate Tracked Properties','prospecting','action','mic',51,'2026-10-26 16:54:02','2026-10-26 16:54:02',NULL);
-INSERT INTO `nexus_permissions` (`id`, `key`, `label`, `section`, `type`, `module`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (5,'mic.upload_reports','Upload Market / CMA Reports','prospecting','action','mic',52,'2026-10-26 16:54:02','2026-10-26 16:54:02',NULL);
-INSERT INTO `nexus_permissions` (`id`, `key`, `label`, `section`, `type`, `module`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (6,'mic.view_team','View BM Team Dashboard','prospecting','access','mic',53,'2026-10-26 16:54:02','2026-10-26 16:54:02',NULL);
-INSERT INTO `nexus_permissions` (`id`, `key`, `label`, `section`, `type`, `module`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (7,'mic.regenerate_brief','Regenerate Strategic Brief (manual)','prospecting','action','mic',54,'2026-10-26 16:54:02','2026-10-26 16:54:02',NULL);
-INSERT INTO `nexus_permissions` (`id`, `key`, `label`, `section`, `type`, `module`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (8,'mic.view_ai_costs','View AI Token / Cost Dashboard','prospecting','access','mic',55,'2026-10-26 16:54:02','2026-10-26 16:54:02',NULL);
-INSERT INTO `nexus_permissions` (`id`, `key`, `label`, `section`, `type`, `module`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (9,'mic.restore_reports','Restore Archived Market Reports','prospecting','action','mic',56,'2026-10-26 16:57:42','2026-10-26 16:57:42',NULL);
-INSERT INTO `nexus_permissions` (`id`, `key`, `label`, `section`, `type`, `module`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (10,'deals_v2.view_overview','View Pipeline Overview','deals-v2','action','deals_v2',19,'2026-10-26 16:59:49','2026-10-26 16:59:49',NULL);
-INSERT INTO `nexus_permissions` (`id`, `key`, `label`, `section`, `type`, `module`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (11,'calendar.tile.my_deals','Calendar Deck — My Deals Tile','command-center','action','command_center_calendar',18,'2026-10-26 17:00:09','2026-10-26 17:00:09',NULL);
-INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (1,'property.documents_missing','property','Documents','Documents not uploaded after listing','Notify when a newly listed property has no documents on file after the threshold.',1,'hours',24,1,168,1,1,1,0,NULL,0,'2026-10-26 16:52:17','2026-10-26 16:52:17',NULL);
-INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (2,'property.mandate_expiring','property','Compliance','Mandate expiring soon','Notify when a mandate is approaching expiry.',0,'days',14,1,90,1,1,1,0,NULL,1,'2026-10-26 16:52:17','2026-10-26 17:02:22',NULL);
-INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (3,'property.no_activity','property','Activity','No activity since listing','No viewings, offers, or notes logged in the threshold window.',1,'days',21,3,180,1,1,1,0,NULL,2,'2026-10-26 16:52:17','2026-10-26 17:00:43','2026-10-26 17:00:43');
-INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (4,'property.compliance_doc_missing','property','Compliance','Compliance documents missing','EAAB / FICA-on-property compliance certs not uploaded.',1,'hours',48,1,720,1,1,1,0,NULL,3,'2026-10-26 16:52:17','2026-10-26 17:00:43','2026-10-26 17:00:43');
-INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (5,'contact.fica_expiring','contact','Compliance','FICA expiring soon','Contact FICA documents are nearing their expiry date.',1,'days',30,1,180,1,1,1,0,NULL,4,'2026-10-26 16:52:17','2026-10-26 17:00:43','2026-10-26 17:00:43');
-INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (6,'contact.no_followup','contact','Activity','No follow-up logged','No call, meeting, or note logged for this contact in the window.',1,'days',14,3,180,1,1,1,0,NULL,5,'2026-10-26 16:52:17','2026-10-26 17:00:43','2026-10-26 17:00:43');
-INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (7,'contact.birthday','contact','Activity','Contact birthday today','Delivered once a day in your 06:30 calendar digest email — as a \"Birthdays today\" section, never as one alert per contact. Turning this off removes that section from the digest.',1,'none',NULL,NULL,NULL,1,1,1,0,NULL,6,'2026-10-26 16:52:17','2026-10-26 17:00:43',NULL);
-INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (8,'deal.stalled_offer','deal','Lifecycle','Deal stuck at offer stage','Deal has not progressed past offer stage in the threshold window.',1,'hours',48,1,720,1,1,1,0,NULL,7,'2026-10-26 16:52:17','2026-10-26 16:52:17',NULL);
-INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (9,'deal.stalled_bond','deal','Lifecycle','Deal stuck at bond stage','Bond pending too long without an update.',1,'days',14,1,90,1,1,1,0,NULL,8,'2026-10-26 16:52:17','2026-10-26 16:52:17',NULL);
-INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (10,'deal.stalled_conveyancing','deal','Lifecycle','No conveyancing update','Conveyancing stage has had no activity in the window.',1,'days',7,1,60,1,1,1,0,NULL,9,'2026-10-26 16:52:17','2026-10-26 16:52:17',NULL);
-INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (11,'deal.documents_missing','deal','Documents','Required deal documents missing','Deal does not have its required document set on file.',0,'hours',24,1,720,1,1,1,0,NULL,10,'2026-10-26 16:52:17','2026-10-26 17:02:22',NULL);
-INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (12,'deal.commission_unpaid','deal','Finance','Commission overdue','Commission unpaid past the threshold after registration.',0,'days',30,1,180,1,1,1,0,NULL,11,'2026-10-26 16:52:17','2026-10-26 17:02:22',NULL);
-INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (13,'deal.milestone_due','deal','Lifecycle','Deal milestone due','A deal milestone is approaching its due date.',0,'hours',24,1,168,1,1,1,0,NULL,12,'2026-10-26 16:52:17','2026-10-26 17:02:22',NULL);
-INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (14,'agent.task_due','agent','My activity','Task due reminder','Reminds you when one of your tasks is approaching its due time.',1,'hours',4,1,168,1,1,1,1,'task_reminder_hours_before',13,'2026-10-26 16:52:17','2026-10-26 16:52:17',NULL);
-INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (15,'agent.event_due','agent','My activity','Calendar event reminder','Reminds you when a calendar event is approaching.',1,'minutes',60,5,10080,1,1,1,1,'event_reminder_minutes_before',14,'2026-10-26 16:52:17','2026-10-26 16:59:16',NULL);
-INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (16,'agent.lease_expiring','agent','My activity','Lease expiring','Tiered alerts as a lease approaches expiry.',1,'days',90,7,365,1,1,1,1,'lease_reminder_days_before',15,'2026-10-26 16:52:17','2026-10-26 16:52:17',NULL);
-INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (17,'agent.idle','agent','My activity','Idle workspace alert','Lets you know if you have not logged activity for a while.',1,'days',14,1,60,1,1,1,1,'idle_threshold_days',16,'2026-10-26 16:52:17','2026-10-26 16:52:17',NULL);
-INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (18,'agent.daily_digest','agent','My activity','Daily overdue digest','A morning email summarising overdue items.',1,'none',NULL,NULL,NULL,1,1,1,1,'overdue_daily_digest',17,'2026-10-26 16:52:17','2026-10-26 16:52:17',NULL);
-INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (19,'agent.ffc_expiring','agent','Compliance','FFC expiring','Notifies you ahead of your Fidelity Fund Certificate expiry.',1,'days',30,1,180,1,1,1,1,'ffc_reminders',18,'2026-10-26 16:52:17','2026-10-26 16:52:17',NULL);
-INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (20,'leave.submitted','agent','Leave','Leave application submitted','A team member has submitted a leave application for your review.',1,'none',NULL,NULL,NULL,1,1,1,0,NULL,19,'2026-10-26 16:52:17','2026-10-26 16:52:17',NULL);
-INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (21,'leave.approved','agent','Leave','Leave application approved','Your leave application has been approved.',1,'none',NULL,NULL,NULL,1,1,1,0,NULL,20,'2026-10-26 16:52:17','2026-10-26 16:52:17',NULL);
-INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (22,'leave.rejected','agent','Leave','Leave application rejected','Your leave application has been rejected.',1,'none',NULL,NULL,NULL,1,1,1,0,NULL,21,'2026-10-26 16:52:17','2026-10-26 16:52:17',NULL);
-INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (23,'leave.cancelled','agent','Leave','Leave application cancelled','A leave application has been cancelled.',0,'none',NULL,NULL,NULL,1,1,1,0,NULL,22,'2026-10-26 16:52:17','2026-10-26 17:02:22',NULL);
-INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (24,'leave.starting_soon','agent','Leave','Leave starting in 3 days','Your approved leave is starting in 3 days.',1,'none',NULL,NULL,NULL,1,1,1,0,NULL,23,'2026-10-26 16:52:17','2026-10-26 16:52:17',NULL);
-INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (25,'leave.ending_soon','agent','Leave','Leave ends today','Your leave ends today — welcome back tomorrow.',1,'none',NULL,NULL,NULL,1,1,1,0,NULL,24,'2026-10-26 16:52:17','2026-10-26 16:52:17',NULL);
-INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (26,'property.feedback_captured','property','Activity','Viewing feedback captured','Another agent captured viewing feedback on one of your listings.',1,'none',NULL,NULL,NULL,1,1,1,0,NULL,25,'2026-10-26 16:59:27','2026-10-26 16:59:27',NULL);
-INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (27,'proforma.created','deal','Finance','Proforma invoice generated','An agent generated a proforma invoice on a deal.',1,'none',NULL,NULL,NULL,1,0,0,0,NULL,27,'2026-10-26 17:00:43','2026-10-26 17:00:43',NULL);
-INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (28,'lead.portal_received','contact','Leads','New portal lead on your listing','A buyer enquired through Property24 or Private Property about one of your listings.',1,'none',NULL,NULL,NULL,1,1,1,0,NULL,28,'2026-10-26 17:00:43','2026-10-26 17:00:43',NULL);
-INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (29,'comms.mailbox_poll_failure','agent','Communications','Mailbox stopped receiving mail','A connected mailbox failed to poll repeatedly — incoming email may be missing.',1,'none',NULL,NULL,NULL,1,0,0,0,NULL,29,'2026-10-26 17:00:50','2026-10-26 17:00:50',NULL);
-INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (30,'comms.access_requested','agent','Communications','Someone requested access to a conversation','An agent asked for access to a client conversation and needs your approval.',1,'none',NULL,NULL,NULL,1,0,0,0,NULL,30,'2026-10-26 17:00:50','2026-10-26 17:00:50',NULL);
-INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (31,'compliance.document_expiring','agent','Compliance','Company document expiring soon','A company compliance document (FFC, bank confirmation, BEE, etc.) is approaching its expiry, within its configured lead time.',1,'none',NULL,NULL,NULL,1,1,0,0,NULL,42,'2026-10-26 17:01:08','2026-10-26 17:01:08',NULL);
-INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (32,'compliance.document_expired','agent','Compliance','Company document expired','A company compliance document has passed its expiry date and needs replacing.',1,'none',NULL,NULL,NULL,1,1,0,0,NULL,43,'2026-10-26 17:01:08','2026-10-26 17:01:08',NULL);
-INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (33,'fica.referred_to_co','contact','Compliance','FICA referred to you (Compliance Officer)','A reviewer referred a FICA verification to you for a compliance decision.',1,'none',NULL,NULL,NULL,1,1,0,0,NULL,40,'2026-10-26 17:02:28','2026-10-26 17:02:28',NULL);
-INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (34,'fica.referral_returned','contact','Compliance','FICA referral returned to you','A FICA you escalated to the Compliance Officer was returned to you for re-assignment.',1,'none',NULL,NULL,NULL,1,1,0,0,NULL,41,'2026-10-26 17:02:33','2026-10-26 17:02:33',NULL);
-INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (35,'comms.host_circuit_breaker_open','agent','Communications','A mail host is refusing connections','Most or all mailboxes on one mail server are failing to connect — the circuit breaker has stopped polling that host to avoid making the problem worse (e.g. a provider-side IP block).',1,'none',NULL,NULL,NULL,1,0,0,0,NULL,30,'2026-10-26 17:05:12','2026-10-26 17:05:12',NULL);
-INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (36,'rental_fault_report.created','property','Rentals','Fault report logged','A fault was reported against one of your rental properties.',1,'none',NULL,NULL,NULL,1,1,1,0,NULL,44,'2026-10-26 17:06:33','2026-10-26 17:14:11',NULL);
-INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (37,'rental_fault_report.resolved','property','Rentals','Fault report resolved','A fault report on one of your rental properties reached an outcome (repaired, not repaired, declined, etc).',1,'none',NULL,NULL,NULL,1,1,1,0,NULL,45,'2026-10-26 17:06:34','2026-10-26 17:14:11',NULL);
-INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (38,'rental_work_order.created','property','Rentals','Work order logged','A work order was logged against one of your rental properties.',1,'none',NULL,NULL,NULL,1,1,0,0,NULL,46,'2026-10-26 17:06:56','2026-10-26 17:06:56',NULL);
-INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (39,'rental_work_order.overdue','property','Rentals','Work order overdue','A work order has sat ordered or in progress with no update past your agency\'s reminder window.',1,'none',NULL,NULL,NULL,1,1,1,0,NULL,47,'2026-10-26 17:06:56','2026-10-26 17:14:11',NULL);
-INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (40,'rental_work_order.completed','property','Rentals','Work order completed','A work order on one of your rental properties was marked complete.',1,'none',NULL,NULL,NULL,1,1,1,0,NULL,48,'2026-10-26 17:06:56','2026-10-26 17:14:11',NULL);
-INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (41,'whistleblow.submitted_for_approval','property','Compliance','Compliance report awaiting your approval','An agent filed a whistleblow compliance report and it is waiting on you (or another configured approver) to approve, reject, or request changes.',1,'none',NULL,NULL,NULL,1,0,0,0,NULL,41,'2026-10-26 17:06:56','2026-10-26 17:06:56',NULL);
-INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (42,'ppra_pack.generation_complete','agency','Admin','PPRA inspection pack ready','Your requested PPRA inspection pack has finished generating and is ready to download.',1,'none',NULL,NULL,NULL,1,1,0,0,NULL,900,'2026-10-26 17:08:19','2026-10-26 17:08:19',NULL);
-INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (43,'rental_work_order.owner_appointment','property','Rentals','Owner set the repair appointment','The owner booked or changed the appointment for a repair on one of your rental properties, from their portal.',1,'none',NULL,NULL,NULL,1,1,1,0,NULL,901,'2026-10-26 17:09:44','2026-10-26 17:14:11',NULL);
-INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (44,'rental_work_order.owner_progress','property','Rentals','Owner reported repair progress','The owner reported, from their portal, that the work on a repair has started or finished.',1,'none',NULL,NULL,NULL,1,1,1,0,NULL,902,'2026-10-26 17:09:44','2026-10-26 17:14:11',NULL);
-INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (45,'other_agency_stock.unlock_requested','property','Other Agency Stock','Request to edit Other Agency Stock','Someone asked to unlock a property of another agency for editing and it is waiting for you to decide.',1,'none',NULL,NULL,NULL,1,0,0,0,NULL,903,'2026-10-26 17:09:45','2026-10-26 17:09:45',NULL);
-INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (46,'other_agency_stock.unlock_decided','property','Other Agency Stock','Your request to edit Other Agency Stock was decided','Your request to unlock a property of another agency for editing was approved or declined.',1,'none',NULL,NULL,NULL,1,0,0,0,NULL,904,'2026-10-26 17:09:45','2026-10-26 17:09:45',NULL);
-INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (47,'rental_fault_report.owner_decided','property','Rentals','Owner decided on a fault','The owner approved or declined a repair on one of your rental properties. When approved, the note opens the action that appoints the contractor.',1,'none',NULL,NULL,NULL,1,1,1,0,NULL,905,'2026-10-26 17:09:46','2026-10-26 17:14:11',NULL);
-INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (48,'rental_work_order.owner_decided','property','Rentals','Owner decided on a quote','The owner approved or declined the quote on one of your rental work orders on the portal. When approved, the work order can be sent to the contractor.',1,'none',NULL,NULL,NULL,1,1,1,0,NULL,906,'2026-10-26 17:09:47','2026-10-26 17:14:11',NULL);
-INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (49,'rental_job_card.crew_lines_submitted','property','Rentals','Crew sent parts and prices','A crew sent parts or labour (a price for the job, or extras) from their link and it is waiting for you to accept and price.',1,'none',NULL,NULL,NULL,1,1,1,0,NULL,907,'2026-10-26 17:10:24','2026-10-26 17:14:11',NULL);
-INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (50,'rental_work_order.variation_raised','property','Rentals','Extra work on an approved job','Extra work pushed an approved job above its approved amount — either auto-approved within the owner\'s agreed terms, or waiting for the owner.',1,'none',NULL,NULL,NULL,1,1,1,0,NULL,908,'2026-10-26 17:10:24','2026-10-26 17:14:11',NULL);
-INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (51,'rental_work_order.disputed','property','Rentals','Tenant says the work is not complete','A tenant checked the finished work and reported that it is not complete or still wrong. The job is reopened.',1,'none',NULL,NULL,NULL,1,1,1,0,NULL,909,'2026-10-26 17:10:24','2026-10-26 17:14:11',NULL);
-INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (52,'rental_work_order.completion_confirmed','property','Rentals','Tenant confirmed the work','A tenant confirmed that the finished work is done.',1,'none',NULL,NULL,NULL,1,1,1,0,NULL,910,'2026-10-26 17:10:24','2026-10-26 17:14:11',NULL);
-INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (53,'rental_work_order.completion_accepted','property','Rentals','Work accepted — no tenant response','The tenant did not respond within the response window, so the finished work counts as accepted.',1,'none',NULL,NULL,NULL,1,1,0,0,NULL,911,'2026-10-26 17:10:24','2026-10-26 17:13:26','2026-10-26 17:13:26');
-INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (54,'rental_application.returned','property','Rentals','Tenant submitted a rental application','A tenant submitted their rental application for a property or lease you are the agent on.',1,'none',NULL,NULL,NULL,1,0,1,0,NULL,912,'2026-10-26 17:11:34','2026-10-26 17:14:11',NULL);
-INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (55,'rental_application.handed_over','property','Rentals','Rental application handed to you to authorise','An agent handed a rental application to the authorisers for a decision.',1,'none',NULL,NULL,NULL,1,1,1,0,NULL,913,'2026-10-26 17:11:34','2026-10-26 17:14:11',NULL);
-INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (56,'lease.auto_month_to_month','property','Rentals','Lease moved to month-to-month','A lease reached its end date with no notice and no renewal, so it carried on month-to-month automatically.',1,'none',NULL,NULL,NULL,1,0,0,0,NULL,914,'2026-10-26 17:11:44','2026-10-26 17:11:44',NULL);
-INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (57,'lease.agreement_signing_outcome','property','Rentals','Lease agreement signed, declined or expired','The lease agreement you sent for signature was signed, declined, or expired before everyone signed.',1,'none',NULL,NULL,NULL,1,0,1,0,NULL,915,'2026-10-26 17:11:44','2026-10-26 17:14:11',NULL);
-INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (58,'rental_inspection.copies_not_delivered','property','Rentals','Inspection report copies not delivered','One or more copies of a completed inspection report could not be sent to the people who should have it.',1,'none',NULL,NULL,NULL,1,0,1,0,NULL,916,'2026-10-26 17:11:44','2026-10-26 17:14:11',NULL);
-INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (59,'rental_inspection.due_reminder','property','Rentals','Inspection coming due','A planned in-, out- or interim inspection is coming due for one of your leases.',1,'none',NULL,NULL,NULL,1,1,1,0,NULL,917,'2026-10-26 17:11:44','2026-10-26 17:14:11',NULL);
-INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (60,'rental_inspection.signing_reminder','property','Rentals','Inspection still waiting for signatures','The signing window of an inspection is about to close or has closed with people still to sign.',1,'none',NULL,NULL,NULL,1,1,1,0,NULL,918,'2026-10-26 17:11:44','2026-10-26 17:14:11',NULL);
-INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (61,'lease.expiry_notice_due','property','Rentals','Lease expiry notice not sent','A fixed-term lease is getting close to its end and the expiry notice to the tenant has not gone out (Consumer Protection Act: 40 to 80 business days before the lease ends).',1,'none',NULL,NULL,NULL,1,1,1,0,NULL,919,'2026-10-26 17:11:47','2026-10-26 17:14:11',NULL);
-INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (62,'title_deed.collected','property','Documents','Title deed collected','A title deed you are responsible for has been collected from the office.',1,'none',NULL,NULL,NULL,1,1,0,0,NULL,910,'2026-10-26 17:11:55','2026-10-26 17:11:55',NULL);
-INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (63,'rental_work_order.contractor_job_sent','property','Rentals','Job sent to a contractor or crew','A contractor or crew was sent the details of a repair job on one of your rental properties.',1,'none',NULL,NULL,NULL,1,1,0,0,NULL,920,'2026-10-26 17:11:58','2026-10-26 17:11:58',NULL);
-INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (64,'rental_work_order.contractor_job_not_sent','property','Rentals','Job could not be sent to a contractor','A repair job was given to a contractor who has no email or mobile number on file - it was not sent and needs your attention.',1,'none',NULL,NULL,NULL,1,1,1,0,NULL,921,'2026-10-26 17:11:58','2026-10-26 17:14:11',NULL);
-INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (65,'rental_work_order.contractor_responded','property','Rentals','Contractor answered a job','Legacy type: contractor answers from their link now each have their own alert type (accepted, declined, invoice, extra money, photo, finished).',1,'none',NULL,NULL,NULL,1,1,1,0,NULL,922,'2026-10-26 17:11:58','2026-10-26 17:14:11',NULL);
-INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (66,'rental_fault_report.owner_query','property','Rentals','Owner queried a repair','The owner of a property sent your agency a question about a repair the agent arranged, from their portal.',1,'none',NULL,NULL,NULL,1,1,1,0,NULL,923,'2026-10-26 17:12:01','2026-10-26 17:14:11',NULL);
-INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (67,'rental_fault_settings.disputed','property','Rentals','Owner does not agree with the fault-handling settings','An owner pressed \"I do not agree\" on the settings their agent recorded for their rental property. Until the owner confirms (or you record new evidence) every decision goes to the owner.',1,'none',NULL,NULL,NULL,1,1,1,0,NULL,924,'2026-10-26 17:12:18','2026-10-26 17:14:11',NULL);
-INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (68,'rental_fault_settings.change_requested','property','Rentals','Owner asks to change who looks at faults first','An owner asked, from their portal, for a change to who looks at faults first on their rental property.',1,'none',NULL,NULL,NULL,1,1,1,0,NULL,925,'2026-10-26 17:12:18','2026-10-26 17:14:11',NULL);
-INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (69,'rental_fault_report.owner_hold','property','Rentals','Owner stopped or resumed a repair','The owner of a property pressed \"Stop this\" on a repair their agent arranged (the job is paused), or said \"Go ahead after all\".',1,'none',NULL,NULL,NULL,1,1,1,0,NULL,926,'2026-10-26 17:12:25','2026-10-26 17:14:11',NULL);
-INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (70,'lease_notice.received','property','Rentals','Notice received - needs review','A tenant or an owner gave notice on a lease (from their portal, or recorded by a colleague). Nothing goes to the other party until you have reviewed it.',1,'none',NULL,NULL,NULL,1,1,1,0,NULL,927,'2026-10-26 17:12:46','2026-10-26 17:14:11',NULL);
-INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (71,'rental_work_order.quote_received','property','Rentals','Contractor sent a quote','A contractor uploaded a quote for a repair job from their job link.',1,'none',NULL,NULL,NULL,1,1,1,0,NULL,928,'2026-10-26 17:12:53','2026-10-26 17:14:11',NULL);
-INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (72,'lease_breach.remedy_date_reached','property','Rentals','Breach remedy date reached','A breach notice\'s remedy-by date has been reached and the breach is not yet marked remedied - was it fixed?',1,'none',NULL,NULL,NULL,1,1,1,0,NULL,929,'2026-10-26 17:13:16','2026-10-26 17:14:11',NULL);
-INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (73,'property.ready_to_relist','property','Rentals','Property free again, ready to re-list','A tenancy ended and the property is back on the market in CoreX. It has not been put back on the portals - that is your decision.',1,'none',NULL,NULL,NULL,1,0,0,0,NULL,930,'2026-10-26 17:13:25','2026-10-26 17:13:25',NULL);
-INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (74,'rental_work_order.contractor_accepted','property','Rentals','Contractor accepted a job','A contractor accepted a repair job from their job link.',1,'none',NULL,NULL,NULL,1,1,1,0,NULL,931,'2026-10-26 17:13:41','2026-10-26 17:14:11',NULL);
-INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (75,'rental_work_order.contractor_declined','property','Rentals','Contractor declined a job','A contractor declined a repair job from their job link - pick another contractor.',1,'none',NULL,NULL,NULL,1,1,1,0,NULL,932,'2026-10-26 17:13:41','2026-10-26 17:14:11',NULL);
-INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (76,'rental_work_order.contractor_invoice','property','Rentals','Contractor sent an invoice','A contractor sent an invoice for a repair job from their job link.',1,'none',NULL,NULL,NULL,1,1,1,0,NULL,933,'2026-10-26 17:13:41','2026-10-26 17:14:11',NULL);
-INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (77,'rental_work_order.contractor_extra_money','property','Rentals','Contractor asked for extra money','A contractor asked for extra money on a repair job from their job link.',1,'none',NULL,NULL,NULL,1,1,1,0,NULL,934,'2026-10-26 17:13:41','2026-10-26 17:14:11',NULL);
-INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (78,'rental_work_order.contractor_photo','property','Rentals','Contractor uploaded a photo','A contractor uploaded a before / during / after photo for a repair job from their job link.',1,'none',NULL,NULL,NULL,1,1,0,0,NULL,935,'2026-10-26 17:13:41','2026-10-26 17:13:41',NULL);
-INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (79,'rental_work_order.contractor_finished','property','Rentals','Contractor reported the work finished','A contractor reported the work finished from their job link - check it and close the job.',1,'none',NULL,NULL,NULL,1,1,1,0,NULL,936,'2026-10-26 17:13:41','2026-10-26 17:14:11',NULL);
-INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (80,'rental_work_order.owner_started','property','Rentals','Owner reported the work started','The owner reported, from their portal, that the work on a repair has started.',1,'none',NULL,NULL,NULL,1,1,1,0,NULL,937,'2026-10-26 17:13:41','2026-10-26 17:14:11',NULL);
-INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (81,'rental_work_order.owner_finished','property','Rentals','Owner reported the work finished','The owner reported, from their portal, that the work on a repair is finished.',1,'none',NULL,NULL,NULL,1,1,1,0,NULL,938,'2026-10-26 17:13:41','2026-10-26 17:14:11',NULL);
-INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (82,'rental_work_order.tenant_started','property','Rentals','Tenant reported the work started','The tenant reported, from their portal, that the contractor has arrived and the work has started.',1,'none',NULL,NULL,NULL,1,1,1,0,NULL,939,'2026-10-26 17:13:41','2026-10-26 17:14:11',NULL);
-INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (83,'rental_work_order.tenant_not_fixed','property','Rentals','Tenant says it is not fixed','The tenant said, from their portal, that a repair is not fixed.',1,'none',NULL,NULL,NULL,1,1,1,0,NULL,940,'2026-10-26 17:13:41','2026-10-26 17:14:11',NULL);
-INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (84,'rental_work_order.go_ahead_sent','property','Rentals','Go-ahead sent to the contractor','The go-ahead for a repair went out to the contractor (or could not be sent).',1,'none',NULL,NULL,NULL,1,1,0,0,NULL,941,'2026-10-26 17:13:41','2026-10-26 17:13:41',NULL);
-INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (85,'rental_fault_report.owner_resumed','property','Rentals','Owner said go ahead after all','The owner lifted the hold they put on a repair.',1,'none',NULL,NULL,NULL,1,1,1,0,NULL,942,'2026-10-26 17:13:41','2026-10-26 17:14:11',NULL);
-INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (86,'rental_job_card.crew_completed','property','Rentals','Crew marked a job complete','Our own crew marked a job card complete - check the work and sign it off.',1,'none',NULL,NULL,NULL,1,1,1,0,NULL,943,'2026-10-26 17:13:41','2026-10-26 17:14:11',NULL);
-INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (87,'rental_work_order.contractor_started','property','Rentals','Contractor started the work','A contractor pressed \"I have started\" on their job link, so the work order is now in progress.',1,'none',NULL,NULL,NULL,1,1,0,0,NULL,944,'2026-10-26 17:13:43','2026-10-26 17:13:43',NULL);
-INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (88,'rental_fault_report.tenant_update','property','Rentals','Tenant added to a fault, or withdrew it','A tenant added a note or photos to a fault they reported, or withdrew it, from their portal.',1,'none',NULL,NULL,NULL,1,1,1,0,NULL,945,'2026-10-26 17:13:43','2026-10-26 17:14:11',NULL);
-INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (89,'rmcp.version_approved','agent','Compliance','A new RMCP version needs your acknowledgement','Your agency approved a new version of its Risk Management and Compliance Programme. Read it and sign the acknowledgement.',1,'none',NULL,NULL,NULL,1,0,0,0,NULL,44,'2026-10-26 17:14:02','2026-10-26 17:14:02',NULL);
-INSERT INTO `platform_company` (`id`, `singleton`, `legal_name`, `trading_name`, `registration_number`, `vat_registered`, `vat_number`, `directors`, `physical_address`, `postal_address`, `email_general`, `email_support`, `email_accounts`, `send_from_address`, `send_from_name`, `phones`, `websites`, `strap_line`, `letterhead_footer`, `email_signature_html`, `bank_details`, `logo_id`, `version`, `created_at`, `updated_at`) VALUES (1,1,'RR Technologies (Pty) Ltd','CoreX OS','2026 / 444132 / 07',0,NULL,'[{\"name\": \"Johan Reichel\", \"title\": \"Director\"}, {\"name\": \"Andre Roets\", \"title\": \"Director\"}]','3123 San Lameer\nR61 Lower South Coast Road\nSouthbroom, KZN\n4277',NULL,'admin@corexos.co.za','support@corexos.co.za',NULL,'admin@corexos.co.za','CoreX OS — RR Technologies','[{\"label\": \"Telephone\", \"number\": \"(039) 004 0125\"}, {\"label\": \"Cell\", \"number\": \"076 618 5578\"}, {\"label\": \"Support line\", \"number\": \"076 423 2426\"}]','[\"www.corexweb.co.za\", \"www.corexos.co.za\"]',NULL,NULL,NULL,NULL,NULL,1,'2026-10-26 17:09:04','2026-10-26 17:09:04');
-INSERT INTO `pp_event_feed_settings` (`id`, `key`, `value`, `updated_at`) VALUES (1,'continuation_key',NULL,'2026-10-26 16:51:50');
-INSERT INTO `rental_document_types` (`id`, `name`, `slug`, `color`, `is_system`, `is_lease`, `is_active`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (1,'Lease Agreement','lease_agreement','#059669',1,1,1,1,'2026-10-26 16:48:01','2026-10-26 16:48:01',NULL);
-INSERT INTO `rental_document_types` (`id`, `name`, `slug`, `color`, `is_system`, `is_lease`, `is_active`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (2,'Mandate','mandate','#2563EB',1,0,1,2,'2026-10-26 16:48:01','2026-10-26 16:48:01',NULL);
-INSERT INTO `rental_document_types` (`id`, `name`, `slug`, `color`, `is_system`, `is_lease`, `is_active`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (3,'Addendum','addendum','#7C3AED',1,0,1,3,'2026-10-26 16:48:01','2026-10-26 16:48:01',NULL);
-INSERT INTO `rental_document_types` (`id`, `name`, `slug`, `color`, `is_system`, `is_lease`, `is_active`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (4,'Notice','notice','#DC2626',1,0,1,4,'2026-10-26 16:48:01','2026-10-26 16:48:01',NULL);
-INSERT INTO `rental_document_types` (`id`, `name`, `slug`, `color`, `is_system`, `is_lease`, `is_active`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (5,'Inspection Report','inspection_report','#D97706',0,0,1,5,'2026-10-26 16:48:01','2026-10-26 16:48:01',NULL);
-INSERT INTO `rental_document_types` (`id`, `name`, `slug`, `color`, `is_system`, `is_lease`, `is_active`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (6,'Power of Attorney','power_of_attorney','#4B5563',0,0,1,6,'2026-10-26 16:48:01','2026-10-26 16:48:01',NULL);
-INSERT INTO `rental_document_types` (`id`, `name`, `slug`, `color`, `is_system`, `is_lease`, `is_active`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (7,'Disclosure','disclosure','#0891B2',0,0,1,7,'2026-10-26 16:48:01','2026-10-26 16:48:01',NULL);
-INSERT INTO `rental_document_types` (`id`, `name`, `slug`, `color`, `is_system`, `is_lease`, `is_active`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (8,'Other','other','#6B7280',1,0,1,99,'2026-10-26 16:48:01','2026-10-26 16:48:01',NULL);
-INSERT INTO `rental_reminder_settings` (`id`, `enabled`, `mode`, `gentle_after_days`, `firm_after_days`, `team_alert_after_days`, `final_after_days`, `max_escalating_reminders`, `interval_days`, `max_simple_reminders`, `email_subject`, `email_body`, `updated_by`, `created_at`, `updated_at`, `deleted_at`) VALUES (1,1,'escalating',2,5,7,10,3,3,5,NULL,NULL,NULL,'2026-10-26 16:48:02','2026-10-26 16:48:02',NULL);
-INSERT INTO `suburb_aliases` (`id`, `alias_normalised`, `canonical_normalised`, `p24_suburb_id`, `note`, `source`, `created_at`, `updated_at`) VALUES (1,'leisure bay','leisure bay',NULL,NULL,'config','2026-10-26 17:11:14','2026-10-26 17:11:14');
-INSERT INTO `suburb_aliases` (`id`, `alias_normalised`, `canonical_normalised`, `p24_suburb_id`, `note`, `source`, `created_at`, `updated_at`) VALUES (2,'three hills','leisure bay',NULL,NULL,'config','2026-10-26 17:11:14','2026-10-26 17:11:14');
+INSERT INTO `docuperfect_document_types` (`id`, `name`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (1,'Mandates',0,'2026-11-03 14:17:10','2026-11-03 14:17:10',NULL);
+INSERT INTO `docuperfect_document_types` (`id`, `name`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (2,'OTPs',10,'2026-11-03 14:17:10','2026-11-03 14:17:10',NULL);
+INSERT INTO `docuperfect_document_types` (`id`, `name`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (3,'Addendums',20,'2026-11-03 14:17:10','2026-11-03 14:17:10',NULL);
+INSERT INTO `docuperfect_document_types` (`id`, `name`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (4,'Condition Reports',30,'2026-11-03 14:17:10','2026-11-03 14:17:10',NULL);
+INSERT INTO `docuperfect_document_types` (`id`, `name`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (5,'FICA',40,'2026-11-03 14:17:10','2026-11-03 14:17:10',NULL);
+INSERT INTO `docuperfect_document_types` (`id`, `name`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (6,'Rental Agreements',50,'2026-11-03 14:17:10','2026-11-03 14:17:10',NULL);
+INSERT INTO `docuperfect_document_types` (`id`, `name`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (7,'Other',60,'2026-11-03 14:17:10','2026-11-03 14:17:10',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (1,'Mandate Commission % (Step 4)','text',NULL,900,'deal','commission',NULL,'2026-11-03 14:23:19','2026-11-03 14:23:19',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (2,'Mandate Start Date (Step 4)','text',NULL,900,'deal','mandate_start',NULL,'2026-11-03 14:23:19','2026-11-03 14:23:19',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (3,'Mandate Expiry Date (Step 4)','text',NULL,900,'deal','mandate_expiry',NULL,'2026-11-03 14:23:19','2026-11-03 14:23:19',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (4,'Rental Amount[words]','text',NULL,91,'computed','rental_amount_words',NULL,'2026-11-03 14:33:47','2026-11-03 14:33:47',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (5,'Lease Notice Period','text',NULL,941,'computed','notice_period',NULL,'2026-11-03 14:40:52','2026-11-03 14:40:52',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (6,'Lease Notice Period Unit','text',NULL,942,'computed','notice_period_unit',NULL,'2026-11-03 14:40:52','2026-11-03 14:40:52',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (7,'Lease Earliest Notice Date','date',NULL,943,'computed','earliest_notice_date',NULL,'2026-11-03 14:40:52','2026-11-03 14:40:52',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (8,'Lease Early Cancellation Allowed','text',NULL,944,'computed','early_cancellation_allowed',NULL,'2026-11-03 14:40:52','2026-11-03 14:40:52',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (9,'Lease Early Cancellation Notice','text',NULL,945,'computed','early_cancellation_notice',NULL,'2026-11-03 14:40:52','2026-11-03 14:40:52',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (10,'Lease Early Cancellation Notice Unit','text',NULL,946,'computed','early_cancellation_notice_unit',NULL,'2026-11-03 14:40:53','2026-11-03 14:40:53',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (11,'Lease Early Cancellation Penalty','text',NULL,947,'computed','early_cancellation_penalty',NULL,'2026-11-03 14:40:53','2026-11-03 14:40:53',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (12,'Lease - Monthly rent','number',NULL,901,'lease','rent',NULL,'2026-11-03 14:45:02','2026-11-03 14:45:02',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (13,'Lease - Rent in words','text',NULL,902,'lease','rent_in_words',NULL,'2026-11-03 14:45:02','2026-11-03 14:45:02',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (14,'Lease - Deposit','number',NULL,903,'lease','deposit',NULL,'2026-11-03 14:45:02','2026-11-03 14:45:02',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (15,'Lease - Deposit in words','text',NULL,904,'lease','deposit_in_words',NULL,'2026-11-03 14:45:02','2026-11-03 14:45:02',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (16,'Lease - Lease fee','number',NULL,905,'lease','lease_fee',NULL,'2026-11-03 14:45:02','2026-11-03 14:45:02',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (17,'Lease - Start date','date',NULL,906,'lease','start_date',NULL,'2026-11-03 14:45:02','2026-11-03 14:45:02',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (18,'Lease - End date','date',NULL,907,'lease','end_date',NULL,'2026-11-03 14:45:02','2026-11-03 14:45:02',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (19,'Lease - Number of adults','number',NULL,908,'lease','adults',NULL,'2026-11-03 14:45:02','2026-11-03 14:45:02',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (20,'Lease - Maximum other persons','number',NULL,909,'lease','max_other_persons',NULL,'2026-11-03 14:45:02','2026-11-03 14:45:02',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (21,'Lease - Pets allowed (type and number)','text',NULL,910,'lease','pets',NULL,'2026-11-03 14:45:02','2026-11-03 14:45:02',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (22,'Lease - Yearly escalation (%)','number',NULL,911,'lease','escalation_percent',NULL,'2026-11-03 14:45:02','2026-11-03 14:45:02',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (23,'Lease - Escalation in words','text',NULL,912,'lease','escalation_in_words',NULL,'2026-11-03 14:45:02','2026-11-03 14:45:02',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (24,'Lease - Escalation month','text',NULL,913,'lease','escalation_month',NULL,'2026-11-03 14:45:02','2026-11-03 14:45:02',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (25,'Lease - Earliest date notice may expire','date',NULL,914,'lease','earliest_termination_date',NULL,'2026-11-03 14:45:02','2026-11-03 14:45:02',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (26,'Lease - Renewal period (months)','number',NULL,915,'lease','renewal_option_months',NULL,'2026-11-03 14:45:02','2026-11-03 14:45:02',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (27,'Lease - Electricity / utilities arrangement','text',NULL,916,'lease','electricity_arrangement',NULL,'2026-11-03 14:45:02','2026-11-03 14:45:02',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (28,'Lease - Other conditions','text',NULL,917,'lease','other_conditions',NULL,'2026-11-03 14:45:02','2026-11-03 14:45:02',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (29,'Lease - Agent service fee','number',NULL,918,'lease','agent_service_fee',NULL,'2026-11-03 14:45:02','2026-11-03 14:45:02',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (30,'Lease - Net amount to owner','number',NULL,919,'lease','net_to_owner',NULL,'2026-11-03 14:45:02','2026-11-03 14:45:02',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (31,'Lessor Contact Type Id','number',NULL,1,'contact','contact_type_id','Lessor','2026-11-03 14:46:10','2026-11-03 14:46:10',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (32,'Lessor Contact Source Id','number',NULL,2,'contact','contact_source_id','Lessor','2026-11-03 14:46:10','2026-11-03 14:46:10',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (33,'Lessor Created By User Id','number',NULL,3,'contact','created_by_user_id','Lessor','2026-11-03 14:46:10','2026-11-03 14:46:10',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (34,'Lessor Agent Id','number',NULL,4,'contact','agent_id','Lessor','2026-11-03 14:46:10','2026-11-03 14:46:10',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (35,'Lessor Second Agent Id','number',NULL,5,'contact','second_agent_id','Lessor','2026-11-03 14:46:10','2026-11-03 14:46:10',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (36,'Lessor Client User Id','number',NULL,6,'contact','client_user_id','Lessor','2026-11-03 14:46:10','2026-11-03 14:46:10',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (37,'Lessor First Name','text',NULL,7,'contact','first_name','Lessor','2026-11-03 14:46:10','2026-11-03 14:46:10',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (38,'Lessor Last Name','text',NULL,8,'contact','last_name','Lessor','2026-11-03 14:46:10','2026-11-03 14:46:10',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (39,'Lessor Phone','text',NULL,9,'contact','phone','Lessor','2026-11-03 14:46:10','2026-11-03 14:46:10',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (40,'Lessor Email','text',NULL,10,'contact','email','Lessor','2026-11-03 14:46:10','2026-11-03 14:46:10',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (41,'Lessor Notes','text',NULL,11,'contact','notes','Lessor','2026-11-03 14:46:10','2026-11-03 14:46:10',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (42,'Lessor Birthday','date',NULL,12,'contact','birthday','Lessor','2026-11-03 14:46:10','2026-11-03 14:46:10',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (43,'Lessor Birthday Reminder','text',NULL,13,'contact','birthday_reminder','Lessor','2026-11-03 14:46:10','2026-11-03 14:46:10',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (44,'Lessor Id Number','text',NULL,14,'contact','id_number','Lessor','2026-11-03 14:46:10','2026-11-03 14:46:10',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (45,'Lessor Id Number Captured At','date',NULL,15,'contact','id_number_captured_at','Lessor','2026-11-03 14:46:10','2026-11-03 14:46:10',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (46,'Lessor Id Number Source','text',NULL,16,'contact','id_number_source','Lessor','2026-11-03 14:46:10','2026-11-03 14:46:10',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (47,'Lessor Passport Number','text',NULL,17,'contact','passport_number','Lessor','2026-11-03 14:46:10','2026-11-03 14:46:10',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (48,'Lessor Address','text',NULL,18,'contact','address','Lessor','2026-11-03 14:46:10','2026-11-03 14:46:10',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (49,'Lessor Unit Number','text',NULL,19,'contact','unit_number','Lessor','2026-11-03 14:46:10','2026-11-03 14:46:10',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (50,'Lessor Floor Number','text',NULL,20,'contact','floor_number','Lessor','2026-11-03 14:46:10','2026-11-03 14:46:10',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (51,'Lessor Unit Section Block','text',NULL,21,'contact','unit_section_block','Lessor','2026-11-03 14:46:10','2026-11-03 14:46:10',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (52,'Lessor Complex Name','text',NULL,22,'contact','complex_name','Lessor','2026-11-03 14:46:10','2026-11-03 14:46:10',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (53,'Lessor Street Number','text',NULL,23,'contact','street_number','Lessor','2026-11-03 14:46:10','2026-11-03 14:46:10',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (54,'Lessor Street Name','text',NULL,24,'contact','street_name','Lessor','2026-11-03 14:46:10','2026-11-03 14:46:10',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (55,'Lessor Suburb','text',NULL,25,'contact','suburb','Lessor','2026-11-03 14:46:10','2026-11-03 14:46:10',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (56,'Lessor City','text',NULL,26,'contact','city','Lessor','2026-11-03 14:46:10','2026-11-03 14:46:10',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (57,'Lessor Province','text',NULL,27,'contact','province','Lessor','2026-11-03 14:46:10','2026-11-03 14:46:10',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (58,'Lessor P24 Suburb Id','number',NULL,28,'contact','p24_suburb_id','Lessor','2026-11-03 14:46:10','2026-11-03 14:46:10',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (59,'Lessor P24 City Id','number',NULL,29,'contact','p24_city_id','Lessor','2026-11-03 14:46:10','2026-11-03 14:46:10',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (60,'Lessor P24 Province Id','number',NULL,30,'contact','p24_province_id','Lessor','2026-11-03 14:46:10','2026-11-03 14:46:10',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (61,'Lessor Loaded At','date',NULL,31,'contact','loaded_at','Lessor','2026-11-03 14:46:10','2026-11-03 14:46:10',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (62,'Lessor Modified At','date',NULL,32,'contact','modified_at','Lessor','2026-11-03 14:46:10','2026-11-03 14:46:10',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (63,'Lessor Last Contacted At','date',NULL,33,'contact','last_contacted_at','Lessor','2026-11-03 14:46:10','2026-11-03 14:46:10',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (64,'Lessor Contacted Marked At','date',NULL,34,'contact','contacted_marked_at','Lessor','2026-11-03 14:46:10','2026-11-03 14:46:10',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (65,'Lessor Whatsapp Count','text',NULL,35,'contact','whatsapp_count','Lessor','2026-11-03 14:46:10','2026-11-03 14:46:10',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (66,'Lessor Email Count','text',NULL,36,'contact','email_count','Lessor','2026-11-03 14:46:10','2026-11-03 14:46:10',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (67,'Lessor Bank Name','text',NULL,37,'contact','bank_name','Lessor','2026-11-03 14:46:10','2026-11-03 14:46:10',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (68,'Lessor Bank Account Name','text',NULL,38,'contact','bank_account_name','Lessor','2026-11-03 14:46:10','2026-11-03 14:46:10',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (69,'Lessor Bank Account Number','text',NULL,39,'contact','bank_account_number','Lessor','2026-11-03 14:46:10','2026-11-03 14:46:10',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (70,'Lessor Bank Branch Name','text',NULL,40,'contact','bank_branch_name','Lessor','2026-11-03 14:46:10','2026-11-03 14:46:10',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (71,'Lessor Bank Branch Code','text',NULL,41,'contact','bank_branch_code','Lessor','2026-11-03 14:46:10','2026-11-03 14:46:10',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (72,'Lessor Bank Account Type','text',NULL,42,'contact','bank_account_type','Lessor','2026-11-03 14:46:10','2026-11-03 14:46:10',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (73,'Lessor Preapproval Amount','number',NULL,43,'contact','preapproval_amount','Lessor','2026-11-03 14:46:10','2026-11-03 14:46:10',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (74,'Lessor Preapproval Expires At','date',NULL,44,'contact','preapproval_expires_at','Lessor','2026-11-03 14:46:10','2026-11-03 14:46:10',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (75,'Lessor Preapproval Institution','text',NULL,45,'contact','preapproval_institution','Lessor','2026-11-03 14:46:10','2026-11-03 14:46:10',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (76,'Lessor Purged At','date',NULL,46,'contact','purged_at','Lessor','2026-11-03 14:46:10','2026-11-03 14:46:10',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (77,'Lessor Purged Reason','text',NULL,47,'contact','purged_reason','Lessor','2026-11-03 14:46:10','2026-11-03 14:46:10',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (78,'Lessor Opt Out Email','text',NULL,48,'contact','opt_out_email','Lessor','2026-11-03 14:46:10','2026-11-03 14:46:10',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (79,'Lessor Opt Out Sms','text',NULL,49,'contact','opt_out_sms','Lessor','2026-11-03 14:46:10','2026-11-03 14:46:10',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (80,'Lessor Opt Out Whatsapp','text',NULL,50,'contact','opt_out_whatsapp','Lessor','2026-11-03 14:46:10','2026-11-03 14:46:10',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (81,'Lessor Opt Out Call','text',NULL,51,'contact','opt_out_call','Lessor','2026-11-03 14:46:10','2026-11-03 14:46:10',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (82,'Lessor Last Consent Check At','date',NULL,52,'contact','last_consent_check_at','Lessor','2026-11-03 14:46:10','2026-11-03 14:46:10',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (83,'Lessor Is Buyer','text',NULL,53,'contact','is_buyer','Lessor','2026-11-03 14:46:10','2026-11-03 14:46:10',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (84,'Lessor Buyer State','text',NULL,54,'contact','buyer_state','Lessor','2026-11-03 14:46:10','2026-11-03 14:46:10',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (85,'Lessor Last Activity At','date',NULL,55,'contact','last_activity_at','Lessor','2026-11-03 14:46:10','2026-11-03 14:46:10',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (86,'Lessor Buyer Pipeline Entered At','date',NULL,56,'contact','buyer_pipeline_entered_at','Lessor','2026-11-03 14:46:10','2026-11-03 14:46:10',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (87,'Lessor Buyer Pipeline Notes','text',NULL,57,'contact','buyer_pipeline_notes','Lessor','2026-11-03 14:46:10','2026-11-03 14:46:10',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (88,'Lessor Buyer Source','text',NULL,58,'contact','buyer_source','Lessor','2026-11-03 14:46:10','2026-11-03 14:46:10',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (89,'Lessor Rental Application Status','text',NULL,59,'contact','rental_application_status','Lessor','2026-11-03 14:46:10','2026-11-03 14:46:10',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (90,'Lessor Rental Application Status Updated At','date',NULL,60,'contact','rental_application_status_updated_at','Lessor','2026-11-03 14:46:10','2026-11-03 14:46:10',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (91,'Lessor Agency Id','number',NULL,61,'contact','agency_id','Lessor','2026-11-03 14:46:10','2026-11-03 14:46:10',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (92,'Lessor Branch Id','number',NULL,62,'contact','branch_id','Lessor','2026-11-03 14:46:10','2026-11-03 14:46:10',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (93,'Lessor Messaging Opt Out At','date',NULL,63,'contact','messaging_opt_out_at','Lessor','2026-11-03 14:46:10','2026-11-03 14:46:10',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (94,'Lessor Messaging Opt Out Reason','text',NULL,64,'contact','messaging_opt_out_reason','Lessor','2026-11-03 14:46:10','2026-11-03 14:46:10',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (95,'Lessor Messaging Opt Out Recorded By User Id','number',NULL,65,'contact','messaging_opt_out_recorded_by_user_id','Lessor','2026-11-03 14:46:10','2026-11-03 14:46:10',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (96,'Lessor Messaging Opt Out Source','text',NULL,66,'contact','messaging_opt_out_source','Lessor','2026-11-03 14:46:10','2026-11-03 14:46:10',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (97,'Lessor Messaging Opt Out Kind','text',NULL,67,'contact','messaging_opt_out_kind','Lessor','2026-11-03 14:46:10','2026-11-03 14:46:10',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (98,'Lessor Messaging All Blocked','text',NULL,68,'contact','messaging_all_blocked','Lessor','2026-11-03 14:46:10','2026-11-03 14:46:10',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (99,'Lessor Messaging Opted In At','date',NULL,69,'contact','messaging_opted_in_at','Lessor','2026-11-03 14:46:10','2026-11-03 14:46:10',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (100,'Lessor Outreach Permission Asked At','date',NULL,70,'contact','outreach_permission_asked_at','Lessor','2026-11-03 14:46:10','2026-11-03 14:46:10',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (101,'Lessor Messaging Opt In Reason','text',NULL,71,'contact','messaging_opt_in_reason','Lessor','2026-11-03 14:46:10','2026-11-03 14:46:10',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (102,'Lessor Messaging Opt In Recorded By User Id','number',NULL,72,'contact','messaging_opt_in_recorded_by_user_id','Lessor','2026-11-03 14:46:10','2026-11-03 14:46:10',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (103,'Lessor Id Type','text',NULL,73,'contact','id_type','Lessor','2026-11-03 14:46:10','2026-11-03 14:46:10',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (104,'Lessor Contact Kind','text',NULL,74,'contact','contact_kind','Lessor','2026-11-03 14:46:10','2026-11-03 14:46:10',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (105,'Lessor Entity Name','text',NULL,75,'contact','entity_name','Lessor','2026-11-03 14:46:10','2026-11-03 14:46:10',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (106,'Lessor Entity Reg No','text',NULL,76,'contact','entity_reg_no','Lessor','2026-11-03 14:46:10','2026-11-03 14:46:10',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (107,'Lessor Entity Shape','text',NULL,77,'contact','entity_shape','Lessor','2026-11-03 14:46:10','2026-11-03 14:46:10',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (108,'Lessor Buyer Matches Last Regenerated At','date',NULL,78,'contact','buyer_matches_last_regenerated_at','Lessor','2026-11-03 14:46:10','2026-11-03 14:46:10',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (109,'Lessor Full Name','text',NULL,79,'contact','first_name+last_name','Lessor','2026-11-03 14:46:10','2026-11-03 14:46:10',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (110,'Lessee Contact Type Id','number',NULL,1,'contact','contact_type_id','Lessee','2026-11-03 14:46:10','2026-11-03 14:46:10',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (111,'Lessee Contact Source Id','number',NULL,2,'contact','contact_source_id','Lessee','2026-11-03 14:46:10','2026-11-03 14:46:10',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (112,'Lessee Created By User Id','number',NULL,3,'contact','created_by_user_id','Lessee','2026-11-03 14:46:10','2026-11-03 14:46:10',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (113,'Lessee Agent Id','number',NULL,4,'contact','agent_id','Lessee','2026-11-03 14:46:10','2026-11-03 14:46:10',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (114,'Lessee Second Agent Id','number',NULL,5,'contact','second_agent_id','Lessee','2026-11-03 14:46:10','2026-11-03 14:46:10',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (115,'Lessee Client User Id','number',NULL,6,'contact','client_user_id','Lessee','2026-11-03 14:46:10','2026-11-03 14:46:10',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (116,'Lessee First Name','text',NULL,7,'contact','first_name','Lessee','2026-11-03 14:46:10','2026-11-03 14:46:10',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (117,'Lessee Last Name','text',NULL,8,'contact','last_name','Lessee','2026-11-03 14:46:10','2026-11-03 14:46:10',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (118,'Lessee Phone','text',NULL,9,'contact','phone','Lessee','2026-11-03 14:46:10','2026-11-03 14:46:10',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (119,'Lessee Email','text',NULL,10,'contact','email','Lessee','2026-11-03 14:46:10','2026-11-03 14:46:10',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (120,'Lessee Notes','text',NULL,11,'contact','notes','Lessee','2026-11-03 14:46:10','2026-11-03 14:46:10',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (121,'Lessee Birthday','date',NULL,12,'contact','birthday','Lessee','2026-11-03 14:46:10','2026-11-03 14:46:10',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (122,'Lessee Birthday Reminder','text',NULL,13,'contact','birthday_reminder','Lessee','2026-11-03 14:46:10','2026-11-03 14:46:10',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (123,'Lessee Id Number','text',NULL,14,'contact','id_number','Lessee','2026-11-03 14:46:10','2026-11-03 14:46:10',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (124,'Lessee Id Number Captured At','date',NULL,15,'contact','id_number_captured_at','Lessee','2026-11-03 14:46:10','2026-11-03 14:46:10',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (125,'Lessee Id Number Source','text',NULL,16,'contact','id_number_source','Lessee','2026-11-03 14:46:10','2026-11-03 14:46:10',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (126,'Lessee Passport Number','text',NULL,17,'contact','passport_number','Lessee','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (127,'Lessee Address','text',NULL,18,'contact','address','Lessee','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (128,'Lessee Unit Number','text',NULL,19,'contact','unit_number','Lessee','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (129,'Lessee Floor Number','text',NULL,20,'contact','floor_number','Lessee','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (130,'Lessee Unit Section Block','text',NULL,21,'contact','unit_section_block','Lessee','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (131,'Lessee Complex Name','text',NULL,22,'contact','complex_name','Lessee','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (132,'Lessee Street Number','text',NULL,23,'contact','street_number','Lessee','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (133,'Lessee Street Name','text',NULL,24,'contact','street_name','Lessee','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (134,'Lessee Suburb','text',NULL,25,'contact','suburb','Lessee','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (135,'Lessee City','text',NULL,26,'contact','city','Lessee','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (136,'Lessee Province','text',NULL,27,'contact','province','Lessee','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (137,'Lessee P24 Suburb Id','number',NULL,28,'contact','p24_suburb_id','Lessee','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (138,'Lessee P24 City Id','number',NULL,29,'contact','p24_city_id','Lessee','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (139,'Lessee P24 Province Id','number',NULL,30,'contact','p24_province_id','Lessee','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (140,'Lessee Loaded At','date',NULL,31,'contact','loaded_at','Lessee','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (141,'Lessee Modified At','date',NULL,32,'contact','modified_at','Lessee','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (142,'Lessee Last Contacted At','date',NULL,33,'contact','last_contacted_at','Lessee','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (143,'Lessee Contacted Marked At','date',NULL,34,'contact','contacted_marked_at','Lessee','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (144,'Lessee Whatsapp Count','text',NULL,35,'contact','whatsapp_count','Lessee','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (145,'Lessee Email Count','text',NULL,36,'contact','email_count','Lessee','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (146,'Lessee Bank Name','text',NULL,37,'contact','bank_name','Lessee','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (147,'Lessee Bank Account Name','text',NULL,38,'contact','bank_account_name','Lessee','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (148,'Lessee Bank Account Number','text',NULL,39,'contact','bank_account_number','Lessee','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (149,'Lessee Bank Branch Name','text',NULL,40,'contact','bank_branch_name','Lessee','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (150,'Lessee Bank Branch Code','text',NULL,41,'contact','bank_branch_code','Lessee','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (151,'Lessee Bank Account Type','text',NULL,42,'contact','bank_account_type','Lessee','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (152,'Lessee Preapproval Amount','number',NULL,43,'contact','preapproval_amount','Lessee','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (153,'Lessee Preapproval Expires At','date',NULL,44,'contact','preapproval_expires_at','Lessee','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (154,'Lessee Preapproval Institution','text',NULL,45,'contact','preapproval_institution','Lessee','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (155,'Lessee Purged At','date',NULL,46,'contact','purged_at','Lessee','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (156,'Lessee Purged Reason','text',NULL,47,'contact','purged_reason','Lessee','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (157,'Lessee Opt Out Email','text',NULL,48,'contact','opt_out_email','Lessee','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (158,'Lessee Opt Out Sms','text',NULL,49,'contact','opt_out_sms','Lessee','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (159,'Lessee Opt Out Whatsapp','text',NULL,50,'contact','opt_out_whatsapp','Lessee','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (160,'Lessee Opt Out Call','text',NULL,51,'contact','opt_out_call','Lessee','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (161,'Lessee Last Consent Check At','date',NULL,52,'contact','last_consent_check_at','Lessee','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (162,'Lessee Is Buyer','text',NULL,53,'contact','is_buyer','Lessee','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (163,'Lessee Buyer State','text',NULL,54,'contact','buyer_state','Lessee','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (164,'Lessee Last Activity At','date',NULL,55,'contact','last_activity_at','Lessee','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (165,'Lessee Buyer Pipeline Entered At','date',NULL,56,'contact','buyer_pipeline_entered_at','Lessee','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (166,'Lessee Buyer Pipeline Notes','text',NULL,57,'contact','buyer_pipeline_notes','Lessee','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (167,'Lessee Buyer Source','text',NULL,58,'contact','buyer_source','Lessee','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (168,'Lessee Rental Application Status','text',NULL,59,'contact','rental_application_status','Lessee','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (169,'Lessee Rental Application Status Updated At','date',NULL,60,'contact','rental_application_status_updated_at','Lessee','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (170,'Lessee Agency Id','number',NULL,61,'contact','agency_id','Lessee','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (171,'Lessee Branch Id','number',NULL,62,'contact','branch_id','Lessee','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (172,'Lessee Messaging Opt Out At','date',NULL,63,'contact','messaging_opt_out_at','Lessee','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (173,'Lessee Messaging Opt Out Reason','text',NULL,64,'contact','messaging_opt_out_reason','Lessee','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (174,'Lessee Messaging Opt Out Recorded By User Id','number',NULL,65,'contact','messaging_opt_out_recorded_by_user_id','Lessee','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (175,'Lessee Messaging Opt Out Source','text',NULL,66,'contact','messaging_opt_out_source','Lessee','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (176,'Lessee Messaging Opt Out Kind','text',NULL,67,'contact','messaging_opt_out_kind','Lessee','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (177,'Lessee Messaging All Blocked','text',NULL,68,'contact','messaging_all_blocked','Lessee','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (178,'Lessee Messaging Opted In At','date',NULL,69,'contact','messaging_opted_in_at','Lessee','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (179,'Lessee Outreach Permission Asked At','date',NULL,70,'contact','outreach_permission_asked_at','Lessee','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (180,'Lessee Messaging Opt In Reason','text',NULL,71,'contact','messaging_opt_in_reason','Lessee','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (181,'Lessee Messaging Opt In Recorded By User Id','number',NULL,72,'contact','messaging_opt_in_recorded_by_user_id','Lessee','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (182,'Lessee Id Type','text',NULL,73,'contact','id_type','Lessee','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (183,'Lessee Contact Kind','text',NULL,74,'contact','contact_kind','Lessee','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (184,'Lessee Entity Name','text',NULL,75,'contact','entity_name','Lessee','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (185,'Lessee Entity Reg No','text',NULL,76,'contact','entity_reg_no','Lessee','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (186,'Lessee Entity Shape','text',NULL,77,'contact','entity_shape','Lessee','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (187,'Lessee Buyer Matches Last Regenerated At','date',NULL,78,'contact','buyer_matches_last_regenerated_at','Lessee','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (188,'Lessee Full Name','text',NULL,79,'contact','first_name+last_name','Lessee','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (189,'Seller Contact Type Id','number',NULL,1,'contact','contact_type_id','Seller','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (190,'Seller Contact Source Id','number',NULL,2,'contact','contact_source_id','Seller','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (191,'Seller Created By User Id','number',NULL,3,'contact','created_by_user_id','Seller','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (192,'Seller Agent Id','number',NULL,4,'contact','agent_id','Seller','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (193,'Seller Second Agent Id','number',NULL,5,'contact','second_agent_id','Seller','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (194,'Seller Client User Id','number',NULL,6,'contact','client_user_id','Seller','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (195,'Seller First Name','text',NULL,7,'contact','first_name','Seller','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (196,'Seller Last Name','text',NULL,8,'contact','last_name','Seller','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (197,'Seller Phone','text',NULL,9,'contact','phone','Seller','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (198,'Seller Email','text',NULL,10,'contact','email','Seller','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (199,'Seller Notes','text',NULL,11,'contact','notes','Seller','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (200,'Seller Birthday','date',NULL,12,'contact','birthday','Seller','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (201,'Seller Birthday Reminder','text',NULL,13,'contact','birthday_reminder','Seller','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (202,'Seller Id Number','text',NULL,14,'contact','id_number','Seller','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (203,'Seller Id Number Captured At','date',NULL,15,'contact','id_number_captured_at','Seller','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (204,'Seller Id Number Source','text',NULL,16,'contact','id_number_source','Seller','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (205,'Seller Passport Number','text',NULL,17,'contact','passport_number','Seller','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (206,'Seller Address','text',NULL,18,'contact','address','Seller','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (207,'Seller Unit Number','text',NULL,19,'contact','unit_number','Seller','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (208,'Seller Floor Number','text',NULL,20,'contact','floor_number','Seller','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (209,'Seller Unit Section Block','text',NULL,21,'contact','unit_section_block','Seller','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (210,'Seller Complex Name','text',NULL,22,'contact','complex_name','Seller','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (211,'Seller Street Number','text',NULL,23,'contact','street_number','Seller','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (212,'Seller Street Name','text',NULL,24,'contact','street_name','Seller','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (213,'Seller Suburb','text',NULL,25,'contact','suburb','Seller','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (214,'Seller City','text',NULL,26,'contact','city','Seller','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (215,'Seller Province','text',NULL,27,'contact','province','Seller','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (216,'Seller P24 Suburb Id','number',NULL,28,'contact','p24_suburb_id','Seller','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (217,'Seller P24 City Id','number',NULL,29,'contact','p24_city_id','Seller','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (218,'Seller P24 Province Id','number',NULL,30,'contact','p24_province_id','Seller','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (219,'Seller Loaded At','date',NULL,31,'contact','loaded_at','Seller','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (220,'Seller Modified At','date',NULL,32,'contact','modified_at','Seller','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (221,'Seller Last Contacted At','date',NULL,33,'contact','last_contacted_at','Seller','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (222,'Seller Contacted Marked At','date',NULL,34,'contact','contacted_marked_at','Seller','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (223,'Seller Whatsapp Count','text',NULL,35,'contact','whatsapp_count','Seller','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (224,'Seller Email Count','text',NULL,36,'contact','email_count','Seller','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (225,'Seller Bank Name','text',NULL,37,'contact','bank_name','Seller','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (226,'Seller Bank Account Name','text',NULL,38,'contact','bank_account_name','Seller','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (227,'Seller Bank Account Number','text',NULL,39,'contact','bank_account_number','Seller','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (228,'Seller Bank Branch Name','text',NULL,40,'contact','bank_branch_name','Seller','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (229,'Seller Bank Branch Code','text',NULL,41,'contact','bank_branch_code','Seller','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (230,'Seller Bank Account Type','text',NULL,42,'contact','bank_account_type','Seller','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (231,'Seller Preapproval Amount','number',NULL,43,'contact','preapproval_amount','Seller','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (232,'Seller Preapproval Expires At','date',NULL,44,'contact','preapproval_expires_at','Seller','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (233,'Seller Preapproval Institution','text',NULL,45,'contact','preapproval_institution','Seller','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (234,'Seller Purged At','date',NULL,46,'contact','purged_at','Seller','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (235,'Seller Purged Reason','text',NULL,47,'contact','purged_reason','Seller','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (236,'Seller Opt Out Email','text',NULL,48,'contact','opt_out_email','Seller','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (237,'Seller Opt Out Sms','text',NULL,49,'contact','opt_out_sms','Seller','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (238,'Seller Opt Out Whatsapp','text',NULL,50,'contact','opt_out_whatsapp','Seller','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (239,'Seller Opt Out Call','text',NULL,51,'contact','opt_out_call','Seller','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (240,'Seller Last Consent Check At','date',NULL,52,'contact','last_consent_check_at','Seller','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (241,'Seller Is Buyer','text',NULL,53,'contact','is_buyer','Seller','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (242,'Seller Buyer State','text',NULL,54,'contact','buyer_state','Seller','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (243,'Seller Last Activity At','date',NULL,55,'contact','last_activity_at','Seller','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (244,'Seller Buyer Pipeline Entered At','date',NULL,56,'contact','buyer_pipeline_entered_at','Seller','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (245,'Seller Buyer Pipeline Notes','text',NULL,57,'contact','buyer_pipeline_notes','Seller','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (246,'Seller Buyer Source','text',NULL,58,'contact','buyer_source','Seller','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (247,'Seller Rental Application Status','text',NULL,59,'contact','rental_application_status','Seller','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (248,'Seller Rental Application Status Updated At','date',NULL,60,'contact','rental_application_status_updated_at','Seller','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (249,'Seller Agency Id','number',NULL,61,'contact','agency_id','Seller','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (250,'Seller Branch Id','number',NULL,62,'contact','branch_id','Seller','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (251,'Seller Messaging Opt Out At','date',NULL,63,'contact','messaging_opt_out_at','Seller','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (252,'Seller Messaging Opt Out Reason','text',NULL,64,'contact','messaging_opt_out_reason','Seller','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (253,'Seller Messaging Opt Out Recorded By User Id','number',NULL,65,'contact','messaging_opt_out_recorded_by_user_id','Seller','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (254,'Seller Messaging Opt Out Source','text',NULL,66,'contact','messaging_opt_out_source','Seller','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (255,'Seller Messaging Opt Out Kind','text',NULL,67,'contact','messaging_opt_out_kind','Seller','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (256,'Seller Messaging All Blocked','text',NULL,68,'contact','messaging_all_blocked','Seller','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (257,'Seller Messaging Opted In At','date',NULL,69,'contact','messaging_opted_in_at','Seller','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (258,'Seller Outreach Permission Asked At','date',NULL,70,'contact','outreach_permission_asked_at','Seller','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (259,'Seller Messaging Opt In Reason','text',NULL,71,'contact','messaging_opt_in_reason','Seller','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (260,'Seller Messaging Opt In Recorded By User Id','number',NULL,72,'contact','messaging_opt_in_recorded_by_user_id','Seller','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (261,'Seller Id Type','text',NULL,73,'contact','id_type','Seller','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (262,'Seller Contact Kind','text',NULL,74,'contact','contact_kind','Seller','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (263,'Seller Entity Name','text',NULL,75,'contact','entity_name','Seller','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (264,'Seller Entity Reg No','text',NULL,76,'contact','entity_reg_no','Seller','2026-11-03 14:46:11','2026-11-03 14:46:11',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (265,'Seller Entity Shape','text',NULL,77,'contact','entity_shape','Seller','2026-11-03 14:46:12','2026-11-03 14:46:12',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (266,'Seller Buyer Matches Last Regenerated At','date',NULL,78,'contact','buyer_matches_last_regenerated_at','Seller','2026-11-03 14:46:12','2026-11-03 14:46:12',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (267,'Seller Full Name','text',NULL,79,'contact','first_name+last_name','Seller','2026-11-03 14:46:12','2026-11-03 14:46:12',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (268,'Buyer Contact Type Id','number',NULL,1,'contact','contact_type_id','Buyer','2026-11-03 14:46:12','2026-11-03 14:46:12',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (269,'Buyer Contact Source Id','number',NULL,2,'contact','contact_source_id','Buyer','2026-11-03 14:46:12','2026-11-03 14:46:12',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (270,'Buyer Created By User Id','number',NULL,3,'contact','created_by_user_id','Buyer','2026-11-03 14:46:12','2026-11-03 14:46:12',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (271,'Buyer Agent Id','number',NULL,4,'contact','agent_id','Buyer','2026-11-03 14:46:12','2026-11-03 14:46:12',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (272,'Buyer Second Agent Id','number',NULL,5,'contact','second_agent_id','Buyer','2026-11-03 14:46:12','2026-11-03 14:46:12',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (273,'Buyer Client User Id','number',NULL,6,'contact','client_user_id','Buyer','2026-11-03 14:46:12','2026-11-03 14:46:12',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (274,'Buyer First Name','text',NULL,7,'contact','first_name','Buyer','2026-11-03 14:46:12','2026-11-03 14:46:12',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (275,'Buyer Last Name','text',NULL,8,'contact','last_name','Buyer','2026-11-03 14:46:12','2026-11-03 14:46:12',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (276,'Buyer Phone','text',NULL,9,'contact','phone','Buyer','2026-11-03 14:46:12','2026-11-03 14:46:12',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (277,'Buyer Email','text',NULL,10,'contact','email','Buyer','2026-11-03 14:46:12','2026-11-03 14:46:12',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (278,'Buyer Notes','text',NULL,11,'contact','notes','Buyer','2026-11-03 14:46:12','2026-11-03 14:46:12',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (279,'Buyer Birthday','date',NULL,12,'contact','birthday','Buyer','2026-11-03 14:46:12','2026-11-03 14:46:12',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (280,'Buyer Birthday Reminder','text',NULL,13,'contact','birthday_reminder','Buyer','2026-11-03 14:46:12','2026-11-03 14:46:12',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (281,'Buyer Id Number','text',NULL,14,'contact','id_number','Buyer','2026-11-03 14:46:12','2026-11-03 14:46:12',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (282,'Buyer Id Number Captured At','date',NULL,15,'contact','id_number_captured_at','Buyer','2026-11-03 14:46:12','2026-11-03 14:46:12',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (283,'Buyer Id Number Source','text',NULL,16,'contact','id_number_source','Buyer','2026-11-03 14:46:12','2026-11-03 14:46:12',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (284,'Buyer Passport Number','text',NULL,17,'contact','passport_number','Buyer','2026-11-03 14:46:12','2026-11-03 14:46:12',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (285,'Buyer Address','text',NULL,18,'contact','address','Buyer','2026-11-03 14:46:12','2026-11-03 14:46:12',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (286,'Buyer Unit Number','text',NULL,19,'contact','unit_number','Buyer','2026-11-03 14:46:12','2026-11-03 14:46:12',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (287,'Buyer Floor Number','text',NULL,20,'contact','floor_number','Buyer','2026-11-03 14:46:12','2026-11-03 14:46:12',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (288,'Buyer Unit Section Block','text',NULL,21,'contact','unit_section_block','Buyer','2026-11-03 14:46:12','2026-11-03 14:46:12',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (289,'Buyer Complex Name','text',NULL,22,'contact','complex_name','Buyer','2026-11-03 14:46:12','2026-11-03 14:46:12',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (290,'Buyer Street Number','text',NULL,23,'contact','street_number','Buyer','2026-11-03 14:46:12','2026-11-03 14:46:12',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (291,'Buyer Street Name','text',NULL,24,'contact','street_name','Buyer','2026-11-03 14:46:12','2026-11-03 14:46:12',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (292,'Buyer Suburb','text',NULL,25,'contact','suburb','Buyer','2026-11-03 14:46:12','2026-11-03 14:46:12',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (293,'Buyer City','text',NULL,26,'contact','city','Buyer','2026-11-03 14:46:12','2026-11-03 14:46:12',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (294,'Buyer Province','text',NULL,27,'contact','province','Buyer','2026-11-03 14:46:12','2026-11-03 14:46:12',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (295,'Buyer P24 Suburb Id','number',NULL,28,'contact','p24_suburb_id','Buyer','2026-11-03 14:46:12','2026-11-03 14:46:12',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (296,'Buyer P24 City Id','number',NULL,29,'contact','p24_city_id','Buyer','2026-11-03 14:46:12','2026-11-03 14:46:12',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (297,'Buyer P24 Province Id','number',NULL,30,'contact','p24_province_id','Buyer','2026-11-03 14:46:12','2026-11-03 14:46:12',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (298,'Buyer Loaded At','date',NULL,31,'contact','loaded_at','Buyer','2026-11-03 14:46:12','2026-11-03 14:46:12',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (299,'Buyer Modified At','date',NULL,32,'contact','modified_at','Buyer','2026-11-03 14:46:12','2026-11-03 14:46:12',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (300,'Buyer Last Contacted At','date',NULL,33,'contact','last_contacted_at','Buyer','2026-11-03 14:46:12','2026-11-03 14:46:12',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (301,'Buyer Contacted Marked At','date',NULL,34,'contact','contacted_marked_at','Buyer','2026-11-03 14:46:12','2026-11-03 14:46:12',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (302,'Buyer Whatsapp Count','text',NULL,35,'contact','whatsapp_count','Buyer','2026-11-03 14:46:12','2026-11-03 14:46:12',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (303,'Buyer Email Count','text',NULL,36,'contact','email_count','Buyer','2026-11-03 14:46:12','2026-11-03 14:46:12',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (304,'Buyer Bank Name','text',NULL,37,'contact','bank_name','Buyer','2026-11-03 14:46:12','2026-11-03 14:46:12',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (305,'Buyer Bank Account Name','text',NULL,38,'contact','bank_account_name','Buyer','2026-11-03 14:46:12','2026-11-03 14:46:12',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (306,'Buyer Bank Account Number','text',NULL,39,'contact','bank_account_number','Buyer','2026-11-03 14:46:12','2026-11-03 14:46:12',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (307,'Buyer Bank Branch Name','text',NULL,40,'contact','bank_branch_name','Buyer','2026-11-03 14:46:12','2026-11-03 14:46:12',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (308,'Buyer Bank Branch Code','text',NULL,41,'contact','bank_branch_code','Buyer','2026-11-03 14:46:12','2026-11-03 14:46:12',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (309,'Buyer Bank Account Type','text',NULL,42,'contact','bank_account_type','Buyer','2026-11-03 14:46:12','2026-11-03 14:46:12',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (310,'Buyer Preapproval Amount','number',NULL,43,'contact','preapproval_amount','Buyer','2026-11-03 14:46:12','2026-11-03 14:46:12',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (311,'Buyer Preapproval Expires At','date',NULL,44,'contact','preapproval_expires_at','Buyer','2026-11-03 14:46:12','2026-11-03 14:46:12',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (312,'Buyer Preapproval Institution','text',NULL,45,'contact','preapproval_institution','Buyer','2026-11-03 14:46:12','2026-11-03 14:46:12',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (313,'Buyer Purged At','date',NULL,46,'contact','purged_at','Buyer','2026-11-03 14:46:12','2026-11-03 14:46:12',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (314,'Buyer Purged Reason','text',NULL,47,'contact','purged_reason','Buyer','2026-11-03 14:46:12','2026-11-03 14:46:12',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (315,'Buyer Opt Out Email','text',NULL,48,'contact','opt_out_email','Buyer','2026-11-03 14:46:12','2026-11-03 14:46:12',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (316,'Buyer Opt Out Sms','text',NULL,49,'contact','opt_out_sms','Buyer','2026-11-03 14:46:12','2026-11-03 14:46:12',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (317,'Buyer Opt Out Whatsapp','text',NULL,50,'contact','opt_out_whatsapp','Buyer','2026-11-03 14:46:12','2026-11-03 14:46:12',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (318,'Buyer Opt Out Call','text',NULL,51,'contact','opt_out_call','Buyer','2026-11-03 14:46:12','2026-11-03 14:46:12',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (319,'Buyer Last Consent Check At','date',NULL,52,'contact','last_consent_check_at','Buyer','2026-11-03 14:46:12','2026-11-03 14:46:12',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (320,'Buyer Is Buyer','text',NULL,53,'contact','is_buyer','Buyer','2026-11-03 14:46:12','2026-11-03 14:46:12',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (321,'Buyer Buyer State','text',NULL,54,'contact','buyer_state','Buyer','2026-11-03 14:46:12','2026-11-03 14:46:12',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (322,'Buyer Last Activity At','date',NULL,55,'contact','last_activity_at','Buyer','2026-11-03 14:46:12','2026-11-03 14:46:12',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (323,'Buyer Buyer Pipeline Entered At','date',NULL,56,'contact','buyer_pipeline_entered_at','Buyer','2026-11-03 14:46:12','2026-11-03 14:46:12',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (324,'Buyer Buyer Pipeline Notes','text',NULL,57,'contact','buyer_pipeline_notes','Buyer','2026-11-03 14:46:12','2026-11-03 14:46:12',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (325,'Buyer Buyer Source','text',NULL,58,'contact','buyer_source','Buyer','2026-11-03 14:46:12','2026-11-03 14:46:12',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (326,'Buyer Rental Application Status','text',NULL,59,'contact','rental_application_status','Buyer','2026-11-03 14:46:12','2026-11-03 14:46:12',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (327,'Buyer Rental Application Status Updated At','date',NULL,60,'contact','rental_application_status_updated_at','Buyer','2026-11-03 14:46:12','2026-11-03 14:46:12',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (328,'Buyer Agency Id','number',NULL,61,'contact','agency_id','Buyer','2026-11-03 14:46:12','2026-11-03 14:46:12',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (329,'Buyer Branch Id','number',NULL,62,'contact','branch_id','Buyer','2026-11-03 14:46:12','2026-11-03 14:46:12',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (330,'Buyer Messaging Opt Out At','date',NULL,63,'contact','messaging_opt_out_at','Buyer','2026-11-03 14:46:12','2026-11-03 14:46:12',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (331,'Buyer Messaging Opt Out Reason','text',NULL,64,'contact','messaging_opt_out_reason','Buyer','2026-11-03 14:46:12','2026-11-03 14:46:12',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (332,'Buyer Messaging Opt Out Recorded By User Id','number',NULL,65,'contact','messaging_opt_out_recorded_by_user_id','Buyer','2026-11-03 14:46:12','2026-11-03 14:46:12',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (333,'Buyer Messaging Opt Out Source','text',NULL,66,'contact','messaging_opt_out_source','Buyer','2026-11-03 14:46:12','2026-11-03 14:46:12',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (334,'Buyer Messaging Opt Out Kind','text',NULL,67,'contact','messaging_opt_out_kind','Buyer','2026-11-03 14:46:12','2026-11-03 14:46:12',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (335,'Buyer Messaging All Blocked','text',NULL,68,'contact','messaging_all_blocked','Buyer','2026-11-03 14:46:12','2026-11-03 14:46:12',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (336,'Buyer Messaging Opted In At','date',NULL,69,'contact','messaging_opted_in_at','Buyer','2026-11-03 14:46:12','2026-11-03 14:46:12',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (337,'Buyer Outreach Permission Asked At','date',NULL,70,'contact','outreach_permission_asked_at','Buyer','2026-11-03 14:46:12','2026-11-03 14:46:12',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (338,'Buyer Messaging Opt In Reason','text',NULL,71,'contact','messaging_opt_in_reason','Buyer','2026-11-03 14:46:12','2026-11-03 14:46:12',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (339,'Buyer Messaging Opt In Recorded By User Id','number',NULL,72,'contact','messaging_opt_in_recorded_by_user_id','Buyer','2026-11-03 14:46:12','2026-11-03 14:46:12',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (340,'Buyer Id Type','text',NULL,73,'contact','id_type','Buyer','2026-11-03 14:46:12','2026-11-03 14:46:12',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (341,'Buyer Contact Kind','text',NULL,74,'contact','contact_kind','Buyer','2026-11-03 14:46:12','2026-11-03 14:46:12',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (342,'Buyer Entity Name','text',NULL,75,'contact','entity_name','Buyer','2026-11-03 14:46:12','2026-11-03 14:46:12',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (343,'Buyer Entity Reg No','text',NULL,76,'contact','entity_reg_no','Buyer','2026-11-03 14:46:12','2026-11-03 14:46:12',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (344,'Buyer Entity Shape','text',NULL,77,'contact','entity_shape','Buyer','2026-11-03 14:46:12','2026-11-03 14:46:12',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (345,'Buyer Buyer Matches Last Regenerated At','date',NULL,78,'contact','buyer_matches_last_regenerated_at','Buyer','2026-11-03 14:46:12','2026-11-03 14:46:12',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (346,'Buyer Full Name','text',NULL,79,'contact','first_name+last_name','Buyer','2026-11-03 14:46:12','2026-11-03 14:46:12',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (347,'External Id','text',NULL,1,'property','external_id',NULL,'2026-11-03 14:46:12','2026-11-03 14:46:12',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (348,'Title','text',NULL,2,'property','title',NULL,'2026-11-03 14:46:12','2026-11-03 14:46:12',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (349,'Headline','text',NULL,3,'property','headline',NULL,'2026-11-03 14:46:12','2026-11-03 14:46:12',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (350,'Description','text',NULL,4,'property','description',NULL,'2026-11-03 14:46:12','2026-11-03 14:46:12',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (351,'Excerpt','text',NULL,5,'property','excerpt',NULL,'2026-11-03 14:46:12','2026-11-03 14:46:12',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (352,'Price','number',NULL,6,'property','price',NULL,'2026-11-03 14:46:12','2026-11-03 14:46:12',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (353,'Price On Application','text',NULL,7,'property','price_on_application',NULL,'2026-11-03 14:46:12','2026-11-03 14:46:12',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (354,'Has Deposit','text',NULL,8,'property','has_deposit',NULL,'2026-11-03 14:46:12','2026-11-03 14:46:12',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (355,'Lease Period','text',NULL,9,'property','lease_period',NULL,'2026-11-03 14:46:12','2026-11-03 14:46:12',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (356,'Price Per Day','number',NULL,10,'property','price_per_day',NULL,'2026-11-03 14:46:12','2026-11-03 14:46:12',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (357,'Price Per Week','number',NULL,11,'property','price_per_week',NULL,'2026-11-03 14:46:12','2026-11-03 14:46:12',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (358,'Price Per Year','number',NULL,12,'property','price_per_year',NULL,'2026-11-03 14:46:12','2026-11-03 14:46:12',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (359,'Lease Type','text',NULL,13,'property','lease_type',NULL,'2026-11-03 14:46:12','2026-11-03 14:46:12',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (360,'Gross Price','number',NULL,14,'property','gross_price',NULL,'2026-11-03 14:46:12','2026-11-03 14:46:12',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (361,'Net Price','number',NULL,15,'property','net_price',NULL,'2026-11-03 14:46:12','2026-11-03 14:46:12',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (362,'Yard Price','number',NULL,16,'property','yard_price',NULL,'2026-11-03 14:46:12','2026-11-03 14:46:12',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (363,'Primary Price Display','text',NULL,17,'property','primary_price_display',NULL,'2026-11-03 14:46:12','2026-11-03 14:46:12',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (364,'Rates Taxes','number',NULL,18,'property','rates_taxes',NULL,'2026-11-03 14:46:12','2026-11-03 14:46:12',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (365,'Municipal Valuation','number',NULL,19,'property','municipal_valuation',NULL,'2026-11-03 14:46:12','2026-11-03 14:46:12',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (366,'Municipal Valuation Year','number',NULL,20,'property','municipal_valuation_year',NULL,'2026-11-03 14:46:12','2026-11-03 14:46:12',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (367,'Levy','number',NULL,21,'property','levy',NULL,'2026-11-03 14:46:12','2026-11-03 14:46:12',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (368,'Special Levy','number',NULL,22,'property','special_levy',NULL,'2026-11-03 14:46:12','2026-11-03 14:46:12',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (369,'Rental Amount','number',NULL,23,'property','rental_amount',NULL,'2026-11-03 14:46:12','2026-11-03 14:46:12',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (370,'Deposit Amount','number',NULL,24,'property','deposit_amount',NULL,'2026-11-03 14:46:12','2026-11-03 14:46:12',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (371,'Deposit Amount Is Default','text',NULL,25,'property','deposit_amount_is_default',NULL,'2026-11-03 14:46:12','2026-11-03 14:46:12',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (372,'Commission Percent','number',NULL,26,'property','commission_percent',NULL,'2026-11-03 14:46:12','2026-11-03 14:46:12',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (373,'Admin Fee','number',NULL,27,'property','admin_fee',NULL,'2026-11-03 14:46:12','2026-11-03 14:46:12',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (374,'Rental No Approval Spend Threshold','number',NULL,28,'property','rental_no_approval_spend_threshold',NULL,'2026-11-03 14:46:12','2026-11-03 14:46:12',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (375,'Rental Main Water Valve Location','text',NULL,29,'property','rental_main_water_valve_location',NULL,'2026-11-03 14:46:12','2026-11-03 14:46:12',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (376,'Rental Main Water Valve Photo Path','text',NULL,30,'property','rental_main_water_valve_photo_path',NULL,'2026-11-03 14:46:12','2026-11-03 14:46:12',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (377,'Rental Db Board Location','text',NULL,31,'property','rental_db_board_location',NULL,'2026-11-03 14:46:12','2026-11-03 14:46:12',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (378,'Rental Db Board Photo Path','text',NULL,32,'property','rental_db_board_photo_path',NULL,'2026-11-03 14:46:12','2026-11-03 14:46:12',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (379,'Marketing Fee','number',NULL,33,'property','marketing_fee',NULL,'2026-11-03 14:46:12','2026-11-03 14:46:12',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (380,'Suburb','text',NULL,34,'property','suburb',NULL,'2026-11-03 14:46:12','2026-11-03 14:46:12',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (381,'Suburb Normalised','text',NULL,35,'property','suburb_normalised',NULL,'2026-11-03 14:46:12','2026-11-03 14:46:12',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (382,'P24 Suburb Id','number',NULL,36,'property','p24_suburb_id',NULL,'2026-11-03 14:46:12','2026-11-03 14:46:12',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (383,'P24 City Id','number',NULL,37,'property','p24_city_id',NULL,'2026-11-03 14:46:12','2026-11-03 14:46:12',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (384,'P24 Province Id','number',NULL,38,'property','p24_province_id',NULL,'2026-11-03 14:46:13','2026-11-03 14:46:13',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (385,'P24 Suburb Mismatch','text',NULL,39,'property','p24_suburb_mismatch',NULL,'2026-11-03 14:46:13','2026-11-03 14:46:13',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (386,'Address','text',NULL,40,'property','address',NULL,'2026-11-03 14:46:13','2026-11-03 14:46:13',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (387,'Street Name','text',NULL,41,'property','street_name',NULL,'2026-11-03 14:46:13','2026-11-03 14:46:13',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (388,'Street Name Normalised','text',NULL,42,'property','street_name_normalised',NULL,'2026-11-03 14:46:13','2026-11-03 14:46:13',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (389,'Street Core','text',NULL,43,'property','street_core',NULL,'2026-11-03 14:46:13','2026-11-03 14:46:13',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (390,'Street Type','text',NULL,44,'property','street_type',NULL,'2026-11-03 14:46:13','2026-11-03 14:46:13',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (391,'Street Number','text',NULL,45,'property','street_number',NULL,'2026-11-03 14:46:13','2026-11-03 14:46:13',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (392,'City','text',NULL,46,'property','city',NULL,'2026-11-03 14:46:13','2026-11-03 14:46:13',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (393,'Region','text',NULL,47,'property','region',NULL,'2026-11-03 14:46:13','2026-11-03 14:46:13',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (394,'District','text',NULL,48,'property','district',NULL,'2026-11-03 14:46:13','2026-11-03 14:46:13',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (395,'Province','text',NULL,49,'property','province',NULL,'2026-11-03 14:46:13','2026-11-03 14:46:13',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (396,'Town','text',NULL,50,'property','town',NULL,'2026-11-03 14:46:13','2026-11-03 14:46:13',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (397,'Beds','text',NULL,51,'property','beds',NULL,'2026-11-03 14:46:13','2026-11-03 14:46:13',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (398,'Baths','text',NULL,52,'property','baths',NULL,'2026-11-03 14:46:13','2026-11-03 14:46:13',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (399,'Half Baths','text',NULL,53,'property','half_baths',NULL,'2026-11-03 14:46:13','2026-11-03 14:46:13',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (400,'Garages','text',NULL,54,'property','garages',NULL,'2026-11-03 14:46:13','2026-11-03 14:46:13',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (401,'Size M2','text',NULL,55,'property','size_m2',NULL,'2026-11-03 14:46:13','2026-11-03 14:46:13',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (402,'Floor Area Unit','text',NULL,56,'property','floor_area_unit',NULL,'2026-11-03 14:46:13','2026-11-03 14:46:13',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (403,'Erf Size M2','text',NULL,57,'property','erf_size_m2',NULL,'2026-11-03 14:46:13','2026-11-03 14:46:13',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (404,'Erf Area Unit','text',NULL,58,'property','erf_area_unit',NULL,'2026-11-03 14:46:13','2026-11-03 14:46:13',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (405,'Property Number','text',NULL,59,'property','property_number',NULL,'2026-11-03 14:46:13','2026-11-03 14:46:13',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (406,'Stand Number','text',NULL,60,'property','stand_number',NULL,'2026-11-03 14:46:13','2026-11-03 14:46:13',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (407,'Erf Number','text',NULL,61,'property','erf_number',NULL,'2026-11-03 14:46:13','2026-11-03 14:46:13',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (408,'Erf Portion','text',NULL,62,'property','erf_portion',NULL,'2026-11-03 14:46:13','2026-11-03 14:46:13',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (409,'Sg Province','text',NULL,63,'property','sg_province',NULL,'2026-11-03 14:46:13','2026-11-03 14:46:13',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (410,'Sg Rural Urban','text',NULL,64,'property','sg_rural_urban',NULL,'2026-11-03 14:46:13','2026-11-03 14:46:13',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (411,'Sg Farm Name','text',NULL,65,'property','sg_farm_name',NULL,'2026-11-03 14:46:13','2026-11-03 14:46:13',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (412,'Sg Last Searched At','date',NULL,66,'property','sg_last_searched_at',NULL,'2026-11-03 14:46:13','2026-11-03 14:46:13',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (413,'Title Deed Number','text',NULL,67,'property','title_deed_number',NULL,'2026-11-03 14:46:13','2026-11-03 14:46:13',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (414,'Zone Type','text',NULL,68,'property','zone_type',NULL,'2026-11-03 14:46:13','2026-11-03 14:46:13',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (415,'Address Internal Note','text',NULL,69,'property','address_internal_note',NULL,'2026-11-03 14:46:13','2026-11-03 14:46:13',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (416,'Complex Name','text',NULL,70,'property','complex_name',NULL,'2026-11-03 14:46:13','2026-11-03 14:46:13',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (417,'Scheme Number','text',NULL,71,'property','scheme_number',NULL,'2026-11-03 14:46:13','2026-11-03 14:46:13',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (418,'Unit Number','text',NULL,72,'property','unit_number',NULL,'2026-11-03 14:46:13','2026-11-03 14:46:13',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (419,'Floor Number','text',NULL,73,'property','floor_number',NULL,'2026-11-03 14:46:13','2026-11-03 14:46:13',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (420,'Number Of Floors','number',NULL,74,'property','number_of_floors',NULL,'2026-11-03 14:46:13','2026-11-03 14:46:13',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (421,'Unit Section Block','text',NULL,75,'property','unit_section_block',NULL,'2026-11-03 14:46:13','2026-11-03 14:46:13',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (422,'Property Type','text',NULL,76,'property','property_type',NULL,'2026-11-03 14:46:13','2026-11-03 14:46:13',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (423,'Title Type','text',NULL,77,'property','title_type',NULL,'2026-11-03 14:46:13','2026-11-03 14:46:13',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (424,'Condition Level Id','number',NULL,78,'property','condition_level_id',NULL,'2026-11-03 14:46:13','2026-11-03 14:46:13',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (425,'Category','text',NULL,79,'property','category',NULL,'2026-11-03 14:46:13','2026-11-03 14:46:13',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (426,'Mandate Type','text',NULL,80,'property','mandate_type',NULL,'2026-11-03 14:46:13','2026-11-03 14:46:13',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (427,'Listing Type','text',NULL,81,'property','listing_type',NULL,'2026-11-03 14:46:13','2026-11-03 14:46:13',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (428,'Sale Method','text',NULL,82,'property','sale_method',NULL,'2026-11-03 14:46:13','2026-11-03 14:46:13',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (429,'Listing Type Pending','text',NULL,83,'property','listing_type_pending',NULL,'2026-11-03 14:46:13','2026-11-03 14:46:13',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (430,'Status','text',NULL,84,'property','status',NULL,'2026-11-03 14:46:13','2026-11-03 14:46:13',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (431,'Listing Cycle','number',NULL,85,'property','listing_cycle',NULL,'2026-11-03 14:46:13','2026-11-03 14:46:13',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (432,'Portal Sold Until','date',NULL,86,'property','portal_sold_until',NULL,'2026-11-03 14:46:13','2026-11-03 14:46:13',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (433,'Under Offer At','date',NULL,87,'property','under_offer_at',NULL,'2026-11-03 14:46:13','2026-11-03 14:46:13',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (434,'Sold At','date',NULL,88,'property','sold_at',NULL,'2026-11-03 14:46:13','2026-11-03 14:46:13',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (435,'Status Before Letting','text',NULL,89,'property','status_before_letting',NULL,'2026-11-03 14:46:13','2026-11-03 14:46:13',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (436,'Pre Deal Offer Status','text',NULL,90,'property','pre_deal_offer_status',NULL,'2026-11-03 14:46:13','2026-11-03 14:46:13',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (437,'Pre Tenant Link Status','text',NULL,91,'property','pre_tenant_link_status',NULL,'2026-11-03 14:46:13','2026-11-03 14:46:13',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (438,'Pre Auction Status','text',NULL,92,'property','pre_auction_status',NULL,'2026-11-03 14:46:13','2026-11-03 14:46:13',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (439,'Status Label','text',NULL,93,'property','status_label',NULL,'2026-11-03 14:46:13','2026-11-03 14:46:13',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (440,'Images Json','text',NULL,94,'property','images_json',NULL,'2026-11-03 14:46:13','2026-11-03 14:46:13',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (441,'Gallery Expected Count','text',NULL,95,'property','gallery_expected_count',NULL,'2026-11-03 14:46:13','2026-11-03 14:46:13',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (442,'Gallery Stored Count','text',NULL,96,'property','gallery_stored_count',NULL,'2026-11-03 14:46:13','2026-11-03 14:46:13',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (443,'Gallery Import Status','text',NULL,97,'property','gallery_import_status',NULL,'2026-11-03 14:46:13','2026-11-03 14:46:13',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (444,'P24 Source Image Signature','text',NULL,98,'property','p24_source_image_signature',NULL,'2026-11-03 14:46:13','2026-11-03 14:46:13',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (445,'Dawn Images Json','text',NULL,99,'property','dawn_images_json',NULL,'2026-11-03 14:46:13','2026-11-03 14:46:13',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (446,'Noon Images Json','text',NULL,100,'property','noon_images_json',NULL,'2026-11-03 14:46:13','2026-11-03 14:46:13',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (447,'Dusk Images Json','text',NULL,101,'property','dusk_images_json',NULL,'2026-11-03 14:46:13','2026-11-03 14:46:13',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (448,'Gallery Images Json','text',NULL,102,'property','gallery_images_json',NULL,'2026-11-03 14:46:13','2026-11-03 14:46:13',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (449,'Gallery Categories Json','text',NULL,103,'property','gallery_categories_json',NULL,'2026-11-03 14:46:14','2026-11-03 14:46:14',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (450,'Gallery Custom Tags','text',NULL,104,'property','gallery_custom_tags',NULL,'2026-11-03 14:46:14','2026-11-03 14:46:14',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (451,'Gallery Tag Order','text',NULL,105,'property','gallery_tag_order',NULL,'2026-11-03 14:46:14','2026-11-03 14:46:14',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (452,'Gallery Upload Keys','text',NULL,106,'property','gallery_upload_keys',NULL,'2026-11-03 14:46:14','2026-11-03 14:46:14',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (453,'Rental Upload Keys','text',NULL,107,'property','rental_upload_keys',NULL,'2026-11-03 14:46:14','2026-11-03 14:46:14',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (454,'Rental Images Json','text',NULL,108,'property','rental_images_json',NULL,'2026-11-03 14:46:14','2026-11-03 14:46:14',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (455,'Features Json','text',NULL,109,'property','features_json',NULL,'2026-11-03 14:46:14','2026-11-03 14:46:14',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (456,'Features Json Meta','text',NULL,110,'property','features_json_meta',NULL,'2026-11-03 14:46:14','2026-11-03 14:46:14',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (457,'Pet Friendly','text',NULL,111,'property','pet_friendly',NULL,'2026-11-03 14:46:14','2026-11-03 14:46:14',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (458,'Spaces Json','text',NULL,112,'property','spaces_json',NULL,'2026-11-03 14:46:14','2026-11-03 14:46:14',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (459,'Rental Inspection Form Seeded At','date',NULL,113,'property','rental_inspection_form_seeded_at',NULL,'2026-11-03 14:46:14','2026-11-03 14:46:14',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (460,'Spaces Json Legacy Backup','text',NULL,114,'property','spaces_json_legacy_backup',NULL,'2026-11-03 14:46:14','2026-11-03 14:46:14',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (461,'Agent Id','number',NULL,115,'property','agent_id',NULL,'2026-11-03 14:46:14','2026-11-03 14:46:14',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (462,'Pp Second Agent Id','number',NULL,116,'property','pp_second_agent_id',NULL,'2026-11-03 14:46:14','2026-11-03 14:46:14',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (463,'Pp Agent Image Path','text',NULL,117,'property','pp_agent_image_path',NULL,'2026-11-03 14:46:14','2026-11-03 14:46:14',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (464,'Pp Second Agent Image Path','text',NULL,118,'property','pp_second_agent_image_path',NULL,'2026-11-03 14:46:14','2026-11-03 14:46:14',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (465,'Branch Id','number',NULL,119,'property','branch_id',NULL,'2026-11-03 14:46:14','2026-11-03 14:46:14',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (466,'Agency Id','number',NULL,120,'property','agency_id',NULL,'2026-11-03 14:46:14','2026-11-03 14:46:14',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (467,'Published At','date',NULL,121,'property','published_at',NULL,'2026-11-03 14:46:14','2026-11-03 14:46:14',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (468,'Listed Date','date',NULL,122,'property','listed_date',NULL,'2026-11-03 14:46:14','2026-11-03 14:46:14',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (469,'Expiry Date','date',NULL,123,'property','expiry_date',NULL,'2026-11-03 14:46:14','2026-11-03 14:46:14',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (470,'Expiry Date Changed At','date',NULL,124,'property','expiry_date_changed_at',NULL,'2026-11-03 14:46:14','2026-11-03 14:46:14',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (471,'Expiry Lock Engaged At','date',NULL,125,'property','expiry_lock_engaged_at',NULL,'2026-11-03 14:46:14','2026-11-03 14:46:14',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (472,'Occupation Date','date',NULL,126,'property','occupation_date',NULL,'2026-11-03 14:46:14','2026-11-03 14:46:14',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (473,'Lease Start Date','date',NULL,127,'property','lease_start_date',NULL,'2026-11-03 14:46:14','2026-11-03 14:46:14',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (474,'Show Available From On Portals','text',NULL,128,'property','show_available_from_on_portals',NULL,'2026-11-03 14:46:14','2026-11-03 14:46:14',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (475,'Lease End Date','date',NULL,129,'property','lease_end_date',NULL,'2026-11-03 14:46:14','2026-11-03 14:46:14',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (476,'Pp Syndication Enabled','text',NULL,130,'property','pp_syndication_enabled',NULL,'2026-11-03 14:46:14','2026-11-03 14:46:14',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (477,'Pp Syndication Status','text',NULL,131,'property','pp_syndication_status',NULL,'2026-11-03 14:46:14','2026-11-03 14:46:14',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (478,'Pp Ref','text',NULL,132,'property','pp_ref',NULL,'2026-11-03 14:46:14','2026-11-03 14:46:14',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (479,'Pp Listing Feed Ref','text',NULL,133,'property','pp_listing_feed_ref',NULL,'2026-11-03 14:46:14','2026-11-03 14:46:14',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (480,'Pp Last Submitted At','date',NULL,134,'property','pp_last_submitted_at',NULL,'2026-11-03 14:46:14','2026-11-03 14:46:14',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (481,'Pp Activated At','date',NULL,135,'property','pp_activated_at',NULL,'2026-11-03 14:46:14','2026-11-03 14:46:14',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (482,'Pp Exclusive Days','text',NULL,136,'property','pp_exclusive_days',NULL,'2026-11-03 14:46:14','2026-11-03 14:46:14',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (483,'Pp Delay Until','date',NULL,137,'property','pp_delay_until',NULL,'2026-11-03 14:46:14','2026-11-03 14:46:14',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (484,'Pp Last Error','text',NULL,138,'property','pp_last_error',NULL,'2026-11-03 14:46:14','2026-11-03 14:46:14',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (485,'Pp Portal Agent Ids','text',NULL,139,'property','pp_portal_agent_ids',NULL,'2026-11-03 14:46:14','2026-11-03 14:46:14',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (486,'Pp Agent Conflict','text',NULL,140,'property','pp_agent_conflict',NULL,'2026-11-03 14:46:14','2026-11-03 14:46:14',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (487,'Pp Images Last Synced At','date',NULL,141,'property','pp_images_last_synced_at',NULL,'2026-11-03 14:46:14','2026-11-03 14:46:14',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (488,'Pp Listing Last Synced At','date',NULL,142,'property','pp_listing_last_synced_at',NULL,'2026-11-03 14:46:14','2026-11-03 14:46:14',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (489,'Pp Hide Street Name','text',NULL,143,'property','pp_hide_street_name',NULL,'2026-11-03 14:46:14','2026-11-03 14:46:14',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (490,'Pp Hide Street Number','text',NULL,144,'property','pp_hide_street_number',NULL,'2026-11-03 14:46:14','2026-11-03 14:46:14',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (491,'Pp Hide Complex Name','text',NULL,145,'property','pp_hide_complex_name',NULL,'2026-11-03 14:46:14','2026-11-03 14:46:14',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (492,'Pp Hide Unit Number','text',NULL,146,'property','pp_hide_unit_number',NULL,'2026-11-03 14:46:14','2026-11-03 14:46:14',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (493,'P24 Hide Address','text',NULL,147,'property','p24_hide_address',NULL,'2026-11-03 14:46:14','2026-11-03 14:46:14',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (494,'Youtube Video Id','text',NULL,148,'property','youtube_video_id',NULL,'2026-11-03 14:46:14','2026-11-03 14:46:14',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (495,'Matterport Id','text',NULL,149,'property','matterport_id',NULL,'2026-11-03 14:46:14','2026-11-03 14:46:14',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (496,'Eyespy 360 Id','text',NULL,150,'property','eyespy_360_id',NULL,'2026-11-03 14:46:14','2026-11-03 14:46:14',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (497,'Virtual Tour Url','text',NULL,151,'property','virtual_tour_url',NULL,'2026-11-03 14:46:14','2026-11-03 14:46:14',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (498,'Rental Price Type','text',NULL,152,'property','rental_price_type',NULL,'2026-11-03 14:46:14','2026-11-03 14:46:14',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (499,'Furnished Status','text',NULL,153,'property','furnished_status',NULL,'2026-11-03 14:46:14','2026-11-03 14:46:14',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (500,'Water Included','text',NULL,154,'property','water_included',NULL,'2026-11-03 14:46:14','2026-11-03 14:46:14',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (501,'Electricity Included','text',NULL,155,'property','electricity_included',NULL,'2026-11-03 14:46:14','2026-11-03 14:46:14',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (502,'Levies Included','text',NULL,156,'property','levies_included',NULL,'2026-11-03 14:46:14','2026-11-03 14:46:14',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (503,'Rental Details Custom Field Values','text',NULL,157,'property','rental_details_custom_field_values',NULL,'2026-11-03 14:46:14','2026-11-03 14:46:14',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (504,'P24 Syndication Enabled','text',NULL,158,'property','p24_syndication_enabled',NULL,'2026-11-03 14:46:14','2026-11-03 14:46:14',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (505,'P24 Syndication Status','text',NULL,159,'property','p24_syndication_status',NULL,'2026-11-03 14:46:14','2026-11-03 14:46:14',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (506,'P24 Stats Synced At','date',NULL,160,'property','p24_stats_synced_at',NULL,'2026-11-03 14:46:14','2026-11-03 14:46:14',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (507,'Ad Generated Count','text',NULL,161,'property','ad_generated_count',NULL,'2026-11-03 14:46:14','2026-11-03 14:46:14',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (508,'Ad Last Generated At','date',NULL,162,'property','ad_last_generated_at',NULL,'2026-11-03 14:46:14','2026-11-03 14:46:14',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (509,'P24 Ref','text',NULL,163,'property','p24_ref',NULL,'2026-11-03 14:46:14','2026-11-03 14:46:14',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (510,'Source Reference','text',NULL,164,'property','source_reference',NULL,'2026-11-03 14:46:14','2026-11-03 14:46:14',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (511,'Lightstone Id','text',NULL,165,'property','lightstone_id',NULL,'2026-11-03 14:46:14','2026-11-03 14:46:14',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (512,'Development Id','text',NULL,166,'property','development_id',NULL,'2026-11-03 14:46:14','2026-11-03 14:46:14',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (513,'P24 Last Submitted At','date',NULL,167,'property','p24_last_submitted_at',NULL,'2026-11-03 14:46:14','2026-11-03 14:46:14',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (514,'P24 Activated At','date',NULL,168,'property','p24_activated_at',NULL,'2026-11-03 14:46:14','2026-11-03 14:46:14',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (515,'P24 Last Error','text',NULL,169,'property','p24_last_error',NULL,'2026-11-03 14:46:14','2026-11-03 14:46:14',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (516,'P24 Images Last Synced At','date',NULL,170,'property','p24_images_last_synced_at',NULL,'2026-11-03 14:46:14','2026-11-03 14:46:14',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (517,'P24 Listing Last Synced At','date',NULL,171,'property','p24_listing_last_synced_at',NULL,'2026-11-03 14:46:14','2026-11-03 14:46:14',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (518,'P24 Activation Last Checked At','date',NULL,172,'property','p24_activation_last_checked_at',NULL,'2026-11-03 14:46:14','2026-11-03 14:46:14',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (519,'Pp Suburb Id','text',NULL,173,'property','pp_suburb_id',NULL,'2026-11-03 14:46:14','2026-11-03 14:46:14',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (520,'Latitude','number',NULL,174,'property','latitude',NULL,'2026-11-03 14:46:14','2026-11-03 14:46:14',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (521,'Longitude','number',NULL,175,'property','longitude',NULL,'2026-11-03 14:46:14','2026-11-03 14:46:14',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (522,'Geo Source','text',NULL,176,'property','geo_source',NULL,'2026-11-03 14:46:14','2026-11-03 14:46:14',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (523,'Geo Confidence','text',NULL,177,'property','geo_confidence',NULL,'2026-11-03 14:46:14','2026-11-03 14:46:14',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (524,'Geo Resolved At','date',NULL,178,'property','geo_resolved_at',NULL,'2026-11-03 14:46:14','2026-11-03 14:46:14',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (525,'Cma Gps Lat','number',NULL,179,'property','cma_gps_lat',NULL,'2026-11-03 14:46:14','2026-11-03 14:46:14',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (526,'Cma Gps Lng','number',NULL,180,'property','cma_gps_lng',NULL,'2026-11-03 14:46:14','2026-11-03 14:46:14',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (527,'Last Cma At','date',NULL,181,'property','last_cma_at',NULL,'2026-11-03 14:46:14','2026-11-03 14:46:14',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (528,'Last Cma Presentation Id','number',NULL,182,'property','last_cma_presentation_id',NULL,'2026-11-03 14:46:14','2026-11-03 14:46:14',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (529,'Last Activity At','date',NULL,183,'property','last_activity_at',NULL,'2026-11-03 14:46:14','2026-11-03 14:46:14',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (530,'Compliance Snapshot At','date',NULL,184,'property','compliance_snapshot_at',NULL,'2026-11-03 14:46:14','2026-11-03 14:46:14',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (531,'Compliance Snapshot Data','text',NULL,185,'property','compliance_snapshot_data',NULL,'2026-11-03 14:46:14','2026-11-03 14:46:14',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (532,'Syndication Approved At','date',NULL,186,'property','syndication_approved_at',NULL,'2026-11-03 14:46:14','2026-11-03 14:46:14',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (533,'Syndication Approved By User Id','number',NULL,187,'property','syndication_approved_by_user_id',NULL,'2026-11-03 14:46:14','2026-11-03 14:46:14',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (534,'Compliance Evidence Flags','text',NULL,188,'property','compliance_evidence_flags',NULL,'2026-11-03 14:46:14','2026-11-03 14:46:14',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (535,'First Marketed At','date',NULL,189,'property','first_marketed_at',NULL,'2026-11-03 14:46:14','2026-11-03 14:46:14',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (536,'P24 Listing Number','text',NULL,190,'property','p24_listing_number',NULL,'2026-11-03 14:46:14','2026-11-03 14:46:14',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (537,'P24 Imported At','date',NULL,191,'property','p24_imported_at',NULL,'2026-11-03 14:46:14','2026-11-03 14:46:14',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (538,'Imported Released At','date',NULL,192,'property','imported_released_at',NULL,'2026-11-03 14:46:14','2026-11-03 14:46:14',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (539,'Is Demo','text',NULL,193,'property','is_demo',NULL,'2026-11-03 14:46:14','2026-11-03 14:46:14',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (540,'P24 Image Signature','text',NULL,194,'property','p24_image_signature',NULL,'2026-11-03 14:46:14','2026-11-03 14:46:14',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (541,'P24 Portal Agent Ids','text',NULL,195,'property','p24_portal_agent_ids',NULL,'2026-11-03 14:46:14','2026-11-03 14:46:14',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (542,'P24 Agent Conflict','text',NULL,196,'property','p24_agent_conflict',NULL,'2026-11-03 14:46:14','2026-11-03 14:46:14',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (543,'Access Notes','text',NULL,197,'property','access_notes',NULL,'2026-11-03 14:46:14','2026-11-03 14:46:14',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (544,'Rental Variation Tolerance Percent','number',NULL,198,'property','rental_variation_tolerance_percent',NULL,'2026-11-03 14:46:14','2026-11-03 14:46:14',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (545,'Rental Work Terms Updated At','date',NULL,199,'property','rental_work_terms_updated_at',NULL,'2026-11-03 14:46:14','2026-11-03 14:46:14',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (546,'Rental Work Terms Updated By User Id','number',NULL,200,'property','rental_work_terms_updated_by_user_id',NULL,'2026-11-03 14:46:14','2026-11-03 14:46:14',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (547,'Township','text',NULL,201,'property','township',NULL,'2026-11-03 14:46:14','2026-11-03 14:46:14',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (548,'Lpi Code','text',NULL,202,'property','lpi_code',NULL,'2026-11-03 14:46:14','2026-11-03 14:46:14',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (549,'Address Raw','text',NULL,203,'property','address_raw',NULL,'2026-11-03 14:46:14','2026-11-03 14:46:14',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (550,'Address Parse Status','text',NULL,204,'property','address_parse_status',NULL,'2026-11-03 14:46:14','2026-11-03 14:46:14',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (551,'Address Parse Note','text',NULL,205,'property','address_parse_note',NULL,'2026-11-03 14:46:14','2026-11-03 14:46:14',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (552,'Compliance Status Hidden','text',NULL,206,'property','compliance_status_hidden',NULL,'2026-11-03 14:46:14','2026-11-03 14:46:14',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (553,'P24 Canonical Ref','text',NULL,207,'property','p24_canonical_ref',NULL,'2026-11-03 14:46:14','2026-11-03 14:46:14',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (554,'Pp Canonical Ref','text',NULL,208,'property','pp_canonical_ref',NULL,'2026-11-03 14:46:14','2026-11-03 14:46:14',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (555,'Tracked Property Id','number',NULL,209,'property','tracked_property_id',NULL,'2026-11-03 14:46:14','2026-11-03 14:46:14',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (556,'Identity Confidence','text',NULL,210,'property','identity_confidence',NULL,'2026-11-03 14:46:14','2026-11-03 14:46:14',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (557,'Identity Method','text',NULL,211,'property','identity_method',NULL,'2026-11-03 14:46:15','2026-11-03 14:46:15',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (558,'Wizard Token','text',NULL,212,'property','wizard_token',NULL,'2026-11-03 14:46:15','2026-11-03 14:46:15',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (559,'Qr Code Slug','text',NULL,1,'agent','qr_code_slug',NULL,'2026-11-03 14:46:15','2026-11-03 14:46:15',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (560,'Qr Reroute User Id','number',NULL,2,'agent','qr_reroute_user_id',NULL,'2026-11-03 14:46:15','2026-11-03 14:46:15',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (561,'Name','text',NULL,3,'agent','name',NULL,'2026-11-03 14:46:15','2026-11-03 14:46:15',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (562,'Email','text',NULL,4,'agent','email',NULL,'2026-11-03 14:46:15','2026-11-03 14:46:15',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (563,'Display Email','text',NULL,5,'agent','display_email',NULL,'2026-11-03 14:46:15','2026-11-03 14:46:15',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (564,'Role','text',NULL,6,'agent','role',NULL,'2026-11-03 14:46:15','2026-11-03 14:46:15',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (565,'Is Assistant','text',NULL,7,'agent','is_assistant',NULL,'2026-11-03 14:46:15','2026-11-03 14:46:15',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (566,'Fica Required','text',NULL,8,'agent','fica_required',NULL,'2026-11-03 14:46:15','2026-11-03 14:46:15',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (567,'Assistant Title','text',NULL,9,'agent','assistant_title',NULL,'2026-11-03 14:46:15','2026-11-03 14:46:15',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (568,'Risk Tier','text',NULL,10,'agent','risk_tier',NULL,'2026-11-03 14:46:15','2026-11-03 14:46:15',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (569,'Screening Status','text',NULL,11,'agent','screening_status',NULL,'2026-11-03 14:46:15','2026-11-03 14:46:15',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (570,'Screening Due On','date',NULL,12,'agent','screening_due_on',NULL,'2026-11-03 14:46:15','2026-11-03 14:46:15',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (571,'Designation','text',NULL,13,'agent','designation',NULL,'2026-11-03 14:46:15','2026-11-03 14:46:15',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (572,'Full First Names','text',NULL,14,'agent','full_first_names',NULL,'2026-11-03 14:46:15','2026-11-03 14:46:15',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (573,'Ppra Category','text',NULL,15,'agent','ppra_category',NULL,'2026-11-03 14:46:15','2026-11-03 14:46:15',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (574,'Employment Date','date',NULL,16,'agent','employment_date',NULL,'2026-11-03 14:46:15','2026-11-03 14:46:15',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (575,'Supervised By','number',NULL,17,'agent','supervised_by',NULL,'2026-11-03 14:46:15','2026-11-03 14:46:15',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (576,'Is Admin','text',NULL,18,'agent','is_admin',NULL,'2026-11-03 14:46:15','2026-11-03 14:46:15',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (577,'Target Listings','text',NULL,19,'agent','target_listings',NULL,'2026-11-03 14:46:15','2026-11-03 14:46:15',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (578,'Invited At','date',NULL,20,'agent','invited_at',NULL,'2026-11-03 14:46:15','2026-11-03 14:46:15',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (579,'First Login At','date',NULL,21,'agent','first_login_at',NULL,'2026-11-03 14:46:15','2026-11-03 14:46:15',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (580,'Branch Id','number',NULL,22,'agent','branch_id',NULL,'2026-11-03 14:46:15','2026-11-03 14:46:15',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (581,'Agency Id','number',NULL,23,'agent','agency_id',NULL,'2026-11-03 14:46:15','2026-11-03 14:46:15',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (582,'Anniversary Date','date',NULL,24,'agent','anniversary_date',NULL,'2026-11-03 14:46:15','2026-11-03 14:46:15',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (583,'Sponsored By User Id','number',NULL,25,'agent','sponsored_by_user_id',NULL,'2026-11-03 14:46:15','2026-11-03 14:46:15',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (584,'Agent Tier','text',NULL,26,'agent','agent_tier',NULL,'2026-11-03 14:46:15','2026-11-03 14:46:15',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (585,'Is Mentor Eligible','text',NULL,27,'agent','is_mentor_eligible',NULL,'2026-11-03 14:46:15','2026-11-03 14:46:15',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (586,'Agent Photo Path','text',NULL,28,'agent','agent_photo_path',NULL,'2026-11-03 14:46:15','2026-11-03 14:46:15',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (587,'Ffc Certificate Path','text',NULL,29,'agent','ffc_certificate_path',NULL,'2026-11-03 14:46:15','2026-11-03 14:46:15',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (588,'Pi Insurance Path','text',NULL,30,'agent','pi_insurance_path',NULL,'2026-11-03 14:46:15','2026-11-03 14:46:15',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (589,'Pi Insurance Expiry','date',NULL,31,'agent','pi_insurance_expiry',NULL,'2026-11-03 14:46:15','2026-11-03 14:46:15',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (590,'Tax Clearance Path','text',NULL,32,'agent','tax_clearance_path',NULL,'2026-11-03 14:46:15','2026-11-03 14:46:15',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (591,'Tax Clearance Expiry','date',NULL,33,'agent','tax_clearance_expiry',NULL,'2026-11-03 14:46:15','2026-11-03 14:46:15',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (592,'Phone','text',NULL,34,'agent','phone',NULL,'2026-11-03 14:46:15','2026-11-03 14:46:15',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (593,'Cell','text',NULL,35,'agent','cell',NULL,'2026-11-03 14:46:15','2026-11-03 14:46:15',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (594,'Whatsapp Number','text',NULL,36,'agent','whatsapp_number',NULL,'2026-11-03 14:46:15','2026-11-03 14:46:15',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (595,'Id Number','text',NULL,37,'agent','id_number',NULL,'2026-11-03 14:46:15','2026-11-03 14:46:15',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (596,'Date Of Birth','date',NULL,38,'agent','date_of_birth',NULL,'2026-11-03 14:46:15','2026-11-03 14:46:15',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (597,'Tax Reference Number','text',NULL,39,'agent','tax_reference_number',NULL,'2026-11-03 14:46:15','2026-11-03 14:46:15',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (598,'Id Document Path','text',NULL,40,'agent','id_document_path',NULL,'2026-11-03 14:46:15','2026-11-03 14:46:15',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (599,'Fax','text',NULL,41,'agent','fax',NULL,'2026-11-03 14:46:15','2026-11-03 14:46:15',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (600,'Ffc Number','text',NULL,42,'agent','ffc_number',NULL,'2026-11-03 14:46:15','2026-11-03 14:46:15',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (601,'Ffc Expiry Date','date',NULL,43,'agent','ffc_expiry_date',NULL,'2026-11-03 14:46:15','2026-11-03 14:46:15',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (602,'Ppra Status','text',NULL,44,'agent','ppra_status',NULL,'2026-11-03 14:46:15','2026-11-03 14:46:15',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (603,'Ppra Last Verified At','date',NULL,45,'agent','ppra_last_verified_at',NULL,'2026-11-03 14:46:15','2026-11-03 14:46:15',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (604,'Website','text',NULL,46,'agent','website',NULL,'2026-11-03 14:46:15','2026-11-03 14:46:15',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (605,'About Me','text',NULL,47,'agent','about_me',NULL,'2026-11-03 14:46:15','2026-11-03 14:46:15',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (606,'Theme','text',NULL,48,'agent','theme',NULL,'2026-11-03 14:46:15','2026-11-03 14:46:15',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (607,'Last Presentation Send Channel','text',NULL,49,'agent','last_presentation_send_channel',NULL,'2026-11-03 14:46:15','2026-11-03 14:46:15',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (608,'Last Presentation Send Mode','text',NULL,50,'agent','last_presentation_send_mode',NULL,'2026-11-03 14:46:15','2026-11-03 14:46:15',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (609,'Portal Show Api Token','text',NULL,51,'agent','portal_show_api_token',NULL,'2026-11-03 14:46:15','2026-11-03 14:46:15',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (610,'Portal Show Social Accounts','text',NULL,52,'agent','portal_show_social_accounts',NULL,'2026-11-03 14:46:15','2026-11-03 14:46:15',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (611,'Pp Unique Agent Id','text',NULL,53,'agent','pp_unique_agent_id',NULL,'2026-11-03 14:46:15','2026-11-03 14:46:15',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (612,'Pp External Ref','text',NULL,54,'agent','pp_external_ref',NULL,'2026-11-03 14:46:15','2026-11-03 14:46:15',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (613,'Pp Exclusivity Explainer Seen At','date',NULL,55,'agent','pp_exclusivity_explainer_seen_at',NULL,'2026-11-03 14:46:15','2026-11-03 14:46:15',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (614,'Agent Cut Percent','number',NULL,56,'agent','agent_cut_percent',NULL,'2026-11-03 14:46:15','2026-11-03 14:46:15',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (615,'Paye Method','text',NULL,57,'agent','paye_method',NULL,'2026-11-03 14:46:15','2026-11-03 14:46:15',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (616,'Paye Value','number',NULL,58,'agent','paye_value',NULL,'2026-11-03 14:46:15','2026-11-03 14:46:15',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (617,'Is Active','text',NULL,59,'agent','is_active',NULL,'2026-11-03 14:46:15','2026-11-03 14:46:15',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (618,'Is Principal Practitioner','text',NULL,60,'agent','is_principal_practitioner',NULL,'2026-11-03 14:46:15','2026-11-03 14:46:15',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (619,'Show In Performance Reports','text',NULL,61,'agent','show_in_performance_reports',NULL,'2026-11-03 14:46:15','2026-11-03 14:46:15',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (620,'App Access Revoked At','date',NULL,62,'agent','app_access_revoked_at',NULL,'2026-11-03 14:46:15','2026-11-03 14:46:15',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (621,'Counts For Branch Split','text',NULL,63,'agent','counts_for_branch_split',NULL,'2026-11-03 14:46:15','2026-11-03 14:46:15',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (622,'Can Capture Rentals','text',NULL,64,'agent','can_capture_rentals',NULL,'2026-11-03 14:46:15','2026-11-03 14:46:15',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (623,'Sliding Enabled','text',NULL,65,'agent','sliding_enabled',NULL,'2026-11-03 14:46:15','2026-11-03 14:46:15',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (624,'Sliding Tier1 Cut Percent','number',NULL,66,'agent','sliding_tier1_cut_percent',NULL,'2026-11-03 14:46:15','2026-11-03 14:46:15',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (625,'Sliding Tier2 Cut Percent','number',NULL,67,'agent','sliding_tier2_cut_percent',NULL,'2026-11-03 14:46:15','2026-11-03 14:46:15',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (626,'Sliding Tier3 Cut Percent','number',NULL,68,'agent','sliding_tier3_cut_percent',NULL,'2026-11-03 14:46:15','2026-11-03 14:46:15',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (627,'P24 Agent Id','text',NULL,69,'agent','p24_agent_id',NULL,'2026-11-03 14:46:15','2026-11-03 14:46:15',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (628,'P24 Agent Agency Id','text',NULL,70,'agent','p24_agent_agency_id',NULL,'2026-11-03 14:46:15','2026-11-03 14:46:15',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (629,'P24 Profile Signature','text',NULL,71,'agent','p24_profile_signature',NULL,'2026-11-03 14:46:15','2026-11-03 14:46:15',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (630,'P24 Photo Signature','text',NULL,72,'agent','p24_photo_signature',NULL,'2026-11-03 14:46:15','2026-11-03 14:46:15',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (631,'Source Reference','text',NULL,73,'agent','source_reference',NULL,'2026-11-03 14:46:15','2026-11-03 14:46:15',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (632,'Emergency Contact Name','text',NULL,74,'agent','emergency_contact_name',NULL,'2026-11-03 14:46:15','2026-11-03 14:46:15',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (633,'Emergency Contact Phone','text',NULL,75,'agent','emergency_contact_phone',NULL,'2026-11-03 14:46:15','2026-11-03 14:46:15',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (634,'Emergency Contact Relationship','text',NULL,76,'agent','emergency_contact_relationship',NULL,'2026-11-03 14:46:15','2026-11-03 14:46:15',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (635,'Next Of Kin Name','text',NULL,77,'agent','next_of_kin_name',NULL,'2026-11-03 14:46:15','2026-11-03 14:46:15',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (636,'Next Of Kin Phone','text',NULL,78,'agent','next_of_kin_phone',NULL,'2026-11-03 14:46:15','2026-11-03 14:46:15',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (637,'Next Of Kin Relationship','text',NULL,79,'agent','next_of_kin_relationship',NULL,'2026-11-03 14:46:15','2026-11-03 14:46:15',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (638,'Home Address','text',NULL,80,'agent','home_address',NULL,'2026-11-03 14:46:15','2026-11-03 14:46:15',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (639,'Marital Status','text',NULL,81,'agent','marital_status',NULL,'2026-11-03 14:46:15','2026-11-03 14:46:15',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (640,'Dependents Count','text',NULL,82,'agent','dependents_count',NULL,'2026-11-03 14:46:15','2026-11-03 14:46:15',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (641,'Medical Aid Provider','text',NULL,83,'agent','medical_aid_provider',NULL,'2026-11-03 14:46:15','2026-11-03 14:46:15',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (642,'Medical Aid Number','text',NULL,84,'agent','medical_aid_number',NULL,'2026-11-03 14:46:15','2026-11-03 14:46:15',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (643,'Medical Aid Main Member','text',NULL,85,'agent','medical_aid_main_member',NULL,'2026-11-03 14:46:15','2026-11-03 14:46:15',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (644,'Medical Aid Dependents Count','text',NULL,86,'agent','medical_aid_dependents_count',NULL,'2026-11-03 14:46:15','2026-11-03 14:46:15',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (645,'Show On Website','text',NULL,87,'agent','show_on_website',NULL,'2026-11-03 14:46:15','2026-11-03 14:46:15',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (646,'Exclude From P24','text',NULL,88,'agent','exclude_from_p24',NULL,'2026-11-03 14:46:15','2026-11-03 14:46:15',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (647,'Daily Digest Enabled','text',NULL,89,'agent','daily_digest_enabled',NULL,'2026-11-03 14:46:15','2026-11-03 14:46:15',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (648,'Nav Favourites Autoopen','text',NULL,90,'agent','nav_favourites_autoopen',NULL,'2026-11-03 14:46:15','2026-11-03 14:46:15',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (649,'Website Order','text',NULL,91,'agent','website_order',NULL,'2026-11-03 14:46:15','2026-11-03 14:46:15',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (650,'Website Social Facebook','text',NULL,92,'agent','website_social_facebook',NULL,'2026-11-03 14:46:15','2026-11-03 14:46:15',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (651,'Website Social Instagram','text',NULL,93,'agent','website_social_instagram',NULL,'2026-11-03 14:46:15','2026-11-03 14:46:15',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (652,'Website Social Linkedin','text',NULL,94,'agent','website_social_linkedin',NULL,'2026-11-03 14:46:15','2026-11-03 14:46:15',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (653,'Website Social Youtube','text',NULL,95,'agent','website_social_youtube',NULL,'2026-11-03 14:46:15','2026-11-03 14:46:15',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (654,'Is Sub User','text',NULL,96,'agent','is_sub_user',NULL,'2026-11-03 14:46:15','2026-11-03 14:46:15',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (655,'Must Change Password','text',NULL,97,'agent','must_change_password',NULL,'2026-11-03 14:46:15','2026-11-03 14:46:15',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (656,'Deal Pipeline Template Id','number',NULL,901,'deal','deal_pipeline_template_id',NULL,'2026-11-03 14:46:15','2026-11-03 14:46:15',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (657,'Pipeline Started At','date',NULL,902,'deal','pipeline_started_at',NULL,'2026-11-03 14:46:15','2026-11-03 14:46:15',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (658,'Deal V2 Id','number',NULL,903,'deal','deal_v2_id',NULL,'2026-11-03 14:46:15','2026-11-03 14:46:15',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (659,'Deal No','text',NULL,904,'deal','deal_no',NULL,'2026-11-03 14:46:15','2026-11-03 14:46:15',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (660,'File No','text',NULL,905,'deal','file_no',NULL,'2026-11-03 14:46:15','2026-11-03 14:46:15',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (661,'Branch Id','number',NULL,906,'deal','branch_id',NULL,'2026-11-03 14:46:15','2026-11-03 14:46:15',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (662,'Managed By User Id','number',NULL,907,'deal','managed_by_user_id',NULL,'2026-11-03 14:46:15','2026-11-03 14:46:15',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (663,'Period','text',NULL,908,'deal','period',NULL,'2026-11-03 14:46:15','2026-11-03 14:46:15',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (664,'Deal Date','date',NULL,909,'deal','deal_date',NULL,'2026-11-03 14:46:15','2026-11-03 14:46:15',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (665,'Deal Type','text',NULL,910,'deal','deal_type',NULL,'2026-11-03 14:46:15','2026-11-03 14:46:15',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (666,'Property Address','text',NULL,911,'deal','property_address',NULL,'2026-11-03 14:46:15','2026-11-03 14:46:15',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (667,'Seller Name','text',NULL,912,'deal','seller_name',NULL,'2026-11-03 14:46:15','2026-11-03 14:46:15',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (668,'Buyer Name','text',NULL,913,'deal','buyer_name',NULL,'2026-11-03 14:46:15','2026-11-03 14:46:15',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (669,'Attorney Name','text',NULL,914,'deal','attorney_name',NULL,'2026-11-03 14:46:15','2026-11-03 14:46:15',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (670,'Attorney Provider Id','number',NULL,915,'deal','attorney_provider_id',NULL,'2026-11-03 14:46:15','2026-11-03 14:46:15',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (671,'Attorney Contact Id','number',NULL,916,'deal','attorney_contact_id',NULL,'2026-11-03 14:46:15','2026-11-03 14:46:15',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (672,'Bond Originator Provider Id','number',NULL,917,'deal','bond_originator_provider_id',NULL,'2026-11-03 14:46:15','2026-11-03 14:46:15',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (673,'Bond Originator Contact Id','number',NULL,918,'deal','bond_originator_contact_id',NULL,'2026-11-03 14:46:15','2026-11-03 14:46:15',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (674,'External Agency Provider Id','number',NULL,919,'deal','external_agency_provider_id',NULL,'2026-11-03 14:46:15','2026-11-03 14:46:15',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (675,'External Agency Contact Id','number',NULL,920,'deal','external_agency_contact_id',NULL,'2026-11-03 14:46:15','2026-11-03 14:46:15',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (676,'Bond Attorney Provider Id','number',NULL,921,'deal','bond_attorney_provider_id',NULL,'2026-11-03 14:46:15','2026-11-03 14:46:15',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (677,'Bond Attorney Contact Id','number',NULL,922,'deal','bond_attorney_contact_id',NULL,'2026-11-03 14:46:15','2026-11-03 14:46:15',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (678,'Accepted Status','text',NULL,923,'deal','accepted_status',NULL,'2026-11-03 14:46:15','2026-11-03 14:46:15',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (679,'Granted At','date',NULL,924,'deal','granted_at',NULL,'2026-11-03 14:46:15','2026-11-03 14:46:15',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (680,'Commission Status','text',NULL,925,'deal','commission_status',NULL,'2026-11-03 14:46:15','2026-11-03 14:46:15',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (681,'Registration Date','date',NULL,926,'deal','registration_date',NULL,'2026-11-03 14:46:15','2026-11-03 14:46:15',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (682,'Sale Date','date',NULL,927,'deal','sale_date',NULL,'2026-11-03 14:46:15','2026-11-03 14:46:15',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (683,'Link Source','text',NULL,928,'deal','link_source',NULL,'2026-11-03 14:46:15','2026-11-03 14:46:15',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (684,'Link Confidence','text',NULL,929,'deal','link_confidence',NULL,'2026-11-03 14:46:16','2026-11-03 14:46:16',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (685,'Link Reviewed At','date',NULL,930,'deal','link_reviewed_at',NULL,'2026-11-03 14:46:16','2026-11-03 14:46:16',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (686,'Link Reviewed By User Id','number',NULL,931,'deal','link_reviewed_by_user_id',NULL,'2026-11-03 14:46:16','2026-11-03 14:46:16',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (687,'Remarks','text',NULL,932,'deal','remarks',NULL,'2026-11-03 14:46:16','2026-11-03 14:46:16',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (688,'Property Value','number',NULL,933,'deal','property_value',NULL,'2026-11-03 14:46:16','2026-11-03 14:46:16',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (689,'Sale Price','number',NULL,934,'deal','sale_price',NULL,'2026-11-03 14:46:16','2026-11-03 14:46:16',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (690,'Total Commission','number',NULL,935,'deal','total_commission',NULL,'2026-11-03 14:46:16','2026-11-03 14:46:16',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (691,'Listing External','text',NULL,936,'deal','listing_external',NULL,'2026-11-03 14:46:16','2026-11-03 14:46:16',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (692,'Listing External Agency','text',NULL,937,'deal','listing_external_agency',NULL,'2026-11-03 14:46:16','2026-11-03 14:46:16',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (693,'Listing External Agency Provider Id','number',NULL,938,'deal','listing_external_agency_provider_id',NULL,'2026-11-03 14:46:16','2026-11-03 14:46:16',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (694,'Listing External Agency Contact Id','number',NULL,939,'deal','listing_external_agency_contact_id',NULL,'2026-11-03 14:46:16','2026-11-03 14:46:16',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (695,'Listing Our Share Percent','number',NULL,940,'deal','listing_our_share_percent',NULL,'2026-11-03 14:46:16','2026-11-03 14:46:16',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (696,'Selling External','text',NULL,941,'deal','selling_external',NULL,'2026-11-03 14:46:16','2026-11-03 14:46:16',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (697,'Selling External Agency','text',NULL,942,'deal','selling_external_agency',NULL,'2026-11-03 14:46:16','2026-11-03 14:46:16',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (698,'Selling External Agency Provider Id','number',NULL,943,'deal','selling_external_agency_provider_id',NULL,'2026-11-03 14:46:16','2026-11-03 14:46:16',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (699,'Selling External Agency Contact Id','number',NULL,944,'deal','selling_external_agency_contact_id',NULL,'2026-11-03 14:46:16','2026-11-03 14:46:16',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (700,'Listing Split Percent','number',NULL,945,'deal','listing_split_percent',NULL,'2026-11-03 14:46:16','2026-11-03 14:46:16',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (701,'Selling Split Percent','number',NULL,946,'deal','selling_split_percent',NULL,'2026-11-03 14:46:16','2026-11-03 14:46:16',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (702,'Selling Our Share Percent','number',NULL,947,'deal','selling_our_share_percent',NULL,'2026-11-03 14:46:16','2026-11-03 14:46:16',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (703,'Agency Id','number',NULL,948,'deal','agency_id',NULL,'2026-11-03 14:46:16','2026-11-03 14:46:16',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (704,'Property Id','number',NULL,949,'deal','property_id',NULL,'2026-11-03 14:46:16','2026-11-03 14:46:16',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (705,'Presentation Id','number',NULL,950,'deal','presentation_id',NULL,'2026-11-03 14:46:16','2026-11-03 14:46:16',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (706,'Is Demo','text',NULL,951,'deal','is_demo',NULL,'2026-11-03 14:46:16','2026-11-03 14:46:16',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (707,'Tracked Property Id','number',NULL,952,'deal','tracked_property_id',NULL,'2026-11-03 14:46:16','2026-11-03 14:46:16',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (708,'Identity Confidence','text',NULL,953,'deal','identity_confidence',NULL,'2026-11-03 14:46:16','2026-11-03 14:46:16',NULL);
+INSERT INTO `docuperfect_named_fields` (`id`, `name`, `field_type`, `default_options`, `sort_order`, `source_type`, `source_column`, `source_contact_type`, `created_at`, `updated_at`, `deleted_at`) VALUES (709,'Identity Method','text',NULL,954,'deal','identity_method',NULL,'2026-11-03 14:46:16','2026-11-03 14:46:16',NULL);
+INSERT INTO `feature_rollout_plans` (`id`, `name`, `note`, `agency_type`, `is_default`, `created_by`, `created_at`, `updated_at`, `deleted_at`) VALUES (1,'Standard',NULL,'any',1,NULL,'2026-11-03 14:45:00','2026-11-03 14:45:00',NULL);
+INSERT INTO `market_report_types` (`id`, `key`, `display_name`, `parser_class`, `expected_fields_json`, `auto_approve`, `sample_file_path`, `created_at`, `updated_at`) VALUES (1,'cma_info_vicinity_sale','CMA Info — Vicinity Sale (Residential / Vacant Land)','App\\Services\\MarketReports\\Parsers\\CmaInfoVicinitySaleParser','[\"subject_property.address\", \"subject_property.suburb_scope\", \"subject_property_type\", \"radius_meters\", \"sales[].distance_m\", \"sales[].erf_number\", \"sales[].address\", \"sales[].erf_usage\", \"sales[].property_type\", \"sales[].extent_m2\", \"sales[].sale_date\", \"sales[].sale_price\", \"sales[].r_per_m2\", \"summary.lower_range\", \"summary.middle_range\", \"summary.upper_range\", \"summary.average\", \"summary.average_r_per_m2\"]',1,NULL,'2026-11-03 14:27:06','2026-11-03 14:27:06');
+INSERT INTO `market_report_types` (`id`, `key`, `display_name`, `parser_class`, `expected_fields_json`, `auto_approve`, `sample_file_path`, `created_at`, `updated_at`) VALUES (2,'learned_layout','Learned layout','App\\Services\\MarketReports\\Parsers\\LearnedLayoutParser','[\"comps[]\", \"suburb_stats[]\", \"valuation\"]',0,NULL,'2026-11-03 14:43:38','2026-11-03 14:43:38');
+INSERT INTO `nexus_permissions` (`id`, `key`, `label`, `section`, `type`, `module`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (1,'access_prospecting','Access Prospecting','prospecting','access','prospecting',1,'2026-11-03 14:18:42','2026-11-03 14:18:42',NULL);
+INSERT INTO `nexus_permissions` (`id`, `key`, `label`, `section`, `type`, `module`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (2,'access_evaluation','Access Evaluation Reports','evaluation','access','evaluation',1,'2026-11-03 14:18:42','2026-11-03 14:18:42',NULL);
+INSERT INTO `nexus_permissions` (`id`, `key`, `label`, `section`, `type`, `module`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (3,'mic.edit_address','Edit / Add Property Address','prospecting','action','mic',50,'2026-11-03 14:23:28','2026-11-03 14:23:28',NULL);
+INSERT INTO `nexus_permissions` (`id`, `key`, `label`, `section`, `type`, `module`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (4,'mic.merge_duplicates','Merge Duplicate Tracked Properties','prospecting','action','mic',51,'2026-11-03 14:23:28','2026-11-03 14:23:28',NULL);
+INSERT INTO `nexus_permissions` (`id`, `key`, `label`, `section`, `type`, `module`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (5,'mic.upload_reports','Upload Market / CMA Reports','prospecting','action','mic',52,'2026-11-03 14:23:28','2026-11-03 14:23:28',NULL);
+INSERT INTO `nexus_permissions` (`id`, `key`, `label`, `section`, `type`, `module`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (6,'mic.view_team','View BM Team Dashboard','prospecting','access','mic',53,'2026-11-03 14:23:28','2026-11-03 14:23:28',NULL);
+INSERT INTO `nexus_permissions` (`id`, `key`, `label`, `section`, `type`, `module`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (7,'mic.regenerate_brief','Regenerate Strategic Brief (manual)','prospecting','action','mic',54,'2026-11-03 14:23:28','2026-11-03 14:23:28',NULL);
+INSERT INTO `nexus_permissions` (`id`, `key`, `label`, `section`, `type`, `module`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (8,'mic.view_ai_costs','View AI Token / Cost Dashboard','prospecting','access','mic',55,'2026-11-03 14:23:28','2026-11-03 14:23:28',NULL);
+INSERT INTO `nexus_permissions` (`id`, `key`, `label`, `section`, `type`, `module`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (9,'mic.restore_reports','Restore Archived Market Reports','prospecting','action','mic',56,'2026-11-03 14:27:06','2026-11-03 14:27:06',NULL);
+INSERT INTO `nexus_permissions` (`id`, `key`, `label`, `section`, `type`, `module`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (10,'deals_v2.view_overview','View Pipeline Overview','deals-v2','action','deals_v2',19,'2026-11-03 14:29:09','2026-11-03 14:29:09',NULL);
+INSERT INTO `nexus_permissions` (`id`, `key`, `label`, `section`, `type`, `module`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (11,'calendar.tile.my_deals','Calendar Deck — My Deals Tile','command-center','action','command_center_calendar',18,'2026-11-03 14:29:30','2026-11-03 14:29:30',NULL);
+INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (1,'property.documents_missing','property','Documents','Documents not uploaded after listing','Notify when a newly listed property has no documents on file after the threshold.',1,'hours',24,1,168,1,1,1,0,NULL,0,'2026-11-03 14:21:40','2026-11-03 14:21:40',NULL);
+INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (2,'property.mandate_expiring','property','Compliance','Mandate expiring soon','Notify when a mandate is approaching expiry.',0,'days',14,1,90,1,1,1,0,NULL,1,'2026-11-03 14:21:40','2026-11-03 14:31:41',NULL);
+INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (3,'property.no_activity','property','Activity','No activity since listing','No viewings, offers, or notes logged in the threshold window.',1,'days',21,3,180,1,1,1,0,NULL,2,'2026-11-03 14:21:40','2026-11-03 14:30:02','2026-11-03 14:30:02');
+INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (4,'property.compliance_doc_missing','property','Compliance','Compliance documents missing','EAAB / FICA-on-property compliance certs not uploaded.',1,'hours',48,1,720,1,1,1,0,NULL,3,'2026-11-03 14:21:40','2026-11-03 14:30:02','2026-11-03 14:30:02');
+INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (5,'contact.fica_expiring','contact','Compliance','FICA expiring soon','Contact FICA documents are nearing their expiry date.',1,'days',30,1,180,1,1,1,0,NULL,4,'2026-11-03 14:21:40','2026-11-03 14:30:02','2026-11-03 14:30:02');
+INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (6,'contact.no_followup','contact','Activity','No follow-up logged','No call, meeting, or note logged for this contact in the window.',1,'days',14,3,180,1,1,1,0,NULL,5,'2026-11-03 14:21:40','2026-11-03 14:30:02','2026-11-03 14:30:02');
+INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (7,'contact.birthday','contact','Activity','Contact birthday today','Delivered once a day in your 06:30 calendar digest email — as a \"Birthdays today\" section, never as one alert per contact. Turning this off removes that section from the digest.',1,'none',NULL,NULL,NULL,1,1,1,0,NULL,6,'2026-11-03 14:21:40','2026-11-03 14:30:02',NULL);
+INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (8,'deal.stalled_offer','deal','Lifecycle','Deal stuck at offer stage','Deal has not progressed past offer stage in the threshold window.',1,'hours',48,1,720,1,1,1,0,NULL,7,'2026-11-03 14:21:40','2026-11-03 14:21:40',NULL);
+INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (9,'deal.stalled_bond','deal','Lifecycle','Deal stuck at bond stage','Bond pending too long without an update.',1,'days',14,1,90,1,1,1,0,NULL,8,'2026-11-03 14:21:40','2026-11-03 14:21:40',NULL);
+INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (10,'deal.stalled_conveyancing','deal','Lifecycle','No conveyancing update','Conveyancing stage has had no activity in the window.',1,'days',7,1,60,1,1,1,0,NULL,9,'2026-11-03 14:21:40','2026-11-03 14:21:40',NULL);
+INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (11,'deal.documents_missing','deal','Documents','Required deal documents missing','Deal does not have its required document set on file.',0,'hours',24,1,720,1,1,1,0,NULL,10,'2026-11-03 14:21:40','2026-11-03 14:31:41',NULL);
+INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (12,'deal.commission_unpaid','deal','Finance','Commission overdue','Commission unpaid past the threshold after registration.',0,'days',30,1,180,1,1,1,0,NULL,11,'2026-11-03 14:21:40','2026-11-03 14:31:41',NULL);
+INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (13,'deal.milestone_due','deal','Lifecycle','Deal milestone due','A deal milestone is approaching its due date.',0,'hours',24,1,168,1,1,1,0,NULL,12,'2026-11-03 14:21:40','2026-11-03 14:31:41',NULL);
+INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (14,'agent.task_due','agent','My activity','Task due reminder','Reminds you when one of your tasks is approaching its due time.',1,'hours',4,1,168,1,1,1,1,'task_reminder_hours_before',13,'2026-11-03 14:21:40','2026-11-03 14:21:40',NULL);
+INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (15,'agent.event_due','agent','My activity','Calendar event reminder','Reminds you when a calendar event is approaching.',1,'minutes',60,5,10080,1,1,1,1,'event_reminder_minutes_before',14,'2026-11-03 14:21:40','2026-11-03 14:28:37',NULL);
+INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (16,'agent.lease_expiring','agent','My activity','Lease expiring','Tiered alerts as a lease approaches expiry.',1,'days',90,7,365,1,1,1,1,'lease_reminder_days_before',15,'2026-11-03 14:21:40','2026-11-03 14:21:40',NULL);
+INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (17,'agent.idle','agent','My activity','Idle workspace alert','Lets you know if you have not logged activity for a while.',1,'days',14,1,60,1,1,1,1,'idle_threshold_days',16,'2026-11-03 14:21:40','2026-11-03 14:21:40',NULL);
+INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (18,'agent.daily_digest','agent','My activity','Daily overdue digest','A morning email summarising overdue items.',1,'none',NULL,NULL,NULL,1,1,1,1,'overdue_daily_digest',17,'2026-11-03 14:21:40','2026-11-03 14:21:40',NULL);
+INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (19,'agent.ffc_expiring','agent','Compliance','FFC expiring','Notifies you ahead of your Fidelity Fund Certificate expiry.',1,'days',30,1,180,1,1,1,1,'ffc_reminders',18,'2026-11-03 14:21:40','2026-11-03 14:21:40',NULL);
+INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (20,'leave.submitted','agent','Leave','Leave application submitted','A team member has submitted a leave application for your review.',1,'none',NULL,NULL,NULL,1,1,1,0,NULL,19,'2026-11-03 14:21:40','2026-11-03 14:21:40',NULL);
+INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (21,'leave.approved','agent','Leave','Leave application approved','Your leave application has been approved.',1,'none',NULL,NULL,NULL,1,1,1,0,NULL,20,'2026-11-03 14:21:40','2026-11-03 14:21:40',NULL);
+INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (22,'leave.rejected','agent','Leave','Leave application rejected','Your leave application has been rejected.',1,'none',NULL,NULL,NULL,1,1,1,0,NULL,21,'2026-11-03 14:21:40','2026-11-03 14:21:40',NULL);
+INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (23,'leave.cancelled','agent','Leave','Leave application cancelled','A leave application has been cancelled.',0,'none',NULL,NULL,NULL,1,1,1,0,NULL,22,'2026-11-03 14:21:40','2026-11-03 14:31:41',NULL);
+INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (24,'leave.starting_soon','agent','Leave','Leave starting in 3 days','Your approved leave is starting in 3 days.',1,'none',NULL,NULL,NULL,1,1,1,0,NULL,23,'2026-11-03 14:21:40','2026-11-03 14:21:40',NULL);
+INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (25,'leave.ending_soon','agent','Leave','Leave ends today','Your leave ends today — welcome back tomorrow.',1,'none',NULL,NULL,NULL,1,1,1,0,NULL,24,'2026-11-03 14:21:40','2026-11-03 14:21:40',NULL);
+INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (26,'property.feedback_captured','property','Activity','Viewing feedback captured','Another agent captured viewing feedback on one of your listings.',1,'none',NULL,NULL,NULL,1,1,1,0,NULL,25,'2026-11-03 14:28:47','2026-11-03 14:28:47',NULL);
+INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (27,'proforma.created','deal','Finance','Proforma invoice generated','An agent generated a proforma invoice on a deal.',1,'none',NULL,NULL,NULL,1,0,0,0,NULL,27,'2026-11-03 14:30:02','2026-11-03 14:30:02',NULL);
+INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (28,'lead.portal_received','contact','Leads','New portal lead on your listing','A buyer enquired through Property24 or Private Property about one of your listings.',1,'none',NULL,NULL,NULL,1,1,1,0,NULL,28,'2026-11-03 14:30:03','2026-11-03 14:30:03',NULL);
+INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (29,'comms.mailbox_poll_failure','agent','Communications','Mailbox stopped receiving mail','A connected mailbox failed to poll repeatedly — incoming email may be missing.',1,'none',NULL,NULL,NULL,1,0,0,0,NULL,29,'2026-11-03 14:30:08','2026-11-03 14:30:08',NULL);
+INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (30,'comms.access_requested','agent','Communications','Someone requested access to a conversation','An agent asked for access to a client conversation and needs your approval.',1,'none',NULL,NULL,NULL,1,0,0,0,NULL,30,'2026-11-03 14:30:08','2026-11-03 14:30:08',NULL);
+INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (31,'compliance.document_expiring','agent','Compliance','Company document expiring soon','A company compliance document (FFC, bank confirmation, BEE, etc.) is approaching its expiry, within its configured lead time.',1,'none',NULL,NULL,NULL,1,1,0,0,NULL,42,'2026-11-03 14:30:27','2026-11-03 14:30:27',NULL);
+INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (32,'compliance.document_expired','agent','Compliance','Company document expired','A company compliance document has passed its expiry date and needs replacing.',1,'none',NULL,NULL,NULL,1,1,0,0,NULL,43,'2026-11-03 14:30:27','2026-11-03 14:30:27',NULL);
+INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (33,'fica.referred_to_co','contact','Compliance','FICA referred to you (Compliance Officer)','A reviewer referred a FICA verification to you for a compliance decision.',1,'none',NULL,NULL,NULL,1,1,0,0,NULL,40,'2026-11-03 14:31:46','2026-11-03 14:31:46',NULL);
+INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (34,'fica.referral_returned','contact','Compliance','FICA referral returned to you','A FICA you escalated to the Compliance Officer was returned to you for re-assignment.',1,'none',NULL,NULL,NULL,1,1,0,0,NULL,41,'2026-11-03 14:31:51','2026-11-03 14:31:51',NULL);
+INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (35,'comms.host_circuit_breaker_open','agent','Communications','A mail host is refusing connections','Most or all mailboxes on one mail server are failing to connect — the circuit breaker has stopped polling that host to avoid making the problem worse (e.g. a provider-side IP block).',1,'none',NULL,NULL,NULL,1,0,0,0,NULL,30,'2026-11-03 14:34:29','2026-11-03 14:34:29',NULL);
+INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (36,'rental_fault_report.created','property','Rentals','Fault report logged','A fault was reported against one of your rental properties.',1,'none',NULL,NULL,NULL,1,1,1,0,NULL,44,'2026-11-03 14:35:51','2026-11-03 14:44:18',NULL);
+INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (37,'rental_fault_report.resolved','property','Rentals','Fault report resolved','A fault report on one of your rental properties reached an outcome (repaired, not repaired, declined, etc).',1,'none',NULL,NULL,NULL,1,1,1,0,NULL,45,'2026-11-03 14:35:54','2026-11-03 14:44:18',NULL);
+INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (38,'rental_work_order.created','property','Rentals','Work order logged','A work order was logged against one of your rental properties.',1,'none',NULL,NULL,NULL,1,1,0,0,NULL,46,'2026-11-03 14:36:14','2026-11-03 14:36:14',NULL);
+INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (39,'rental_work_order.overdue','property','Rentals','Work order overdue','A work order has sat ordered or in progress with no update past your agency\'s reminder window.',1,'none',NULL,NULL,NULL,1,1,1,0,NULL,47,'2026-11-03 14:36:14','2026-11-03 14:44:18',NULL);
+INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (40,'rental_work_order.completed','property','Rentals','Work order completed','A work order on one of your rental properties was marked complete.',1,'none',NULL,NULL,NULL,1,1,1,0,NULL,48,'2026-11-03 14:36:14','2026-11-03 14:44:18',NULL);
+INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (41,'whistleblow.submitted_for_approval','property','Compliance','Compliance report awaiting your approval','An agent filed a whistleblow compliance report and it is waiting on you (or another configured approver) to approve, reject, or request changes.',1,'none',NULL,NULL,NULL,1,0,0,0,NULL,41,'2026-11-03 14:36:14','2026-11-03 14:36:14',NULL);
+INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (42,'ppra_pack.generation_complete','agency','Admin','PPRA inspection pack ready','Your requested PPRA inspection pack has finished generating and is ready to download.',1,'none',NULL,NULL,NULL,1,1,0,0,NULL,900,'2026-11-03 14:37:38','2026-11-03 14:37:38',NULL);
+INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (43,'rental_work_order.owner_appointment','property','Rentals','Owner set the repair appointment','The owner booked or changed the appointment for a repair on one of your rental properties, from their portal.',1,'none',NULL,NULL,NULL,1,1,1,0,NULL,901,'2026-11-03 14:39:01','2026-11-03 14:44:18',NULL);
+INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (44,'rental_work_order.owner_progress','property','Rentals','Owner reported repair progress','The owner reported, from their portal, that the work on a repair has started or finished.',1,'none',NULL,NULL,NULL,1,1,1,0,NULL,902,'2026-11-03 14:39:01','2026-11-03 14:44:18',NULL);
+INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (45,'other_agency_stock.unlock_requested','property','Other Agency Stock','Request to edit Other Agency Stock','Someone asked to unlock a property of another agency for editing and it is waiting for you to decide.',1,'none',NULL,NULL,NULL,1,0,0,0,NULL,903,'2026-11-03 14:39:03','2026-11-03 14:39:03',NULL);
+INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (46,'other_agency_stock.unlock_decided','property','Other Agency Stock','Your request to edit Other Agency Stock was decided','Your request to unlock a property of another agency for editing was approved or declined.',1,'none',NULL,NULL,NULL,1,0,0,0,NULL,904,'2026-11-03 14:39:03','2026-11-03 14:39:03',NULL);
+INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (47,'rental_fault_report.owner_decided','property','Rentals','Owner decided on a fault','The owner approved or declined a repair on one of your rental properties. When approved, the note opens the action that appoints the contractor.',1,'none',NULL,NULL,NULL,1,1,1,0,NULL,905,'2026-11-03 14:39:03','2026-11-03 14:44:18',NULL);
+INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (48,'rental_work_order.owner_decided','property','Rentals','Owner decided on a quote','The owner approved or declined the quote on one of your rental work orders on the portal. When approved, the work order can be sent to the contractor.',1,'none',NULL,NULL,NULL,1,1,1,0,NULL,906,'2026-11-03 14:39:05','2026-11-03 14:44:18',NULL);
+INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (49,'rental_job_card.crew_lines_submitted','property','Rentals','Crew sent parts and prices','A crew sent parts or labour (a price for the job, or extras) from their link and it is waiting for you to accept and price.',1,'none',NULL,NULL,NULL,1,1,1,0,NULL,907,'2026-11-03 14:39:42','2026-11-03 14:44:18',NULL);
+INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (50,'rental_work_order.variation_raised','property','Rentals','Extra work on an approved job','Extra work pushed an approved job above its approved amount — either auto-approved within the owner\'s agreed terms, or waiting for the owner.',1,'none',NULL,NULL,NULL,1,1,1,0,NULL,908,'2026-11-03 14:39:42','2026-11-03 14:44:18',NULL);
+INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (51,'rental_work_order.disputed','property','Rentals','Tenant says the work is not complete','A tenant checked the finished work and reported that it is not complete or still wrong. The job is reopened.',1,'none',NULL,NULL,NULL,1,1,1,0,NULL,909,'2026-11-03 14:39:42','2026-11-03 14:44:18',NULL);
+INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (52,'rental_work_order.completion_confirmed','property','Rentals','Tenant confirmed the work','A tenant confirmed that the finished work is done.',1,'none',NULL,NULL,NULL,1,1,1,0,NULL,910,'2026-11-03 14:39:42','2026-11-03 14:44:18',NULL);
+INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (53,'rental_work_order.completion_accepted','property','Rentals','Work accepted — no tenant response','The tenant did not respond within the response window, so the finished work counts as accepted.',1,'none',NULL,NULL,NULL,1,1,0,0,NULL,911,'2026-11-03 14:39:42','2026-11-03 14:43:18','2026-11-03 14:43:18');
+INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (54,'rental_application.returned','property','Rentals','Tenant submitted a rental application','A tenant submitted their rental application for a property or lease you are the agent on.',1,'none',NULL,NULL,NULL,1,0,1,0,NULL,912,'2026-11-03 14:40:54','2026-11-03 14:44:18',NULL);
+INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (55,'rental_application.handed_over','property','Rentals','Rental application handed to you to authorise','An agent handed a rental application to the authorisers for a decision.',1,'none',NULL,NULL,NULL,1,1,1,0,NULL,913,'2026-11-03 14:40:54','2026-11-03 14:44:18',NULL);
+INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (56,'lease.auto_month_to_month','property','Rentals','Lease moved to month-to-month','A lease reached its end date with no notice and no renewal, so it carried on month-to-month automatically.',1,'none',NULL,NULL,NULL,1,0,0,0,NULL,914,'2026-11-03 14:41:05','2026-11-03 14:41:05',NULL);
+INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (57,'lease.agreement_signing_outcome','property','Rentals','Lease agreement signed, declined or expired','The lease agreement you sent for signature was signed, declined, or expired before everyone signed.',1,'none',NULL,NULL,NULL,1,0,1,0,NULL,915,'2026-11-03 14:41:05','2026-11-03 14:44:18',NULL);
+INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (58,'rental_inspection.copies_not_delivered','property','Rentals','Inspection report copies not delivered','One or more copies of a completed inspection report could not be sent to the people who should have it.',1,'none',NULL,NULL,NULL,1,0,1,0,NULL,916,'2026-11-03 14:41:05','2026-11-03 14:44:18',NULL);
+INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (59,'rental_inspection.due_reminder','property','Rentals','Inspection coming due','A planned in-, out- or interim inspection is coming due for one of your leases.',1,'none',NULL,NULL,NULL,1,1,1,0,NULL,917,'2026-11-03 14:41:05','2026-11-03 14:44:18',NULL);
+INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (60,'rental_inspection.signing_reminder','property','Rentals','Inspection still waiting for signatures','The signing window of an inspection is about to close or has closed with people still to sign.',1,'none',NULL,NULL,NULL,1,1,1,0,NULL,918,'2026-11-03 14:41:05','2026-11-03 14:44:18',NULL);
+INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (61,'lease.expiry_notice_due','property','Rentals','Lease expiry notice not sent','A fixed-term lease is getting close to its end and the expiry notice to the tenant has not gone out (Consumer Protection Act: 40 to 80 business days before the lease ends).',1,'none',NULL,NULL,NULL,1,1,1,0,NULL,919,'2026-11-03 14:41:08','2026-11-03 14:44:18',NULL);
+INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (62,'title_deed.collected','property','Documents','Title deed collected','A title deed you are responsible for has been collected from the office.',1,'none',NULL,NULL,NULL,1,1,0,0,NULL,910,'2026-11-03 14:41:16','2026-11-03 14:41:16',NULL);
+INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (63,'rental_work_order.contractor_job_sent','property','Rentals','Job sent to a contractor or crew','A contractor or crew was sent the details of a repair job on one of your rental properties.',1,'none',NULL,NULL,NULL,1,1,0,0,NULL,920,'2026-11-03 14:41:19','2026-11-03 14:41:19',NULL);
+INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (64,'rental_work_order.contractor_job_not_sent','property','Rentals','Job could not be sent to a contractor','A repair job was given to a contractor who has no email or mobile number on file - it was not sent and needs your attention.',1,'none',NULL,NULL,NULL,1,1,1,0,NULL,921,'2026-11-03 14:41:19','2026-11-03 14:44:18',NULL);
+INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (65,'rental_work_order.contractor_responded','property','Rentals','Contractor answered a job','Legacy type: contractor answers from their link now each have their own alert type (accepted, declined, invoice, extra money, photo, finished).',1,'none',NULL,NULL,NULL,1,1,1,0,NULL,922,'2026-11-03 14:41:19','2026-11-03 14:44:18',NULL);
+INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (66,'rental_fault_report.owner_query','property','Rentals','Owner queried a repair','The owner of a property sent your agency a question about a repair the agent arranged, from their portal.',1,'none',NULL,NULL,NULL,1,1,1,0,NULL,923,'2026-11-03 14:41:22','2026-11-03 14:44:18',NULL);
+INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (67,'rental_fault_settings.disputed','property','Rentals','Owner does not agree with the fault-handling settings','An owner pressed \"I do not agree\" on the settings their agent recorded for their rental property. Until the owner confirms (or you record new evidence) every decision goes to the owner.',1,'none',NULL,NULL,NULL,1,1,1,0,NULL,924,'2026-11-03 14:41:41','2026-11-03 14:44:18',NULL);
+INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (68,'rental_fault_settings.change_requested','property','Rentals','Owner asks to change who looks at faults first','An owner asked, from their portal, for a change to who looks at faults first on their rental property.',1,'none',NULL,NULL,NULL,1,1,1,0,NULL,925,'2026-11-03 14:41:41','2026-11-03 14:44:18',NULL);
+INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (69,'rental_fault_report.owner_hold','property','Rentals','Owner stopped or resumed a repair','The owner of a property pressed \"Stop this\" on a repair their agent arranged (the job is paused), or said \"Go ahead after all\".',1,'none',NULL,NULL,NULL,1,1,1,0,NULL,926,'2026-11-03 14:41:46','2026-11-03 14:44:18',NULL);
+INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (70,'lease_notice.received','property','Rentals','Notice received - needs review','A tenant or an owner gave notice on a lease (from their portal, or recorded by a colleague). Nothing goes to the other party until you have reviewed it.',1,'none',NULL,NULL,NULL,1,1,1,0,NULL,927,'2026-11-03 14:42:30','2026-11-03 14:44:18',NULL);
+INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (71,'rental_work_order.quote_received','property','Rentals','Contractor sent a quote','A contractor uploaded a quote for a repair job from their job link.',1,'none',NULL,NULL,NULL,1,1,1,0,NULL,928,'2026-11-03 14:42:46','2026-11-03 14:44:18',NULL);
+INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (72,'lease_breach.remedy_date_reached','property','Rentals','Breach remedy date reached','A breach notice\'s remedy-by date has been reached and the breach is not yet marked remedied - was it fixed?',1,'none',NULL,NULL,NULL,1,1,1,0,NULL,929,'2026-11-03 14:43:09','2026-11-03 14:44:18',NULL);
+INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (73,'property.ready_to_relist','property','Rentals','Property free again, ready to re-list','A tenancy ended and the property is back on the market in CoreX. It has not been put back on the portals - that is your decision.',1,'none',NULL,NULL,NULL,1,0,0,0,NULL,930,'2026-11-03 14:43:18','2026-11-03 14:43:18',NULL);
+INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (74,'rental_work_order.contractor_accepted','property','Rentals','Contractor accepted a job','A contractor accepted a repair job from their job link.',1,'none',NULL,NULL,NULL,1,1,1,0,NULL,931,'2026-11-03 14:43:32','2026-11-03 14:44:18',NULL);
+INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (75,'rental_work_order.contractor_declined','property','Rentals','Contractor declined a job','A contractor declined a repair job from their job link - pick another contractor.',1,'none',NULL,NULL,NULL,1,1,1,0,NULL,932,'2026-11-03 14:43:32','2026-11-03 14:44:18',NULL);
+INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (76,'rental_work_order.contractor_invoice','property','Rentals','Contractor sent an invoice','A contractor sent an invoice for a repair job from their job link.',1,'none',NULL,NULL,NULL,1,1,1,0,NULL,933,'2026-11-03 14:43:32','2026-11-03 14:44:18',NULL);
+INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (77,'rental_work_order.contractor_extra_money','property','Rentals','Contractor asked for extra money','A contractor asked for extra money on a repair job from their job link.',1,'none',NULL,NULL,NULL,1,1,1,0,NULL,934,'2026-11-03 14:43:32','2026-11-03 14:44:18',NULL);
+INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (78,'rental_work_order.contractor_photo','property','Rentals','Contractor uploaded a photo','A contractor uploaded a before / during / after photo for a repair job from their job link.',1,'none',NULL,NULL,NULL,1,1,0,0,NULL,935,'2026-11-03 14:43:32','2026-11-03 14:43:32',NULL);
+INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (79,'rental_work_order.contractor_finished','property','Rentals','Contractor reported the work finished','A contractor reported the work finished from their job link - check it and close the job.',1,'none',NULL,NULL,NULL,1,1,1,0,NULL,936,'2026-11-03 14:43:32','2026-11-03 14:44:18',NULL);
+INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (80,'rental_work_order.owner_started','property','Rentals','Owner reported the work started','The owner reported, from their portal, that the work on a repair has started.',1,'none',NULL,NULL,NULL,1,1,1,0,NULL,937,'2026-11-03 14:43:32','2026-11-03 14:44:18',NULL);
+INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (81,'rental_work_order.owner_finished','property','Rentals','Owner reported the work finished','The owner reported, from their portal, that the work on a repair is finished.',1,'none',NULL,NULL,NULL,1,1,1,0,NULL,938,'2026-11-03 14:43:32','2026-11-03 14:44:18',NULL);
+INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (82,'rental_work_order.tenant_started','property','Rentals','Tenant reported the work started','The tenant reported, from their portal, that the contractor has arrived and the work has started.',1,'none',NULL,NULL,NULL,1,1,1,0,NULL,939,'2026-11-03 14:43:32','2026-11-03 14:44:18',NULL);
+INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (83,'rental_work_order.tenant_not_fixed','property','Rentals','Tenant says it is not fixed','The tenant said, from their portal, that a repair is not fixed.',1,'none',NULL,NULL,NULL,1,1,1,0,NULL,940,'2026-11-03 14:43:32','2026-11-03 14:44:18',NULL);
+INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (84,'rental_work_order.go_ahead_sent','property','Rentals','Go-ahead sent to the contractor','The go-ahead for a repair went out to the contractor (or could not be sent).',1,'none',NULL,NULL,NULL,1,1,0,0,NULL,941,'2026-11-03 14:43:32','2026-11-03 14:43:32',NULL);
+INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (85,'rental_fault_report.owner_resumed','property','Rentals','Owner said go ahead after all','The owner lifted the hold they put on a repair.',1,'none',NULL,NULL,NULL,1,1,1,0,NULL,942,'2026-11-03 14:43:32','2026-11-03 14:44:18',NULL);
+INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (86,'rental_job_card.crew_completed','property','Rentals','Crew marked a job complete','Our own crew marked a job card complete - check the work and sign it off.',1,'none',NULL,NULL,NULL,1,1,1,0,NULL,943,'2026-11-03 14:43:32','2026-11-03 14:44:18',NULL);
+INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (87,'rental_work_order.contractor_started','property','Rentals','Contractor started the work','A contractor pressed \"I have started\" on their job link, so the work order is now in progress.',1,'none',NULL,NULL,NULL,1,1,0,0,NULL,944,'2026-11-03 14:43:35','2026-11-03 14:43:35',NULL);
+INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (88,'rental_fault_report.tenant_update','property','Rentals','Tenant added to a fault, or withdrew it','A tenant added a note or photos to a fault they reported, or withdrew it, from their portal.',1,'none',NULL,NULL,NULL,1,1,1,0,NULL,945,'2026-11-03 14:43:35','2026-11-03 14:44:18',NULL);
+INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (89,'rmcp.version_approved','agent','Compliance','A new RMCP version needs your acknowledgement','Your agency approved a new version of its Risk Management and Compliance Programme. Read it and sign the acknowledgement.',1,'none',NULL,NULL,NULL,1,0,0,0,NULL,44,'2026-11-03 14:43:55','2026-11-03 14:43:55',NULL);
+INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (90,'rts.level_signoff_requested','agent','Road to Sold','A level is ready for your sign-off','An agent in your branch has met their level for the number of weeks your agency asks for and is waiting for you to sign them off.',1,'none',NULL,NULL,NULL,1,0,0,0,NULL,946,'2026-11-03 14:44:12','2026-11-03 14:44:12',NULL);
+INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (91,'rts.level_signed_off','agent','Road to Sold','You moved up a level','Your manager signed you off and you have moved up to the next level on the Road to Sold recipe.',1,'none',NULL,NULL,NULL,1,0,0,0,NULL,947,'2026-11-03 14:44:12','2026-11-03 14:44:12',NULL);
+INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (92,'rts.level_returned','agent','Road to Sold','Your level sign-off was sent back','Your manager reviewed your level, left a comment on what to work on and sent it back. The weeks start counting again.',1,'none',NULL,NULL,NULL,1,0,0,0,NULL,948,'2026-11-03 14:44:12','2026-11-03 14:44:12',NULL);
+INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (93,'rts.training_assigned','agent','Road to Sold','Training assigned to you','Your manager saw a gap in your Road to Sold funnel and assigned you training; a task was added to your list.',1,'none',NULL,NULL,NULL,1,0,0,0,NULL,949,'2026-11-03 14:44:15','2026-11-03 14:44:15',NULL);
+INSERT INTO `notification_event_types` (`id`, `key`, `pillar`, `group_label`, `label`, `description`, `default_enabled`, `threshold_unit`, `default_threshold`, `threshold_min`, `threshold_max`, `supports_in_app`, `supports_email`, `supports_push`, `is_adapter`, `adapter_column`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (94,'policy.version_approved','agent','Compliance','A policy needs your acknowledgement','Your agency published a policy that you must read and sign. Open My Portal, Training.',1,'none',NULL,NULL,NULL,1,0,0,0,NULL,45,'2026-11-03 14:45:25','2026-11-03 14:45:25',NULL);
+INSERT INTO `platform_company` (`id`, `singleton`, `legal_name`, `trading_name`, `registration_number`, `vat_registered`, `vat_number`, `directors`, `physical_address`, `postal_address`, `email_general`, `email_support`, `email_accounts`, `send_from_address`, `send_from_name`, `phones`, `websites`, `strap_line`, `letterhead_footer`, `email_signature_html`, `bank_details`, `logo_id`, `version`, `created_at`, `updated_at`) VALUES (1,1,'RR Technologies (Pty) Ltd','CoreX OS','2026 / 444132 / 07',0,NULL,'[{\"name\": \"Johan Reichel\", \"title\": \"Director\"}, {\"name\": \"Andre Roets\", \"title\": \"Director\"}]','3123 San Lameer\nR61 Lower South Coast Road\nSouthbroom, KZN\n4277',NULL,'admin@corexos.co.za','support@corexos.co.za',NULL,'admin@corexos.co.za','CoreX OS — RR Technologies','[{\"label\": \"Telephone\", \"number\": \"(039) 004 0125\"}, {\"label\": \"Cell\", \"number\": \"076 618 5578\"}, {\"label\": \"Support line\", \"number\": \"076 423 2426\"}]','[\"www.corexweb.co.za\", \"www.corexos.co.za\"]',NULL,NULL,NULL,NULL,NULL,1,'2026-11-03 14:38:22','2026-11-03 14:38:22');
+INSERT INTO `pp_event_feed_settings` (`id`, `key`, `value`, `updated_at`) VALUES (1,'continuation_key',NULL,'2026-11-03 14:21:11');
+INSERT INTO `property_type_map` (`id`, `agency_id`, `raw_key`, `type_key`, `confidence`, `created_at`, `updated_at`) VALUES (1,NULL,'house','house','exact','2026-11-03 14:42:23','2026-11-03 14:42:23');
+INSERT INTO `property_type_map` (`id`, `agency_id`, `raw_key`, `type_key`, `confidence`, `created_at`, `updated_at`) VALUES (2,NULL,'house (2 storey)','house','exact','2026-11-03 14:42:23','2026-11-03 14:42:23');
+INSERT INTO `property_type_map` (`id`, `agency_id`, `raw_key`, `type_key`, `confidence`, `created_at`, `updated_at`) VALUES (3,NULL,'house (3 storey)','house','exact','2026-11-03 14:42:23','2026-11-03 14:42:23');
+INSERT INTO `property_type_map` (`id`, `agency_id`, `raw_key`, `type_key`, `confidence`, `created_at`, `updated_at`) VALUES (4,NULL,'apartment','apartment','exact','2026-11-03 14:42:23','2026-11-03 14:42:23');
+INSERT INTO `property_type_map` (`id`, `agency_id`, `raw_key`, `type_key`, `confidence`, `created_at`, `updated_at`) VALUES (5,NULL,'apartment / flat','apartment','exact','2026-11-03 14:42:23','2026-11-03 14:42:23');
+INSERT INTO `property_type_map` (`id`, `agency_id`, `raw_key`, `type_key`, `confidence`, `created_at`, `updated_at`) VALUES (6,NULL,'flat','apartment','exact','2026-11-03 14:42:23','2026-11-03 14:42:23');
+INSERT INTO `property_type_map` (`id`, `agency_id`, `raw_key`, `type_key`, `confidence`, `created_at`, `updated_at`) VALUES (7,NULL,'townhouse','townhouse','exact','2026-11-03 14:42:23','2026-11-03 14:42:23');
+INSERT INTO `property_type_map` (`id`, `agency_id`, `raw_key`, `type_key`, `confidence`, `created_at`, `updated_at`) VALUES (8,NULL,'duplex','townhouse','assumed','2026-11-03 14:42:23','2026-11-03 14:42:23');
+INSERT INTO `property_type_map` (`id`, `agency_id`, `raw_key`, `type_key`, `confidence`, `created_at`, `updated_at`) VALUES (9,NULL,'simplex','townhouse','assumed','2026-11-03 14:42:23','2026-11-03 14:42:23');
+INSERT INTO `property_type_map` (`id`, `agency_id`, `raw_key`, `type_key`, `confidence`, `created_at`, `updated_at`) VALUES (10,NULL,'vacant land','land','exact','2026-11-03 14:42:23','2026-11-03 14:42:23');
+INSERT INTO `property_type_map` (`id`, `agency_id`, `raw_key`, `type_key`, `confidence`, `created_at`, `updated_at`) VALUES (11,NULL,'vacant land / plot','land','exact','2026-11-03 14:42:23','2026-11-03 14:42:23');
+INSERT INTO `property_type_map` (`id`, `agency_id`, `raw_key`, `type_key`, `confidence`, `created_at`, `updated_at`) VALUES (12,NULL,'vacantland','land','exact','2026-11-03 14:42:23','2026-11-03 14:42:23');
+INSERT INTO `property_type_map` (`id`, `agency_id`, `raw_key`, `type_key`, `confidence`, `created_at`, `updated_at`) VALUES (13,NULL,'land','land','exact','2026-11-03 14:42:23','2026-11-03 14:42:23');
+INSERT INTO `property_type_map` (`id`, `agency_id`, `raw_key`, `type_key`, `confidence`, `created_at`, `updated_at`) VALUES (14,NULL,'farm','farm','exact','2026-11-03 14:42:23','2026-11-03 14:42:23');
+INSERT INTO `property_type_map` (`id`, `agency_id`, `raw_key`, `type_key`, `confidence`, `created_at`, `updated_at`) VALUES (15,NULL,'commercial','commercial','exact','2026-11-03 14:42:23','2026-11-03 14:42:23');
+INSERT INTO `property_type_map` (`id`, `agency_id`, `raw_key`, `type_key`, `confidence`, `created_at`, `updated_at`) VALUES (16,NULL,'commercial property','commercial','exact','2026-11-03 14:42:23','2026-11-03 14:42:23');
+INSERT INTO `property_type_map` (`id`, `agency_id`, `raw_key`, `type_key`, `confidence`, `created_at`, `updated_at`) VALUES (17,NULL,'business / commercial: business','commercial','exact','2026-11-03 14:42:23','2026-11-03 14:42:23');
+INSERT INTO `property_type_map` (`id`, `agency_id`, `raw_key`, `type_key`, `confidence`, `created_at`, `updated_at`) VALUES (18,NULL,'industrial','industrial','exact','2026-11-03 14:42:23','2026-11-03 14:42:23');
+INSERT INTO `property_type_map` (`id`, `agency_id`, `raw_key`, `type_key`, `confidence`, `created_at`, `updated_at`) VALUES (19,NULL,'industrial property','industrial','exact','2026-11-03 14:42:23','2026-11-03 14:42:23');
+INSERT INTO `property_type_map` (`id`, `agency_id`, `raw_key`, `type_key`, `confidence`, `created_at`, `updated_at`) VALUES (20,NULL,'residence','other','title_type_only','2026-11-03 14:42:23','2026-11-03 14:42:23');
+INSERT INTO `property_type_map` (`id`, `agency_id`, `raw_key`, `type_key`, `confidence`, `created_at`, `updated_at`) VALUES (21,NULL,'residential','other','title_type_only','2026-11-03 14:42:23','2026-11-03 14:42:23');
+INSERT INTO `property_type_map` (`id`, `agency_id`, `raw_key`, `type_key`, `confidence`, `created_at`, `updated_at`) VALUES (22,NULL,'full title','other','title_type_only','2026-11-03 14:42:23','2026-11-03 14:42:23');
+INSERT INTO `property_type_map` (`id`, `agency_id`, `raw_key`, `type_key`, `confidence`, `created_at`, `updated_at`) VALUES (23,NULL,'residence: residential','other','title_type_only','2026-11-03 14:42:23','2026-11-03 14:42:23');
+INSERT INTO `property_type_map` (`id`, `agency_id`, `raw_key`, `type_key`, `confidence`, `created_at`, `updated_at`) VALUES (24,NULL,'amenity: residence','other','title_type_only','2026-11-03 14:42:23','2026-11-03 14:42:23');
+INSERT INTO `property_type_map` (`id`, `agency_id`, `raw_key`, `type_key`, `confidence`, `created_at`, `updated_at`) VALUES (25,NULL,'sectional title scheme','other','title_type_only','2026-11-03 14:42:23','2026-11-03 14:42:23');
+INSERT INTO `rental_document_types` (`id`, `name`, `slug`, `color`, `is_system`, `is_lease`, `is_active`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (1,'Lease Agreement','lease_agreement','#059669',1,1,1,1,'2026-11-03 14:17:33','2026-11-03 14:17:33',NULL);
+INSERT INTO `rental_document_types` (`id`, `name`, `slug`, `color`, `is_system`, `is_lease`, `is_active`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (2,'Mandate','mandate','#2563EB',1,0,1,2,'2026-11-03 14:17:33','2026-11-03 14:17:33',NULL);
+INSERT INTO `rental_document_types` (`id`, `name`, `slug`, `color`, `is_system`, `is_lease`, `is_active`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (3,'Addendum','addendum','#7C3AED',1,0,1,3,'2026-11-03 14:17:33','2026-11-03 14:17:33',NULL);
+INSERT INTO `rental_document_types` (`id`, `name`, `slug`, `color`, `is_system`, `is_lease`, `is_active`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (4,'Notice','notice','#DC2626',1,0,1,4,'2026-11-03 14:17:33','2026-11-03 14:17:33',NULL);
+INSERT INTO `rental_document_types` (`id`, `name`, `slug`, `color`, `is_system`, `is_lease`, `is_active`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (5,'Inspection Report','inspection_report','#D97706',0,0,1,5,'2026-11-03 14:17:33','2026-11-03 14:17:33',NULL);
+INSERT INTO `rental_document_types` (`id`, `name`, `slug`, `color`, `is_system`, `is_lease`, `is_active`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (6,'Power of Attorney','power_of_attorney','#4B5563',0,0,1,6,'2026-11-03 14:17:33','2026-11-03 14:17:33',NULL);
+INSERT INTO `rental_document_types` (`id`, `name`, `slug`, `color`, `is_system`, `is_lease`, `is_active`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (7,'Disclosure','disclosure','#0891B2',0,0,1,7,'2026-11-03 14:17:33','2026-11-03 14:17:33',NULL);
+INSERT INTO `rental_document_types` (`id`, `name`, `slug`, `color`, `is_system`, `is_lease`, `is_active`, `sort_order`, `created_at`, `updated_at`, `deleted_at`) VALUES (8,'Other','other','#6B7280',1,0,1,99,'2026-11-03 14:17:33','2026-11-03 14:17:33',NULL);
+INSERT INTO `rental_reminder_settings` (`id`, `enabled`, `mode`, `gentle_after_days`, `firm_after_days`, `team_alert_after_days`, `final_after_days`, `max_escalating_reminders`, `interval_days`, `max_simple_reminders`, `email_subject`, `email_body`, `updated_by`, `created_at`, `updated_at`, `deleted_at`) VALUES (1,1,'escalating',2,5,7,10,3,3,5,NULL,NULL,NULL,'2026-11-03 14:17:33','2026-11-03 14:17:33',NULL);
+INSERT INTO `suburb_aliases` (`id`, `alias_normalised`, `canonical_normalised`, `p24_suburb_id`, `note`, `source`, `created_at`, `updated_at`) VALUES (1,'leisure bay','leisure bay',NULL,NULL,'config','2026-11-03 14:40:34','2026-11-03 14:40:34');
+INSERT INTO `suburb_aliases` (`id`, `alias_normalised`, `canonical_normalised`, `p24_suburb_id`, `note`, `source`, `created_at`, `updated_at`) VALUES (2,'three hills','leisure bay',NULL,NULL,'config','2026-11-03 14:40:34','2026-11-03 14:40:34');
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1,'0001_01_01_000000_create_users_table',1);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (2,'0001_01_01_000001_create_cache_table',1);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (3,'0001_01_01_000002_create_jobs_table',1);
@@ -24401,126 +26602,222 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1739,'2026_10_29_3
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1740,'2026_10_29_400000_backfill_supplier_service_types_from_old_specialty',1);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1741,'2026_10_29_500000_add_recorded_by_to_rts_contact_outcomes',1);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1742,'2026_10_29_500000_service_type_groups',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1743,'2026_10_29_600000_add_alert_catchup_minutes_to_agency_dashboard_settings',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1744,'2026_10_29_600000_rename_valuation_to_evaluation_in_road_to_sold',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1745,'2026_10_30_100000_rts_derived_areas',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1746,'2026_10_31_100000_add_allow_advance_as_of_date_to_lease_settings',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1747,'2026_10_31_200000_add_rental_trust_account_name_to_agencies_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1748,'2026_11_01_100000_add_appointment_contractor_note_to_rental_work_orders',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1749,'2026_11_01_100000_create_lease_notices_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1750,'2026_11_01_100100_register_lease_notice_notification',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1751,'2026_11_02_100000_add_agency_type_to_agencies_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1752,'2026_11_02_100000_add_room_templates_to_rental_inspection_settings',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1753,'2026_11_02_100100_add_wizard_token_to_properties_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1754,'2026_11_02_110000_add_short_code_to_agencies_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1755,'2026_11_03_100000_register_quote_received_notification',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1756,'2026_11_04_100000_add_unread_index_to_notifications_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1757,'2026_11_05_100000_rental_inspections_previous_link_may_be_shared_with_a_cancelled_one',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1758,'2026_11_06_100000_add_access_contact_to_rental_work_orders_and_job_cards',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1759,'2026_11_06_100000_add_ai_spend_guard_columns_to_agencies',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1760,'2026_11_06_100000_add_cost_selling_markup_to_rental_catalogue_items',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1761,'2026_11_06_100100_add_catalogue_default_markup_to_rental_work_order_settings',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1762,'2026_11_06_100100_create_ai_spend_guard_events_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1763,'2026_11_07_100000_add_pricing_driver_to_rental_catalogue_items',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1764,'2026_11_07_100000_at456_b_ai_template_builder',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1765,'2026_11_08_100000_add_vacate_and_remedy_basis_to_rental_notices',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1766,'2026_11_08_100000_at456_c_article_library',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1767,'2026_11_09_100000_add_form_paper_size_to_rental_inspection_settings_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1768,'2026_11_09_100000_at456_d_post_scheduler',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1769,'2026_11_09_100000_breach_templates_follow_up_and_proof_email',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1770,'2026_11_09_100000_create_rental_job_card_crew_reports_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1771,'2026_11_09_100100_add_read_notes_to_rental_inspection_scans_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1772,'2026_11_09_100100_at456_d_grant_schedule_posts_permission',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1773,'2026_11_09_110000_at456_b_ai_template_validation_log',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1774,'2026_11_10_100000_add_page_results_to_rental_inspection_scans_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1775,'2026_11_10_100000_at456_b9_ai_template_style_and_examples',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1776,'2026_11_10_100100_reset_old_omr_mark_threshold_values',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1777,'2026_11_11_100000_add_form_safe_margin_mm_to_rental_inspection_settings_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1778,'2026_11_11_100000_at456_b9_template_human_edited_at',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1779,'2026_11_12_100000_at456_b10_ai_template_types_and_must_include',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1780,'2026_11_13_100000_company_ads_e1_tables',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1781,'2026_11_13_100100_company_ads_grant_permission',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1782,'2026_11_14_100000_company_ads_e2_generation_columns',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1783,'2026_11_15_100000_company_ads_e3_marketing_posts',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1784,'2026_11_16_100000_add_agency_id_to_rental_take_on_import_rows',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1785,'2026_11_16_100000_copy_fica_request_settings_to_fica_windows',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1786,'2026_11_16_100000_hash_inspection_signing_link_tokens',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1787,'2026_11_16_100100_neutralise_remaining_cloned_hfc_outreach_phrases',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1788,'2026_11_16_100300_add_overdue_alerted_at_to_leases_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1789,'2026_11_16_100400_register_property_ready_to_relist_notification',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1790,'2026_11_16_100500_add_client_reminder_switches_to_rental_inspection_settings_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1791,'2026_11_16_100600_retire_rental_work_order_completion_accepted_notification',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1792,'2026_11_16_100700_add_price_list_to_agency_subscriptions_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1793,'2026_11_16_100800_publish_band_pricing_agreement_version',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1794,'2026_11_16_100900_move_all_agencies_to_band_pricing',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1795,'2026_11_17_100000_add_fault_type_other_to_rental_fault_reports_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1796,'2026_11_17_100000_create_ad_schedule_patterns_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1797,'2026_11_18_100000_add_also_cost_up_to_to_rental_authorisations_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1798,'2026_11_19_100000_add_audit_fix_settings_to_rental_portal_settings_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1799,'2026_11_19_100000_add_client_key_to_rental_job_card_lines_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1800,'2026_11_19_100000_add_portal_security_settings_to_rental_portal_settings',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1801,'2026_11_19_100000_grant_rental_notices_view_and_review_audit_a17_a28',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1802,'2026_11_19_100000_hash_inspection_public_tokens',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1803,'2026_11_19_100100_add_agency_id_to_personal_access_tokens',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1804,'2026_11_19_100100_add_photo_link_minutes_to_rental_inspection_settings_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1805,'2026_11_19_100200_add_soft_deletes_to_rental_inventory_room_marks_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1806,'2026_11_19_100300_inspection_offline_retry_keys_and_late_evidence',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1807,'2026_11_19_100400_move_out_deductions_and_inventory_move_out_sign_off',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1808,'2026_11_19_200000_add_end_tenancy_on_move_out_date_to_lease_settings_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1809,'2026_11_19_200100_add_amount_to_rental_inspection_item_findings_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1810,'2026_11_20_100000_split_rental_notification_event_types',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1811,'2026_11_20_100100_add_owner_chase_and_statement_resend_columns',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1812,'2026_11_21_100000_register_contractor_started_notification',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1813,'2026_11_22_100000_register_tenant_fault_update_notification',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1814,'2026_11_23_100000_inventory_photo_can_reference_an_inspection_photo',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1815,'2026_11_23_200000_add_record_deduction_amounts_to_rental_inspection_settings_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1816,'2026_11_24_100000_report_recogniser',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1817,'2026_11_24_110000_report_ai_caps_and_layout_cases',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1818,'2026_11_24_120000_add_detected_note_to_rental_inspection_scan_marks_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1819,'2026_11_24_130000_add_review_states_to_scan_marks_and_inspection_settings',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1820,'2026_11_25_100000_add_portal_show_agency_commission_totals_to_agencies',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1821,'2026_11_26_100000_add_note_read_enabled_to_rental_inspection_settings_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1822,'2026_11_26_100000_add_owner_chase_clock_and_failure_marker_to_rental_fault_reports',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1823,'2026_11_26_100000_add_reos_import_columns_to_take_on_import_tables',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1824,'2026_11_26_100000_grant_rental_applications_authorise_audit_2026_10_20',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1825,'2026_11_26_100000_rebase_calendar_auto_credit_to_counts',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1826,'2026_11_26_100100_add_reos_and_wallet_fields_to_leases_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1827,'2026_11_26_110000_add_timezone_to_agencies',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1828,'2026_11_27_100000_add_dedupe_key_to_notification_dispatch_log',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1829,'2026_11_27_100000_create_rental_notice_deliveries_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1830,'2026_11_27_100000_create_rts_budgets_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1831,'2026_11_27_100100_add_agents_approve_quotes_to_rental_work_order_settings',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1832,'2026_11_27_100100_grant_rental_notice_send_and_template_permissions_at495',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1833,'2026_11_27_100200_add_proxy_excludes_to_signature_requests',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1834,'2026_11_27_110000_move_budgets_and_listing_targets_to_road_to_sold',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1835,'2026_11_27_120000_create_daily_activity_entry_corrections_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1836,'2026_11_28_100000_register_rmcp_version_approved_notification',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1837,'2026_11_30_100000_create_signature_place_generations_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1838,'2026_11_30_100100_add_generations_to_section_acceptances',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1839,'2026_11_30_100200_add_signing_mode_to_esign_settings_and_envelopes',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1840,'2026_11_30_100300_create_signature_adoptions_and_placement_provenance',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1841,'2026_12_01_100000_add_client_user_to_device_tokens',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1842,'2026_12_02_100000_add_lease_fee_to_leases_and_default_to_lease_settings',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1843,'2026_12_02_100000_add_rental_push_preferences_at508',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1844,'2026_12_02_100000_create_docuperfect_template_generations_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1845,'2026_12_02_100100_add_reported_urgent_to_rental_fault_reports_at508',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1846,'2026_12_03_100000_add_client_idempotency_key_to_rental_fault_reports_at508',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1847,'2026_12_03_100000_add_client_idempotency_key_to_rental_inspections_at508',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1848,'2026_12_05_100000_merge_esign_adoption_modes_into_adopt_once',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1849,'2026_12_06_100000_add_lease_fee_label_to_lease_settings',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1850,'2026_12_07_100000_add_geocode_country_to_agencies_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1851,'2026_12_07_100000_turn_on_phone_push_for_agent_rental_alerts',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1852,'2026_12_05_100000_create_training_videos_tables_at509',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1853,'2026_11_18_100000_create_feature_rollout_tables',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1854,'2026_11_18_100100_create_rollout_announcement_views_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1855,'2026_11_18_100200_add_source_and_customised_to_agency_rollout_waves',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1856,'2026_11_18_100300_create_rollout_feature_users_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1857,'2026_11_18_100400_add_admin_notified_at_to_agency_rollout_waves',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1858,'2026_11_25_100000_add_announced_at_to_rollout_feature_users_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1859,'2026_12_08_100000_add_document_letterhead_fields_to_agencies_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1860,'2026_12_10_100000_create_desk_sessions_tables',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1861,'2026_12_11_100000_add_desk_control_columns',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1862,'2026_12_12_100000_add_desk_session_extra_supporters',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1863,'2026_12_12_110000_add_support_display_to_desk_sessions',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1864,'2026_12_13_100000_add_desk_control_request_id_and_ended_at',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1865,'2026_12_14_100000_add_last_activity_at_to_desk_sessions',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1743,'2026_10_29_500100_add_canonical_portal_ref_and_shared_pool',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1744,'2026_10_29_500200_property_identity_links_and_settings',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1745,'2026_10_29_500300_property_identity_shared_rows',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1746,'2026_10_29_600000_add_alert_catchup_minutes_to_agency_dashboard_settings',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1747,'2026_10_29_600000_rename_valuation_to_evaluation_in_road_to_sold',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1748,'2026_10_30_100000_rts_derived_areas',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1749,'2026_10_31_100000_add_allow_advance_as_of_date_to_lease_settings',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1750,'2026_10_31_200000_add_rental_trust_account_name_to_agencies_table',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1751,'2026_10_31_200100_add_p24_suburb_id_to_mic_tables',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1752,'2026_10_31_210100_create_property_type_map_table',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1753,'2026_10_31_220100_create_mic_stats_tables',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1754,'2026_10_31_230100_add_lead_advert_and_flags_to_mic_file_stats',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1755,'2026_10_31_240100_create_mic_file_context_table',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1756,'2026_10_31_250100_add_own_size_source_to_mic_file_context',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1757,'2026_11_01_100000_add_appointment_contractor_note_to_rental_work_orders',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1758,'2026_11_01_100000_create_lease_notices_table',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1759,'2026_11_01_100100_register_lease_notice_notification',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1760,'2026_11_02_100000_add_agency_type_to_agencies_table',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1761,'2026_11_02_100000_add_room_templates_to_rental_inspection_settings',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1762,'2026_11_02_100100_add_wizard_token_to_properties_table',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1763,'2026_11_02_110000_add_short_code_to_agencies_table',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1764,'2026_11_02_120000_create_rts_agent_starts_table',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1765,'2026_11_02_130000_create_rts_agent_start_events_table',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1766,'2026_11_02_130000_rts_belt_a1_claim_hold',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1767,'2026_11_02_140000_rts_belt_a2_owner_requires_deed',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1768,'2026_11_02_150000_add_source_for_colleagues_to_rts_settings',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1769,'2026_11_02_150000_rts_belt_a3_channel',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1770,'2026_11_02_160000_rts_belt_a4_links',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1771,'2026_11_02_170000_rts_belt_a5_results',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1772,'2026_11_02_170000_rts_conveyor_windows_and_claims_first',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1773,'2026_11_02_180000_rts_belt_a6_offramps',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1774,'2026_11_03_100000_register_quote_received_notification',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1775,'2026_11_03_100000_rts_belt_targets_settings',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1776,'2026_11_03_100000_rts_offramp_reasons_by_step',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1777,'2026_11_03_140000_create_rts_user_preferences_table',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1778,'2026_11_04_100000_add_unread_index_to_notifications_table',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1779,'2026_11_05_100000_rental_inspections_previous_link_may_be_shared_with_a_cancelled_one',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1780,'2026_11_06_100000_add_access_contact_to_rental_work_orders_and_job_cards',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1781,'2026_11_06_100000_add_ai_spend_guard_columns_to_agencies',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1782,'2026_11_06_100000_add_cost_selling_markup_to_rental_catalogue_items',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1783,'2026_11_06_100100_add_catalogue_default_markup_to_rental_work_order_settings',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1784,'2026_11_06_100100_create_ai_spend_guard_events_table',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1785,'2026_11_07_100000_add_pricing_driver_to_rental_catalogue_items',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1786,'2026_11_07_100000_at456_b_ai_template_builder',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1787,'2026_11_08_100000_add_vacate_and_remedy_basis_to_rental_notices',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1788,'2026_11_08_100000_at456_c_article_library',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1789,'2026_11_09_100000_add_form_paper_size_to_rental_inspection_settings_table',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1790,'2026_11_09_100000_at456_d_post_scheduler',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1791,'2026_11_09_100000_breach_templates_follow_up_and_proof_email',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1792,'2026_11_09_100000_create_rental_job_card_crew_reports_table',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1793,'2026_11_09_100100_add_read_notes_to_rental_inspection_scans_table',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1794,'2026_11_09_100100_at456_d_grant_schedule_posts_permission',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1795,'2026_11_09_110000_at456_b_ai_template_validation_log',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1796,'2026_11_10_100000_add_page_results_to_rental_inspection_scans_table',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1797,'2026_11_10_100000_at456_b9_ai_template_style_and_examples',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1798,'2026_11_10_100100_reset_old_omr_mark_threshold_values',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1799,'2026_11_11_100000_add_form_safe_margin_mm_to_rental_inspection_settings_table',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1800,'2026_11_11_100000_at456_b9_template_human_edited_at',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1801,'2026_11_12_100000_at456_b10_ai_template_types_and_must_include',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1802,'2026_11_13_100000_company_ads_e1_tables',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1803,'2026_11_13_100100_company_ads_grant_permission',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1804,'2026_11_14_100000_company_ads_e2_generation_columns',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1805,'2026_11_15_100000_company_ads_e3_marketing_posts',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1806,'2026_11_16_100000_add_agency_id_to_rental_take_on_import_rows',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1807,'2026_11_16_100000_copy_fica_request_settings_to_fica_windows',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1808,'2026_11_16_100000_hash_inspection_signing_link_tokens',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1809,'2026_11_16_100100_neutralise_remaining_cloned_hfc_outreach_phrases',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1810,'2026_11_16_100300_add_overdue_alerted_at_to_leases_table',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1811,'2026_11_16_100400_register_property_ready_to_relist_notification',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1812,'2026_11_16_100500_add_client_reminder_switches_to_rental_inspection_settings_table',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1813,'2026_11_16_100600_retire_rental_work_order_completion_accepted_notification',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1814,'2026_11_16_100700_add_price_list_to_agency_subscriptions_table',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1815,'2026_11_16_100800_publish_band_pricing_agreement_version',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1816,'2026_11_16_100900_move_all_agencies_to_band_pricing',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1817,'2026_11_17_100000_add_fault_type_other_to_rental_fault_reports_table',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1818,'2026_11_17_100000_create_ad_schedule_patterns_table',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1819,'2026_11_18_100000_add_also_cost_up_to_to_rental_authorisations_table',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1820,'2026_11_18_100000_create_feature_rollout_tables',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1821,'2026_11_18_100100_create_rollout_announcement_views_table',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1822,'2026_11_18_100200_add_source_and_customised_to_agency_rollout_waves',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1823,'2026_11_18_100300_create_rollout_feature_users_table',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1824,'2026_11_18_100400_add_admin_notified_at_to_agency_rollout_waves',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1825,'2026_11_19_100000_add_audit_fix_settings_to_rental_portal_settings_table',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1826,'2026_11_19_100000_add_client_key_to_rental_job_card_lines_table',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1827,'2026_11_19_100000_add_portal_security_settings_to_rental_portal_settings',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1828,'2026_11_19_100000_grant_rental_notices_view_and_review_audit_a17_a28',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1829,'2026_11_19_100000_hash_inspection_public_tokens',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1830,'2026_11_19_100100_add_agency_id_to_personal_access_tokens',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1831,'2026_11_19_100100_add_photo_link_minutes_to_rental_inspection_settings_table',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1832,'2026_11_19_100200_add_soft_deletes_to_rental_inventory_room_marks_table',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1833,'2026_11_19_100300_inspection_offline_retry_keys_and_late_evidence',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1834,'2026_11_19_100400_move_out_deductions_and_inventory_move_out_sign_off',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1835,'2026_11_19_200000_add_end_tenancy_on_move_out_date_to_lease_settings_table',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1836,'2026_11_19_200100_add_amount_to_rental_inspection_item_findings_table',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1837,'2026_11_20_100000_split_rental_notification_event_types',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1838,'2026_11_20_100100_add_owner_chase_and_statement_resend_columns',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1839,'2026_11_21_100000_register_contractor_started_notification',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1840,'2026_11_22_100000_register_tenant_fault_update_notification',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1841,'2026_11_23_100000_inventory_photo_can_reference_an_inspection_photo',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1842,'2026_11_23_200000_add_record_deduction_amounts_to_rental_inspection_settings_table',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1843,'2026_11_24_100000_report_recogniser',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1844,'2026_11_24_110000_report_ai_caps_and_layout_cases',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1845,'2026_11_24_120000_add_detected_note_to_rental_inspection_scan_marks_table',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1846,'2026_11_24_130000_add_review_states_to_scan_marks_and_inspection_settings',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1847,'2026_11_25_100000_add_announced_at_to_rollout_feature_users_table',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1848,'2026_11_25_100000_add_portal_show_agency_commission_totals_to_agencies',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1849,'2026_11_26_100000_add_note_read_enabled_to_rental_inspection_settings_table',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1850,'2026_11_26_100000_add_owner_chase_clock_and_failure_marker_to_rental_fault_reports',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1851,'2026_11_26_100000_add_reos_import_columns_to_take_on_import_tables',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1852,'2026_11_26_100000_grant_rental_applications_authorise_audit_2026_10_20',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1853,'2026_11_26_100000_rebase_calendar_auto_credit_to_counts',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1854,'2026_11_26_100100_add_reos_and_wallet_fields_to_leases_table',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1855,'2026_11_26_110000_add_timezone_to_agencies',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1856,'2026_11_27_100000_add_dedupe_key_to_notification_dispatch_log',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1857,'2026_11_27_100000_create_rental_notice_deliveries_table',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1858,'2026_11_27_100000_create_rts_budgets_table',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1859,'2026_11_27_100100_add_agents_approve_quotes_to_rental_work_order_settings',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1860,'2026_11_27_100100_grant_rental_notice_send_and_template_permissions_at495',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1861,'2026_11_27_100200_add_proxy_excludes_to_signature_requests',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1862,'2026_11_27_110000_move_budgets_and_listing_targets_to_road_to_sold',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1863,'2026_11_27_120000_create_daily_activity_entry_corrections_table',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1864,'2026_11_28_100000_register_rmcp_version_approved_notification',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1865,'2026_11_29_100000_create_feature_rollout_feature_copy_table',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1866,'2026_11_29_100000_create_rts_recipe_tables',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1867,'2026_11_29_200000_add_recipe_view_settings_to_rts_settings',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1868,'2026_11_30_100000_create_signature_place_generations_table',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1869,'2026_11_30_100000_rts_phase3_daily_activity_bridge',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1870,'2026_11_30_100100_add_generations_to_section_acceptances',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1871,'2026_11_30_100200_add_signing_mode_to_esign_settings_and_envelopes',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1872,'2026_11_30_100300_create_signature_adoptions_and_placement_provenance',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1873,'2026_12_01_100000_add_client_user_to_device_tokens',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1874,'2026_12_01_100000_add_manager_review_to_road_to_sold',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1875,'2026_12_02_100000_add_lease_fee_to_leases_and_default_to_lease_settings',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1876,'2026_12_02_100000_add_rental_push_preferences_at508',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1877,'2026_12_02_100000_create_docuperfect_template_generations_table',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1878,'2026_12_02_100100_add_reported_urgent_to_rental_fault_reports_at508',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1879,'2026_12_03_100000_add_client_idempotency_key_to_rental_fault_reports_at508',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1880,'2026_12_03_100000_add_client_idempotency_key_to_rental_inspections_at508',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1881,'2026_12_03_100000_create_rts_level_signoff_tables',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1882,'2026_12_04_100000_create_compliance_switch_tables_at509',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1883,'2026_12_04_100000_create_rts_funnel_tables',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1884,'2026_12_04_100100_grant_compliance_switches_permission_at509',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1885,'2026_12_05_100000_create_training_videos_tables_at509',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1886,'2026_12_05_100000_merge_esign_adoption_modes_into_adopt_once',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1887,'2026_12_06_100000_add_lease_fee_label_to_lease_settings',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1888,'2026_12_07_100000_add_geocode_country_to_agencies_table',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1889,'2026_12_07_100000_turn_on_phone_push_for_agent_rental_alerts',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1890,'2026_12_08_100000_add_document_letterhead_fields_to_agencies_table',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1891,'2026_12_09_100000_add_application_terms_settings',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1892,'2026_12_09_110000_add_extended_fields_to_rental_applications',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1893,'2026_12_09_120000_add_deposit_notes_to_lease_settings',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1894,'2026_12_10_100000_at509_add_originality_columns_to_library_articles',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1895,'2026_12_10_100000_create_desk_sessions_tables',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1896,'2026_12_11_100000_add_desk_control_columns',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1897,'2026_12_12_100000_add_desk_session_extra_supporters',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1898,'2026_12_12_100000_create_rmcp_board_approval_tables',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1899,'2026_12_12_100100_rmcp_approval_block_title_follows_signed_letter',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1900,'2026_12_12_110000_add_support_display_to_desk_sessions',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1901,'2026_12_13_100000_add_desk_control_request_id_and_ended_at',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1902,'2026_12_13_100000_add_upload_columns_to_training_videos',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1903,'2026_12_13_100000_rts_capture_backdate_working_days',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1904,'2026_12_14_100000_add_last_activity_at_to_desk_sessions',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1905,'2026_12_14_100000_add_progress_to_training_videos',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1906,'2026_12_20_100000_add_generated_video_columns_at525',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1907,'2026_12_20_100000_create_rts_v3_prospect_tables',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1908,'2026_12_27_100000_create_sold_stock_tables',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1909,'2026_12_28_100000_add_release_state_and_document_authorisers',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1910,'2026_12_28_100000_create_feature_rollout_plans',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1911,'2026_12_28_100100_create_docuperfect_template_release_tables',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1912,'2026_12_29_100000_add_lease_source_to_named_fields',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1913,'2026_12_29_100000_add_task_mapping_default_and_audit_to_rts',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1914,'2026_12_29_100000_create_attorney_portal_tables',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1915,'2026_12_29_110000_add_attorney_portal_notifications',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1916,'2026_12_29_110000_add_source_file_to_cds_drafts',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1917,'2026_12_29_120000_create_document_distribution_audit_entries',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1918,'2026_12_29_130000_add_area_to_document_distribution_audit_entries',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1919,'2026_12_30_100000_add_on_behalf_of_user_id_to_remaining_audit_tables',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1920,'2026_12_30_100100_add_on_behalf_of_user_id_to_document_distribution_audit_entries',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1921,'2026_12_30_120000_add_sign_in_choice_to_attorney_portal_accesses',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1922,'2026_12_31_100000_add_agency_to_portal_capture_tables_and_fix_p24_listing_key',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1923,'2026_12_31_100000_add_signed_copy_to_rmcp_and_policy_versions',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1924,'2026_12_31_100000_create_revenue_tables',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1925,'2026_12_31_100100_add_staff_training_and_document_source_to_versions',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1926,'2026_12_31_100100_create_tracked_property_agency_work',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1927,'2026_12_31_100200_register_policy_version_approved_notification',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1928,'2026_12_31_110000_create_billing_price_lists',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1929,'2027_01_01_100000_create_private_property_alert_tables',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1930,'2027_01_01_100100_add_auto_claim_min_confidence_to_address_match_settings',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1931,'2027_01_02_100000_create_rental_application_field_changes_and_correction_fields',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1932,'2027_01_03_100000_add_co_applicant_contact_id_to_rental_applications',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1933,'2027_01_03_110000_add_co_applicant_kinds_to_rental_application_signatures',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1934,'2027_01_04_100000_add_same_address_sweep_to_address_match_settings',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1935,'2027_01_04_100000_mic_capture_advert_facts',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1936,'2027_01_04_110000_create_p24_area_page_tables',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1937,'2027_01_04_120000_create_mic_crawls',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1938,'2027_01_04_130000_add_matching_rules_to_address_match_settings',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1939,'2027_01_04_140000_add_unit_split_to_address_match_settings',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1940,'2027_01_04_150000_add_unit_split_land_gap_to_address_match_settings',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1941,'2027_01_04_160000_add_auto_tidy_to_address_match_settings',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1942,'2027_01_04_170000_create_mic_tile_summaries',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1943,'2027_01_05_100000_mic_comp_sale_duplicates',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1944,'2027_01_05_110000_add_offer_and_sold_dates_to_properties',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1945,'2027_01_06_100000_add_search_text_for_mic_work_search',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1946,'2027_01_06_100000_add_training_video_voice_to_agencies_at525',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1947,'2027_01_06_110000_add_search_index_to_tracked_properties',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1948,'2027_01_06_110000_training_platform_voices_and_per_voice_videos_at525',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1949,'2027_01_06_120000_create_ad_renders_at525',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1950,'2027_01_06_130000_create_training_settings_at525',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1951,'2027_01_12_100000_create_video_ads_tables_at527',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1952,'2027_01_12_110000_video_ad_posts_and_platform_social_account_at527',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1953,'2027_01_13_100000_mic_advert_text_photos_features',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1954,'2027_01_13_110000_create_mic_user_preferences',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1955,'2027_01_13_130000_add_sole_mandate_wording_to_prospecting_listings',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1956,'2027_01_14_090000_add_merge_guard_to_address_match_settings',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1957,'2027_01_14_120000_add_sole_mandate_since',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1958,'2027_01_14_140000_add_missed_crawls_to_prospecting_listings',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1959,'2027_01_15_090000_create_mic_match_exclusions_table',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1960,'2027_01_16_100000_add_details_read_by_to_prospecting_listings',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1961,'2027_01_17_100000_create_buyer_property_exclusions_table',1);

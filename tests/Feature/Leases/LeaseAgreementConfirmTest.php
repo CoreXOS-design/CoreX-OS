@@ -102,8 +102,10 @@ final class LeaseAgreementConfirmTest extends TestCase
 
         // 14 Oct 2026 (cc5's walk): "nothing to confirm" with only "Back to the agreement" was a dead end - the screen now carries the one approve button.
         $this->actingAs($this->agent)->get(route('corex.leases.agreement.confirm', $lease))
-            ->assertOk()->assertSee('The agreement and the lease agree.')->assertDontSee('nothing to confirm')
-            ->assertSee('Approve and finalise')->assertDontSee('Confirm lease details and approve');
+            ->assertOk()->assertSee('The agreement and the lease agree.')
+            // Scoped to the screen's own text and button: the page also carries the guided-tour definition (rentals-ops.php), which names both old labels.
+            ->assertDontSee('>nothing to confirm<', false)
+            ->assertSee('Approve and finalise')->assertDontSee('>Confirm lease details and approve</button>', false);
     }
 
     public function test_while_the_agreement_is_still_out_the_agent_can_look_but_not_confirm(): void
@@ -113,7 +115,8 @@ final class LeaseAgreementConfirmTest extends TestCase
 
         $this->actingAs($this->agent)->get(route('corex.leases.agreement.confirm', $lease))
             ->assertOk()->assertSee('R6 940')->assertSee('You can confirm these details once everyone has signed')
-            ->assertDontSee('Confirm lease details and approve');
+            // Scoped to the button: the guided-tour definition on the page also names this label.
+            ->assertDontSee('>Confirm lease details and approve</button>', false);
     }
 
     public function test_a_different_person_is_flagged_with_the_way_out_and_the_button_is_disabled(): void

@@ -87,9 +87,9 @@ final class SellerOutreachLandingService
                 $liveBuyerCount = $townBuyerIds->count();
             } else {
                 $townBuyerIds = null;
+                // the headline figure alone (same number as snapshot()->activeBuyers, without building every listing segment: ~7 s on QA1)
                 $liveBuyerCount = $this->intelligence
-                    ->snapshot(['agency_id' => $agencyId] + $baseFilters)
-                    ->activeBuyers;
+                    ->activeBuyerCount(['agency_id' => $agencyId] + $baseFilters);
             }
 
             if ($mode === LandingPageData::MODE_ACTIVE && $property && $townBuyerIds !== null) {

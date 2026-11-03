@@ -160,6 +160,10 @@ final class DealsMenuTest extends TestCase
     public function test_the_agency_tracker_panel_keeps_none_of_the_moved_deal_entries(): void
     {
         $this->grantAgent('access_agency_tracker');
+        // The panel only exists for someone who would see something in it (agency-tracker-rehome.md step 11): Daily Activities, for an agency
+        // whose daily activity has not moved into Road to Sold. Grant that so the panel renders and the absences below mean something.
+        $this->grantAgent('view_daily_activity');
+        $this->grantRole('admin', 'view_daily_activity');
         PermissionService::clearCache();
 
         foreach ([$this->admin, $this->agent] as $user) {

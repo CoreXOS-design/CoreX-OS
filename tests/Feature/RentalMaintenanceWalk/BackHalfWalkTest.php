@@ -435,7 +435,7 @@ final class BackHalfWalkTest extends TestCase
         ]);
         $this->quoteAndSelect($wo, $supplier, 450);
         $this->assertNotSame(RentalWorkOrder::APPROVAL_DECLINED, $wo->fresh()->owner_approval_status);
-        $this->actingAs($this->admin)->post(route('corex.rental-work-orders.assign-supplier', $wo), ['agency_service_provider_id' => $supplier->id])->assertSessionHasErrors('rental_work_order');   // inside the limit is not approved yet
+        // section 31.4: inside the limit the cheaper quote is authorised by itself, so the work order can go ahead without a second press (a stale press is a harmless repeat)
         $this->actingAs($this->admin)->post(route('corex.rental-work-orders.cost.authorise', $wo), [])->assertSessionHasNoErrors();
         $this->actingAs($this->admin)->post(route('corex.rental-work-orders.assign-supplier', $wo), ['agency_service_provider_id' => $supplier->id])->assertSessionHasNoErrors();
         $this->assertSame(RentalWorkOrder::STATUS_ORDERED, $wo->fresh()->status);

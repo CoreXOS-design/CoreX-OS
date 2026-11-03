@@ -114,7 +114,7 @@ final class BuildTimingTest extends TestCase
         }
         $contact = DB::table('contacts')->where('agency_id', $a)->value('id');
         foreach (array_chunk(range(0, 1499), 500) as $chunk) {
-            DB::table('tracked_property_owners')->insert(array_map(fn ($i) => ['tracked_property_id' => $tpIds[$i * 20], 'contact_id' => $contact, 'name' => 'Owner', 'created_at' => $now, 'updated_at' => $now], $chunk));
+            DB::table('tracked_property_owners')->insert(array_map(fn ($i) => ['agency_id' => $a, 'tracked_property_id' => $tpIds[$i * 20], 'contact_id' => $contact, 'name' => 'Owner', 'created_at' => $now, 'updated_at' => $now], $chunk));
         }
         // hot pockets: 3,000 own leads over the suburbs
         $props = [];

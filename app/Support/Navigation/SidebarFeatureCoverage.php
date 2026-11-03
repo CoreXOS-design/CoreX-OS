@@ -41,6 +41,9 @@ final class SidebarFeatureCoverage
         'agent.portal'                      => 'my-portal',
         'corex.properties.index'            => 'properties',
         'corex.map.index'                   => 'properties',
+        // Sold stock (AT-512): the agency's sold properties and their listing cycles - a tab of the Properties item, so Property-pillar data under the
+        // core Properties switch, gated by access_sold_stock; not a module of its own to switch.
+        'corex.sold-stock.*'                => 'properties',
         'corex.contacts.index'               => 'contacts',
         // The Supplier Directory is shared by Deals and Rentals and owned by neither (agency-feature-rollout.md §13 point 8), so the
         // Maintenance menu's "Suppliers & contractors" tab stays available whichever of the two an agency runs — a directory of
@@ -60,6 +63,11 @@ final class SidebarFeatureCoverage
         'corex.role-manager*'               => 'role-manager',
         // Release notes for the CoreX platform itself — shown to everyone, not a module an agency runs.
         'corex.whats-new.index'              => 'dashboard',
+        // Alerts: each person's own inbox of what CoreX told them (the bell's page, alert-bell-inbox-toasts) - core to every user like Today beside it.
+        'corex.alerts.*'                     => 'dashboard',
+        // CoreX Desk (corex-desk.md section 12): switched on/off by the agency's own Desk switch in Company Settings (agencies.desk_enabled),
+        // not by a Features row - a second toggle would be two switches for one thing.
+        'corex.desk.*'                       => 'company-settings',
         // AT-478 — the guide to what a gradual rollout is switching on; shown only to agencies on one.
         'corex.new-and-coming.index'         => 'dashboard',
     ];

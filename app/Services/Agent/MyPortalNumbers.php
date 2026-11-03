@@ -71,6 +71,7 @@ final class MyPortalNumbers
             DB::table('worksheets')->where('agency_id', $agencyId)->where('user_id', $u->id)->whereNull('deleted_at')->select('period'),
             DB::table('targets')->where('agency_id', $agencyId)->where('user_id', $u->id)->whereNull('deleted_at')->select('period'),
             DB::table('daily_activity_entries')->where('agency_id', $agencyId)->whereIn('user_id', $ids)->select('period'),
+            DB::table('rts_task_completions')->where('agency_id', $agencyId)->whereIn('user_id', $ids)->whereNull('deleted_at')->select('period'),
             DB::table('deal_user')->join('deals', 'deals.id', '=', 'deal_user.deal_id')->where('deals.agency_id', $agencyId)
                 ->whereNull('deals.deleted_at')->whereIn('deal_user.user_id', $ids)->selectRaw("DATE_FORMAT(deals.deal_date, '%Y-%m') as period"),
         ];

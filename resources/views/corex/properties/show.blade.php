@@ -553,7 +553,17 @@
                     $_genMissing = app(\App\Services\Presentations\CompetitorStockMatchService::class)
                         ->missingSoftInputs($property);
                 @endphp
+                @php $presentationPopup = request()->filled('generate_presentation') && \App\Support\Embed::on(); @endphp
+                @if($presentationPopup)
+                {{-- road-to-sold.md 23.25 step 6: inside the pitch popup the Generate Presentation window is the whole screen - nothing of the property page behind it --}}
+                <style>
+                    body > *:not([data-qa="presentation-modal"]) { display: none !important; }
+                    body { background: var(--bg) !important; }
+                    [data-qa="presentation-modal"] > [data-qa="presentation-backdrop"], [data-qa="presentation-modal"] [data-qa="presentation-cancel"] { display: none !important; }
+                </style>
+                @endif
                 <div x-data="presentationGenerator({
+                        popup: {{ $presentationPopup ? 'true' : 'false' }},
                         propertyId: {{ $property->id }},
                         coverageUrl: '{{ route('corex.properties.presentation-coverage', $property) }}',
                         generateUrl: '{{ route('corex.properties.generate-presentation', $property) }}',
@@ -561,7 +571,7 @@
                         hasListedPrice: {{ $property->price ? 'true' : 'false' }},
                         listedPrice: {{ $property->price ? (int) $property->price : 'null' }},
                     })"
-                    x-init="loadCoverage()"
+                    x-init="loadCoverage(); if (new URLSearchParams(window.location.search).get('generate_presentation')) { $nextTick(() => onClickGenerate()); }"
                     @corex:generate-presentation.window="onClickGenerate()"
                     class="space-y-2">
 
@@ -617,10 +627,10 @@
 
                     {{-- Asking-price modal (shown when property has no listed price) --}}
                     <template x-teleport="body">
-                        <div x-show="modalOpen" x-cloak
+                        <div x-show="modalOpen" x-cloak data-qa="presentation-modal"
                              class="fixed inset-0 z-[9999] flex items-center justify-center p-4"
                              x-transition.opacity>
-                            <div class="absolute inset-0" style="background:rgba(0,0,0,0.45);" @click="modalOpen = false"></div>
+                            <div class="absolute inset-0" data-qa="presentation-backdrop" style="background:rgba(0,0,0,0.45);" @click="modalOpen = false"></div>
                             <div class="relative rounded-md w-full max-w-md p-5 shadow-xl"
                                  style="background:var(--surface); border:1px solid var(--border);"
                                  @click.stop>
@@ -724,6 +734,11 @@
                                      bug). The agent clicks this anchor to open the
                                      presentation in a new tab themselves, or re-enables
                                      popups and clicks Generate again. --}}
+                                <div x-show="generatedUrl" x-cloak data-qa="presentation-generated" class="mt-3 rounded-md px-3 py-2 text-xs"
+                                     style="background:color-mix(in srgb, var(--ds-green, #10b981) 12%, transparent); border:1px solid color-mix(in srgb, var(--ds-green, #10b981) 35%, transparent); color:var(--text-primary);">
+                                    <div class="font-semibold mb-1">Presentation generated</div>
+                                    <a :href="generatedUrl" target="_blank" rel="noopener noreferrer" class="underline font-semibold" style="color:var(--brand);">Open the presentation in a new tab</a>
+                                </div>
                                 <div x-show="popupBlockedUrl" x-cloak class="mt-3 rounded-md px-3 py-2 text-xs"
                                      style="background:color-mix(in srgb, var(--ds-amber) 12%, transparent); border:1px solid color-mix(in srgb, var(--ds-amber) 35%, transparent); color:var(--text-primary);">
                                     <div class="font-semibold mb-1">Popup blocked by browser</div>
@@ -736,7 +751,7 @@
                                 </div>
 
                                 <div class="mt-4 flex items-center justify-end gap-2">
-                                    <button type="button" @click="modalOpen = false; popupBlockedUrl = null;"
+                                    <button type="button" data-qa="presentation-cancel" @click="modalOpen = false; popupBlockedUrl = null;"
                                             class="px-3 py-1.5 text-sm font-medium rounded-md"
                                             style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-secondary);">
                                         Cancel
@@ -773,6 +788,7 @@
                             // through anchor inside the modal. The CURRENT
                             // window is NEVER navigated by the handler.
                             popupBlockedUrl: null,
+                            generatedUrl: null,   // pitch popup only: the window stays and says it is done
 
                             get badgeStyle() {
                                 const state = this.coverage?.state;
@@ -895,6 +911,13 @@
                                     const reviewUrl = data?.review_url || data?.redirect_url;
                                     if (!reviewUrl) {
                                         this.modalError = 'Generation succeeded but no review URL returned.';
+                                        this.generating = false;
+                                        return;
+                                    }
+                                    if (config.popup) {
+                                        // inside the pitch popup the window is the screen: it stays, says it is done, and offers the review
+                                        this.generatedUrl = reviewUrl;
+                                        try { const w = window.open(reviewUrl, '_blank'); if (w) { w.opener = null; } } catch (e) { /* the link is shown */ }
                                         this.generating = false;
                                         return;
                                     }

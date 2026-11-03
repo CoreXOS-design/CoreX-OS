@@ -54,6 +54,19 @@ class AppServiceProvider extends ServiceProvider
 {
     public function register(): void
     {
+        // AT-525 / AT-527: Ad Studio's one door to the video renderer (spec training-videos.md 9.16.2) is the training-video pipeline's AdRenderer.
+        $this->app->bind(\App\Services\AdStudio\AdRenderGateway::class, \App\Services\TrainingVideos\Ads\AdStudioRenderGateway::class);
+
+        // AT-520 step 4.1: ONE merger per process. The apply commands open the row journal on one instance and the sweep merges through another;
+        // as two instances the M2/M3 journals were written empty (31 Oct). A singleton makes `journalTo()` reach every merge.
+        $this->app->singleton(\App\Services\Prospecting\TrackedPropertyMerger::class);
+
+        // AT-520 step 4.6: cc4's Work-tab data (tile 3 under offer / sold / gone, tile 10 neighbours, tile 11 refresh status) - mic-work-tab.md 11.3.F and 11.9
+        $this->app->tag([\App\Services\Prospecting\MicWork\GoneTileProvider::class], 'mic.work.tiles');
+        // AT-519 (cc5): tile 2 owner selling privately (cc5's tiles 1, 4-9 are read straight from MarketIntelligence\Pockets\TileService).
+        $this->app->tag([\App\Services\MarketIntelligence\Pockets\OwnerAdvertTileProvider::class], 'mic.work.tiles');
+        $this->app->tag([\App\Services\Prospecting\MicWork\NeighboursPanelProvider::class, \App\Services\Prospecting\MicWork\RefreshStatusPanelProvider::class], 'mic.work.panels');
+
         // section 21.3 of rentals-faults-work-orders.md - the one seam behind "Send <name> to inspect"; records only until the fault flow replaces it.
 
         // ─────────────────────────────────────────────────────────────────────────────
@@ -163,6 +176,16 @@ class AppServiceProvider extends ServiceProvider
     {
         \Illuminate\Support\Facades\Event::listen(\Illuminate\Mail\Events\MessageSending::class, [\App\Services\Mail\MailFailureAlerter::class, 'remember']);
 
+        // AT-520 step 4.3: the crawl record follows every saved search batch; a re-sighted advert loses its old off-market label.
+        \App\Models\ProspectingSearch::observe(\App\Observers\ProspectingSearchCrawlObserver::class);
+        \App\Models\ProspectingListing::observe(\App\Observers\ProspectingListingLifecycleObserver::class);
+
+        // AT-520 step 4.2: every ingress that creates / enriches / addresses a property file makes the agency's same-address sweep due (debounced job).
+        \Illuminate\Support\Facades\Event::listen(
+            [\App\Events\Prospecting\TrackedPropertyCreated::class, \App\Events\Prospecting\TrackedPropertyEnriched::class, \App\Events\Prospecting\TrackedPropertyAddressAdded::class],
+            \App\Listeners\Prospecting\QueueSameAddressSweep::class,
+        );
+
         // AT-454 - Road to Sold settings are memoised for seconds only, and dropped at the start of every
         // queued job and artisan command, so the nightly build (one long process) never works from a stale copy.
         \Illuminate\Support\Facades\Event::listen(\Illuminate\Queue\Events\JobProcessing::class, fn () => \App\Services\RoadToSold\SettingsService::forget());
@@ -265,6 +288,26 @@ class AppServiceProvider extends ServiceProvider
         ], \App\View\Composers\OutreachWindowComposer::class);
 
         Agency::observe(AgencyObserver::class);
+        // MIC 5.1 (AT-519): new/re-suburbed MIC listings and CMA comp rows get their p24_suburb_id at save time.
+        \App\Models\ProspectingListing::observe(\App\Observers\MicSuburbIdObserver::class);
+        \App\Models\MarketReports\MarketReportCompRow::observe(\App\Observers\MicSuburbIdObserver::class);
+        // MIC 5.7 (AT-519): a claim or a price drop re-counts that one file's stored stats + score (delayed, unique per file).
+        \App\Models\ProspectingClaim::saved(fn ($m) => \App\Jobs\MarketIntelligence\RefreshMicFileStatsJob::forListing($m->prospecting_listing_id !== null ? (int) $m->prospecting_listing_id : null));
+        \App\Models\ProspectingPriceHistory::created(fn ($m) => \App\Jobs\MarketIntelligence\RefreshMicFileStatsJob::forListing($m->prospecting_listing_id !== null ? (int) $m->prospecting_listing_id : null));
+        // MIC 5.3 (AT-524): a new CMA comp row is placed as canonical or as a repeat of an existing sale at save time.
+        \App\Models\MarketReports\MarketReportCompRow::observe(\App\Observers\MicCompDuplicateObserver::class);
+        // Property identity (.ai/specs/property-identity.md §7): attach new rows to their property file on save.
+        \App\Models\Property::created(fn ($m) => app(\App\Observers\PropertyIdentityLinkObserver::class)->propertyCreated($m));
+        // Property identity C2 (section 15.2): runs AFTER the link above - a property added by hand that is the same property as one already in
+        // Market Intelligence claims that record for the agent who added it. A user must be signed in (imports and seeders are not "by hand").
+        \App\Models\Property::created(fn ($m) => auth()->check() ? app(\App\Services\Prospecting\CaptureClaimService::class)->claimFromManualProperty((int) $m->id, (int) auth()->id()) : null);
+        // Property identity C3 (section 15.3): one prospecting status per agency per property - a property whose status changed tells the agency's work record.
+        \App\Models\Property::saved(fn ($m) => $m->wasChanged('status') ? app(\App\Services\Prospecting\ProspectingStatusSync::class)->fromProperty($m, auth()->id() ? (int) auth()->id() : null) : null);
+        \App\Models\MarketReports\MarketReportCompRow::created(fn ($m) => app(\App\Observers\PropertyIdentityLinkObserver::class)->compRowCreated($m));
+        \App\Models\PresentationSoldComp::created(fn ($m) => app(\App\Observers\PropertyIdentityLinkObserver::class)->soldCompCreated($m));
+        \App\Models\P24Listing::saved(fn ($m) => app(\App\Observers\PropertyIdentityLinkObserver::class)->alertSaved($m));
+        \App\Models\Deal::saved(fn ($m) => app(\App\Observers\PropertyIdentityLinkObserver::class)->dealSaved($m));
+        \App\Models\DailyActivityEntry::observe(\App\Observers\DailyActivityEntryObserver::class);
         CalendarEventFeedback::observe(CalendarEventFeedbackObserver::class);
         CalendarEvent::observe(CalendarEventObserver::class);
         Contact::observe(ContactObserver::class);
@@ -472,6 +515,15 @@ class AppServiceProvider extends ServiceProvider
         // Spec: .ai/specs/mic-complete-spec.md §3.2.1.
         \App\Models\Prospecting\TrackedPropertyAddress::observe(\App\Observers\TrackedPropertyAddressObserver::class);
 
+        // Road to Sold events (road-to-sold.md section 6.2, build log P2): owner found, presentation given,
+        // mandate filed. Each observer only RAISES a domain event; it changes no data.
+        \App\Models\Prospecting\TrackedProperty::observe(\App\Observers\TrackedPropertyObserver::class);
+        \App\Models\PresentationDelivery::observe(\App\Observers\PresentationDeliveryObserver::class);
+        \App\Models\DocumentProperty::observe(\App\Observers\DocumentPropertyObserver::class);
+        // Phase 0 remainder (build log P8): a viewing pack made, and (below) an e-signed OTP finalised.
+        \App\Models\ViewingPack::observe(\App\Observers\ViewingPackObserver::class);
+        Event::listen(\App\Events\Docuperfect\SignatureEnvelopeFinalized::class, \App\Listeners\RoadToSold\RaiseOtpSignedFromEnvelope::class);
+
         // Register calendar source services (Phase 1)
         $registry = $this->app->make(\App\Services\CommandCenter\Calendar\CalendarSourceRegistry::class);
         $registry->register(\App\Services\CommandCenter\Calendar\Sources\ComplianceCalendarSource::class);
@@ -493,6 +545,35 @@ class AppServiceProvider extends ServiceProvider
         // class — so this listens on the DomainEvent interface, which every
         // AbstractDomainEvent subclass implements transitively.
         Event::listen(DomainEvent::class, RecordDomainEvent::class);
+
+        // AT-454 Road to Sold v2 phase 1: the one generic listener that completes recipe tasks from domain events
+        // (.ai/specs/road-to-sold.md section 5.1). Only the events in RecipeCatalogue::EVENTS are looked at.
+        Event::listen(DomainEvent::class, \App\Listeners\RoadToSold\CompleteTasksFromDomainEvent::class);
+        // Road to Sold v3 (22.2): the same events move each agent's prospect from stage to stage; a portal lead is not a DomainEvent, so it has its own line.
+        Event::listen(DomainEvent::class, \App\Listeners\RoadToSold\AdvanceProspectsFromDomainEvent::class);
+        Event::listen(\App\Events\Leads\NewPortalLeadReceived::class, [\App\Listeners\RoadToSold\AdvanceProspectsFromDomainEvent::class, 'handleLead']);
+        // Road to Sold v4 (23.5): a MIC claim IS station 2 of the prospect; ending the claim ends the belt record with it.
+        Event::listen(\App\Events\Prospecting\ClaimCreated::class, [\App\Listeners\RoadToSold\BeltFollowsClaim::class, 'handleCreated']);
+        Event::listen(\App\Events\Prospecting\ClaimReleased::class, [\App\Listeners\RoadToSold\BeltFollowsClaim::class, 'handleReleased']);
+        // Road to Sold v4 (23.4): stations 9-11 follow the property - Draft when it becomes one, Active once compliance has passed AND it is published.
+        Event::listen(\App\Events\Property\PropertyCompliancePassed::class, [\App\Listeners\RoadToSold\MoveBeltWithProperty::class, 'handleCompliancePassed']);
+        Event::listen(\App\Events\Property\PropertyPublished::class, [\App\Listeners\RoadToSold\MoveBeltWithProperty::class, 'handlePublished']);
+        // Road to Sold v4 (23.8): a presentation generated for the property -> the belt record moves to Presentation prepared.
+        Event::listen(\App\Events\PresentationGenerated::class, \App\Listeners\RoadToSold\MoveToPresentationPrepared::class);
+        // Road to Sold v4 (23.6): the owner is linked / the deed arrives -> the belt record moves to Owner found.
+        Event::listen(\App\Events\Prospecting\OwnerLinkedToTrackedProperty::class, [\App\Listeners\RoadToSold\MoveToOwnerFound::class, 'handleOwnerLinked']);
+        Event::listen(\App\Events\Prospecting\TrackedPropertyEnriched::class, [\App\Listeners\RoadToSold\MoveToOwnerFound::class, 'handleEnriched']);
+        // Road to Sold v4 belt points (23.16): owner linked, deed linked, the outcome by channel and a logged off-ramp are credited from the event;
+        // an outcome that is deleted (undone) takes its credits back.
+        Event::listen(\App\Events\Prospecting\OwnerLinkedToTrackedProperty::class, [\App\Listeners\RoadToSold\CreditBeltPoints::class, 'handleOwnerLinked']);
+        Event::listen(\App\Events\Prospecting\TrackedPropertyEnriched::class, [\App\Listeners\RoadToSold\CreditBeltPoints::class, 'handleEnriched']);
+        Event::listen(\App\Events\RoadToSold\RoadToSoldOutcomeRecorded::class, [\App\Listeners\RoadToSold\CreditBeltPoints::class, 'handleOutcome']);
+        Event::listen(\App\Events\RoadToSold\ProspectResultRecorded::class, [\App\Listeners\RoadToSold\CreditBeltPoints::class, 'handleResult']);
+        \App\Models\RoadToSold\RtsContactOutcome::deleted(function (\App\Models\RoadToSold\RtsContactOutcome $o) {
+            foreach (array_merge(['rts.offramp_logged'], array_filter([\App\Services\RoadToSold\BeltPoints::channelSlug($o->channel)])) as $slug) {
+                app(\App\Services\RoadToSold\BeltPoints::class)->revoke($slug, $o, 'The outcome was removed');
+            }
+        });
 
         // ─────────────────────────────────────────────────────────────────
         // Syndication Approval Gate (layer 3) — .ai/specs/syndication-approval-gate.md §8.
@@ -668,6 +749,7 @@ class AppServiceProvider extends ServiceProvider
             \App\Events\Deal\DealStageAdvanced::class                       => 'handleDealStageAdvanced',
             \App\Events\Deal\DealClosed::class                              => 'handleDealClosed',
             \App\Events\Deal\DealStatusChanged::class                       => 'handleDealStatusChanged',
+            \App\Events\Deal\DealCommissionFinalised::class                 => 'handleDealCommissionFinalised',
             \App\Events\PresentationGenerated::class                        => 'handlePresentationGenerated',
             \App\Events\Presentation\PresentationOutcomeRecorded::class     => 'handlePresentationOutcomeRecorded',
             \App\Events\SellerOutreach\PitchSent::class                     => 'handlePitchSent',

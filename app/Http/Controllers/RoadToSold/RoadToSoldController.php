@@ -4,8 +4,14 @@ namespace App\Http\Controllers\RoadToSold;
 
 use App\Http\Controllers\Controller;
 use App\Models\RoadToSold\RtsListItem;
+use App\Models\RoadToSold\RtsProspect;
 use App\Models\RoadToSold\RtsOutcomeDefinition as Def;
 use App\Services\RoadToSold\CallListService;
+use App\Services\RoadToSold\CompletionListService;
+use App\Services\RoadToSold\EmptyListExplainer;
+use App\Services\RoadToSold\NextActionService;
+use App\Services\RoadToSold\RecipeProgressService;
+use App\Services\RoadToSold\TaskCaptureService;
 use App\Services\RoadToSold\FeedService;
 use App\Services\RoadToSold\ListBuilderService;
 use App\Services\RoadToSold\SummaryBarService;
@@ -30,6 +36,11 @@ class RoadToSoldController extends Controller
         private readonly OutcomeDefinitionService $definitions,
         private readonly FeedService $feeds,
         private readonly SummaryBarService $bar,
+        private readonly RecipeProgressService $progress,
+        private readonly NextActionService $nextAction,
+        private readonly TaskCaptureService $capture,
+        private readonly CompletionListService $completionList,
+        private readonly \App\Services\RoadToSold\AgentLevelService $levels,
     ) {
     }
 
@@ -41,19 +52,34 @@ class RoadToSoldController extends Controller
 
         $track = Track::fromRequest($request);
         $agents = $this->list->viewableAgents($viewer);
-        $agentId = (int) ($request->query('agent') ?: $viewer->ownershipUserId());
+        $ownId = (int) $viewer->ownershipUserId();
+        $askedAgent = (int) $request->query('agent');
+        // An agent (someone who may see only their own list) who opens another agent's address is shown their own page, not a dead page.
+        // The other agent's id is never used, so nothing of theirs is read.
+        if ($askedAgent > 0 && $askedAgent !== $ownId && $agents->count() === 1 && $agents->contains('id', $ownId)) {
+            $askedAgent = 0;
+        }
+        $agentId = $askedAgent ?: $ownId;
         // A platform owner switched into an agency belongs to no agency, so their own id is never one of the agency's agents: with no
-        // ?agent= in the address they land on the first agent they may look at instead of a 404. A named ?agent= outside their breadth still 404s.
-        if (! $request->query('agent') && ! $agents->contains('id', $agentId) && $agents->isNotEmpty()) {
+        // ?agent= in the address they land on the first agent they may look at instead of a 404. A manager's named ?agent= outside their breadth still 404s.
+        if (! $askedAgent && ! $agents->contains('id', $agentId) && $agents->isNotEmpty()) {
             $agentId = (int) $agents->first()->id;
         }
         abort_unless($agents->contains('id', $agentId), 404);
         $viewingOwn = $agentId === (int) $viewer->ownershipUserId();
 
         $date = $this->list->resolveDate($request->query('date'));
-        $this->buildIfMissing($viewer, $agentId, $date, $viewingOwn, $track);
+        $built = $this->buildIfMissing($viewer, $agentId, $date, $viewingOwn, $track);
+        // A build pressed on this agent's page a moment ago (the button redirects here) counts as tried, so an empty result is "nothing matches", not "not built".
+        $pressed = (array) session('rts_build', []);
+        $pressedHere = (int) ($pressed['agent'] ?? 0) === $agentId;
+        $buildTried = $built['tried'] || $pressedHere;
+        $buildFailed = $built['failed'] || ($pressedHere && ! empty($pressed['failed']));
 
-        $data = $this->list->page($viewer, $agentId, [
+        // 'team' is the captures list for every agent the viewer may see (managers and admins); with one agent it is just the captures.
+        $isTeam = $request->query('view') === 'team' && $agents->count() > 1;
+        $isCaptures = $isTeam || in_array($request->query('view'), ['captures', 'team'], true);
+        $listFilters = [
             'view'      => $request->query('view'),
             'status'    => $request->query('status'),
             'selection' => $request->query('selection'),
@@ -62,9 +88,18 @@ class RoadToSoldController extends Controller
             'dir'       => $request->query('dir'),
             'date'      => $date->toDateString(),
             'page'      => (int) $request->query('page', 1),
-        ], $track);
+        ];
+        // The captures list (v2 phase 2) replaces the call list on the same page; it never builds the call list's rows.
+        $data = $isCaptures
+            ? ['rows' => new \Illuminate\Pagination\LengthAwarePaginator([], 0, CallListService::PER_PAGE), 'selections' => [], 'capped' => false,
+               'counts' => ['any' => 0, 'worked' => 0, 'target_items' => 0, 'added' => 0, 'added_worked' => 0]]
+            : $this->list->page($viewer, $agentId, $listFilters, $track);
 
         $agentUser = \App\Models\User::query()->find($agentId);
+        // Why the day is empty and the one thing to do about it (spec 10.5, empty states). Only when the call list itself has no rows at all.
+        $emptyState = (! $isCaptures && $agentUser && (int) ($data['counts']['any'] ?? 0) === 0)
+            ? app(EmptyListExplainer::class)->explain($viewer, $agentUser, $date, $track, $viewingOwn, $buildTried, $buildFailed)
+            : null;
         // The three feeds (buyers, enquiries, expiring mandates) are sales work; another track shows none.
         $feeds = ($agentUser && $track === 'sales') ? [
             'buyers'    => $this->feeds->buyerFollowUps($agentUser),
@@ -83,24 +118,128 @@ class RoadToSoldController extends Controller
             'needs_appointment' => $d->next_action === Def::ACTION_APPOINTMENT,
             'offers_valuation'  => $d->kind === Def::KIND_CONVERSATION
                 && ! in_array($d->next_action, [Def::ACTION_APPOINTMENT, Def::ACTION_NEVER_AGAIN], true),
+            // v4 (23.7 / 23.11): one vocabulary - forward moves, try-again and off-ramps - and the label as it reads for each way of making contact
+            'group'           => $d->group(),
+            'labels'          => collect(\App\Models\RoadToSold\RtsContactOutcome::CHANNELS)->map(fn ($l, $ch) => $d->labelFor($ch))->all(),
+            'owner_exempt'    => app(\App\Services\RoadToSold\OwnerStationService::class)->exempt($d),
         ])->values()->all();
 
-        return view('road-to-sold.index', $data + [
+        // v4 belt (spec 23): the tile row, the Start card and the manager's "Not started / Paused" panel
+        $activationSvc = app(\App\Services\RoadToSold\ActivationService::class);
+        $activation = $agentUser ? $activationSvc->state($agentUser, $track, $date) : null;
+        $beltBase = ($viewingOwn ? [] : ['agent' => $agentId]) + Track::params($track);
+        $belt = $agentUser && ($activation['state'] ?? '') !== \App\Services\RoadToSold\ActivationService::STATE_NOT_STARTED
+            ? app(\App\Services\RoadToSold\BeltService::class)->tiles($viewer, $agentUser, $track, $date, $beltBase) : [];
+        // 23.31 page layout v2: three belts, exactly one open - the one asked for (?belt=), else the one this user left open (per user), else the one with the most late items
+        $beltPrefs = app(\App\Services\RoadToSold\BeltPreferenceService::class);
+        $beltAsked = in_array((string) $request->query('belt'), \App\Services\RoadToSold\BeltPreferenceService::KEYS, true) ? (string) $request->query('belt') : null;
+        // a station list always shows its own belt open (a list under a closed strip would be lost, and a Get-stock list under the Sell tiles is wrong); that is not a choice, so it is not remembered
+        $stationBelt = \App\Services\RoadToSold\BeltsService::beltOfStation((string) $request->query('station', ''));
+        $beltSet = $belt !== [] && $agentUser
+            ? app(\App\Services\RoadToSold\BeltsService::class)->belts($agentUser, $belt, $beltBase, $beltAsked ?? $stationBelt, $beltPrefs->get($viewer), \Illuminate\Support\Carbon::instance($date))
+            : ['belts' => [], 'open' => 'get'];
+        if ($beltAsked !== null) {
+            $beltPrefs->remember($viewer, $beltAsked);
+        }
+        $canPauseOthers = $viewer->hasPermission('road_to_sold.pause_others');
+        $activationHistory = $agentUser ? $activationSvc->history($agentUser, $track) : [];
+        $roster = ($agents->count() > 1 && ($canPauseOthers || \App\Services\RoadToSold\Scope::level($viewer) !== 'own') && \App\Services\RoadToSold\ActivationService::tableReady())
+            ? $activationSvc->roster($agents, $track, $date) : [];
+
+        $progress = $agentUser ? $this->progress->forAgent($agentUser, $track) : ['started' => false, 'level' => null, 'tasks' => [], 'steps' => [], 'met' => 0, 'counted' => 0, 'points' => 0.0, 'points_label' => ''];
+        $bar = $agentUser ? $this->bar->forAgent($agentUser, $date, $track) : ['month' => $date->format('F Y'), 'steps' => []];
+        // one counter for the day: the "Property 2 of 5" on the card reads the Loaded tile's figure, not a count of its own
+        $loadedTile = collect($belt)->firstWhere('key', 'loaded');
+        $todaysOpen = $this->todaysOpen($viewer, $agentId, $date, $track, $isCaptures, $listFilters, $data, $agentUser);
+        $todaysOpen['loaded'] = $loadedTile ? (int) $loadedTile['count'] : null;
+        $todaysOpen['worked'] = (int) ($this->list->dayCounts($viewer, $agentId, $date, $track)['worked'] ?? 0);
+        $nextAction = $this->nextAction->resolve($progress, $feeds, $todaysOpen, $viewingOwn, $bar);
+        // a new agent (not started, paused, or waiting for the first list) has nothing to "do next": the card would only repeat month figures
+        $firstListAt = $activation['first_list_date'] ?? null;
+        $waiting = ($activation['state'] ?? '') === \App\Services\RoadToSold\ActivationService::STATE_NOT_STARTED
+            || ($activation['state'] ?? '') === \App\Services\RoadToSold\ActivationService::STATE_PAUSED
+            || ($firstListAt !== null && $firstListAt->copy()->startOfDay()->gt($date->copy()->startOfDay()) && (int) ($data['counts']['any'] ?? 0) === 0);
+        if ($waiting) {
+            $nextAction = null;
+        }
+        // one tour only: it starts once there is something to tour (after Start), never over the Start card
+        view()->share('tourHoldAutoStart', ($activation['state'] ?? '') === \App\Services\RoadToSold\ActivationService::STATE_NOT_STARTED);
+        $captureTasks = $viewingOwn && $agentUser ? $this->capture->capturableTasks($agentUser, $track) : collect();
+        $captures = null;
+        $teamTotals = [];
+        $captureFilters = [];
+        $captureChoices = ['tasks' => [], 'steps' => []];
+        if ($isCaptures) {
+            $captureFilters = [
+                'q' => (string) $request->query('q', ''), 'sort' => $request->query('sort'), 'dir' => $request->query('dir'),
+                'task' => $request->query('task'), 'step' => $request->query('step'), 'state' => $request->query('state'),
+                'source' => $request->query('source'), 'status' => $request->query('status'), 'from' => $request->query('from'),
+                'to' => $request->query('to'), 'page' => $request->query('page'), 'agent' => $request->query('agent_filter'),
+            ];
+            $captures = $this->completionList->page($viewer, $isTeam ? null : $agentId, $captureFilters, $track);
+            if ($isTeam) {
+                $from = $this->dayOr($request->query('from'), $date->copy()->startOfMonth()->toDateString());
+                $to = $this->dayOr($request->query('to'), $date->toDateString());
+                $teamTotals = $this->completionList->teamTotals($viewer, $agents->pluck('id')->all(), $from, $to);
+            }
+            $captureChoices = $this->completionList->filterChoices($agencyId, $track);
+        }
+
+        $blocks = $this->blocks($request, $viewer, $agentId, $agents, $viewingOwn, $track, $date, collect($data['rows']->items())->pluck('tracked_property_id')->all());
+        // a station list (23.24) offers Log contact on its rows too: the outcomes that fit and the owner gate are read for those properties as well
+        $rowTracked = array_merge(collect($data['rows']->items())->pluck('tracked_property_id')->all(), isset($blocks['stationList']) ? collect($blocks['stationList']['rows']->items())->pluck('tracked_property_id')->filter()->values()->all() : []);
+
+        return view('road-to-sold.index', $data + $blocks + [
+            'belt'           => $belt,
+            'belts'          => $beltSet['belts'],
+            'beltOpen'       => $beltSet['open'],
+            // 23.24 header: distinct records that moved on today (a record counts once however many stations it passed)
+            // 23.29: "To list 1 property: you need X from MIC" - walked back from Active through the belt's conversion rates (me / branch / agency)
+            'perListing'     => $belt !== [] && $agentUser ? app(\App\Services\RoadToSold\TargetsService::class)->perListingLine($agentUser, $date, $track) : null,
+            'movedAlong'     => $belt !== [] && $agentUser ? app(\App\Services\RoadToSold\ConveyorService::class)->movedAlong($agentUser, $track, $date) : 0,
+            'activation'     => $activation,
+            'roster'         => $roster,
+            'beltBase'       => $beltBase,
+            'canPauseOthers' => $canPauseOthers,
+            'activationHistory' => $activationHistory,
+            'activationReady' => \App\Services\RoadToSold\ActivationService::tableReady(),
+            'startRequired'  => $agentUser ? $activationSvc->required($agentUser, $track) : false,
             'feeds'          => $feeds,
-            'bar'            => $agentUser ? $this->bar->forAgent($agentUser, $date, $track) : ['month' => $date->format('F Y'), 'steps' => []],
+            'emptyState'     => $emptyState,
+            'progress'       => $progress,
+            'nextAction'     => $nextAction,
+            'captureTasks'   => $captureTasks,
+            'isCaptures'     => $isCaptures,
+            'isTeam'         => $isTeam,
+            'teamTotals'     => $teamTotals,
+            'captures'       => $captures,
+            'captureFilters' => $captureFilters,
+            'captureChoices' => $captureChoices,
+            'canManageRecipe' => $viewer->hasPermission('road_to_sold.manage_recipe'),
+            'levelStatus'    => $agentUser ? $this->levels->progress($agentUser, $track) : null,
+            'bar'            => $bar,
+            // the header's points: the day and the month from the one rule every points screen reads (BeltPoints::totals); the figure links to the agent's own "why did I get these points" log
+            'pointsTotals'   => $agentUser ? app(\App\Services\RoadToSold\BeltPoints::class)->totals($agentUser, $date) : null,
             'drilldownBase'  => route('road-to-sold.drilldown', [
                 'agent_id' => $agentId, 'period' => 'custom',
                 'start' => $date->copy()->startOfMonth()->toDateString(), 'end' => $date->toDateString(),
             ] + Track::params($track)),
             'track'          => $track,
             'outcomeChoices' => $outcomes,
+            // v4 (23.7a): per property, the outcomes that fit the record's station and owner (the pop-up shows only these)
+            'outcomeFit'     => $viewingOwn && $agentUser ? $this->outcomeFit($agentUser, $rowTracked, $track) : [],
+            // v4 (23.6 / 23.7): which rows are still waiting for the owner to be found (property id => what is missing), and the channel this agent used last
+            'ownerBlocked'   => $viewingOwn && $agentUser ? app(\App\Services\RoadToSold\OwnerStationService::class)->blockedMany($agentUser, $rowTracked) : [],
+            'lastChannel'    => ($agentUser && \App\Models\RoadToSold\RtsContactOutcome::hasChannelColumn())
+                ? (string) (\App\Models\RoadToSold\RtsContactOutcome::query()->where('track', $track)->where('user_id', $agentUser->id)->whereNotNull('channel')->orderByDesc('id')->value('channel') ?: '')
+                : '',
             'history'        => $this->outcomes->historyForPage($viewer, collect($data['rows']->items())->pluck('tracked_property_id')->all(), $track),
             'agents'         => $agents,
             'agentId'        => $agentId,
             'viewingOwn'     => $viewingOwn,
             'date'           => $date,
             'filters'        => [
-                'view'      => in_array($request->query('view'), CallListService::VIEWS, true) ? $request->query('view') : 'today',
+                'view'      => $isTeam ? 'team' : ($isCaptures ? 'captures' : (in_array($request->query('view'), CallListService::VIEWS, true) ? $request->query('view') : 'today')),
                 'status'    => in_array($request->query('status'), CallListService::STATUSES, true) ? $request->query('status') : 'open',
                 'selection' => (string) $request->query('selection', ''),
                 'q'         => (string) $request->query('q', ''),
@@ -115,11 +254,200 @@ class RoadToSoldController extends Controller
         ]);
     }
 
-    /** The overnight build normally has today's list ready; if it is missing, build it when the page opens. */
-    private function buildIfMissing($viewer, int $agentId, $date, bool $viewingOwn, string $track): void
+    /** A date the agent typed, or the default when it is empty or not a date. */
+    private function dayOr(mixed $value, string $default): string
+    {
+        try {
+            return $value ? \Carbon\Carbon::parse((string) $value)->toDateString() : $default;
+        } catch (\Throwable) {
+            return $default;
+        }
+    }
+
+    /**
+     * How many properties on today's list are still open and the first of them - what "do this next" calls. Taken from the page's own
+     * rows when it already shows the open list in order; otherwise one more read, so the card never depends on a filter the agent set.
+     *
+     * @return array{open:int,first:?array}
+     */
+    private function todaysOpen($viewer, int $agentId, $date, string $track, bool $isCaptures, array $f, array $data, ?\App\Models\User $agentUser = null): array
+    {
+        if ($isCaptures || ! $date->isToday()) {
+            return ['open' => 0, 'first' => null];
+        }
+        $counts = $this->list->dayCounts($viewer, $agentId, $date, $track);
+        $open = max(0, $counts['target_items'] - $counts['worked']) + max(0, $counts['added'] - $counts['added_worked'])
+            + max(0, ($counts['followups'] ?? 0) - ($counts['followups_worked'] ?? 0));
+        if ($open === 0) {
+            return ['open' => 0, 'first' => null];
+        }
+        $default = in_array($f['view'] ?? 'today', [null, '', 'today'], true) && in_array($f['status'] ?? 'open', [null, '', 'open'], true)
+            && ($f['q'] ?? '') === '' && ($f['selection'] ?? '') === '' && in_array($f['sort'] ?? 'order', [null, '', 'order'], true) && ($f['dir'] ?? 'asc') !== 'desc';
+        $rows = $default && (int) ($f['page'] ?? 1) === 1
+            ? $data['rows']
+            : $this->list->page($viewer, $agentId, ['view' => 'today', 'status' => 'open', 'date' => $date->toDateString(), 'page' => 1], $track)['rows'];
+        $first = collect($rows->items())->firstWhere('status', 'open');
+
+        if (! $first) {
+            return ['open' => $open, 'first' => null];
+        }
+        $tp = (int) $first['tracked_property_id'];
+        $card = [
+            'tracked_property_id' => $first['tracked_property_id'], 'list_item_id' => $first['list_item_id'], 'address' => $first['street'] !== '' ? $first['street'] : $first['address'],
+            'owner_missing' => false, 'find_owner' => null,
+        ];
+        // v4 gate (23.6): until the owner is found the card says "Find the owner of ..." with the one button that does it - never "Call" with a button that is refused
+        $blocked = $agentUser && (int) $viewer->ownershipUserId() === $agentId
+            ? (app(\App\Services\RoadToSold\OwnerStationService::class)->blockedMany($agentUser, [$tp])[$tp] ?? null) : null;
+        if ($blocked) {
+            $card['owner_missing'] = true;
+            $prospectId = RtsProspect::query()->visibleTo($viewer)->where('rts_prospects.track', $track)->where('rts_prospects.user_id', $agentId)->where('rts_prospects.tracked_property_id', $tp)->value('rts_prospects.id');
+            $hasCard = isset(app(\App\Services\Prospecting\MicWork\PitchCardResolver::class)->trackedWithCards((int) ($viewer->effectiveAgencyId() ?: 0), collect([$tp]))[$tp]);
+            $card['find_owner'] = $prospectId
+                ? ['kind' => 'step', 'url' => route('road-to-sold.prospects.step', [(int) $prospectId, 'find_owner']), 'tracked' => $hasCard ? $tp : '']
+                : (! empty($first['find_owner_url']) ? ['kind' => 'link', 'url' => $first['find_owner_url'], 'tracked' => ''] : null);
+        }
+
+        return ['open' => $open, 'first' => $card];
+    }
+
+    /**
+     * Road to Sold v3 (spec 22.2-22.4, 22.11): the three blocks - Today's intake, My prospects, Parked - and My progress. Only the block that is
+     * open is worked out (the others show a count), so the page stays quick. A manager looking at an agent sees the same blocks read-only
+     * with the per-stage counts and the on-track bar (R9).
+     *
+     * @return array<string,mixed>
+     */
+    private function blocks(Request $request, $viewer, int $agentId, $agents, bool $viewingOwn, string $track, $date, array $intakeTrackedIds = []): array
+    {
+        // a tile click is the home list filtered to one station (?station=key): the list, the filters and the tabs stay where they are
+        $block = in_array($request->query('block'), ['intake', 'prospects', 'parked', 'progress', 'station'], true) ? (string) $request->query('block') : ((string) $request->query('station', '') !== '' ? 'station' : 'intake');
+        $own = fn () => RtsProspect::query()->visibleTo($viewer)->where('rts_prospects.track', $track)->where('rts_prospects.user_id', $agentId);
+        $out = [
+            'block' => $block,
+            'blockCounts' => ['prospects' => $own()->activeStage()->count(), 'parked' => $own()->parked()->count()],
+            'canWriteProspects' => $viewingOwn,
+            'canRelease' => $viewer->hasPermission('road_to_sold.release_prospects'),
+        ];
+
+        // intake rows: the prospect behind each row (its step button opens the pop-up through the prospect)
+        $out['intakeProspects'] = $block === 'intake' && $intakeTrackedIds !== []
+            ? $own()->whereIn('rts_prospects.tracked_property_id', $intakeTrackedIds)->pluck('rts_prospects.id', 'rts_prospects.tracked_property_id')->map(fn ($v) => (int) $v)->all()
+            : [];
+
+        // Belt v2: the stage of each intake row's record - the row's ONE button is always the record's own stage button, whichever list the row is on
+        $out['intakeStages'] = $block === 'intake' && $intakeTrackedIds !== []
+            ? $own()->whereIn('rts_prospects.tracked_property_id', $intakeTrackedIds)->pluck('rts_prospects.stage', 'rts_prospects.tracked_property_id')->map(fn ($v) => (string) $v)->all()
+            : [];
+
+        // v4 (23.14): a row the agent has already started (its record is past Stock loaded) cannot be swapped, so it does not offer Swap at all
+        $out['startedTracked'] = $block === 'intake' && $intakeTrackedIds !== []
+            ? $own()->whereIn('rts_prospects.tracked_property_id', $intakeTrackedIds)->where('rts_prospects.stage', '!=', \App\Services\RoadToSold\ProspectStages::FOUND)
+                ->pluck('rts_prospects.tracked_property_id')->map(fn ($v) => (int) $v)->all()
+            : [];
+
+        $steps = app(\App\Services\RoadToSold\ProspectStepService::class);
+        if ($block === 'prospects') {
+            // the production line (22.24): one agent, the agent's whole branch, or everyone the viewer may see (sums, read only)
+            $me = $agents->firstWhere('id', $agentId);
+            $branchId = $me && $me->branch_id && $agents->where('branch_id', $me->branch_id)->count() > 1 ? (int) $me->branch_id : null;
+            $whoOptions = ['agent' => null];
+            if ($branchId !== null) {
+                $whoOptions['branch'] = (string) (\App\Models\Branch::query()->withoutGlobalScopes()->whereKey($branchId)->value('name') ?: 'Branch');
+            }
+            if ($agents->count() > 1 && \App\Services\RoadToSold\Scope::level($viewer) === 'all') {
+                $whoOptions['agency'] = 'Whole agency';
+            }
+            $who = (string) $request->query('p_who', 'agent');
+            $who = array_key_exists($who, $whoOptions) ? $who : 'agent';
+            $lineAgent = $who === 'agent' ? $agentId : null;
+            $lineBranch = $who === 'branch' ? $branchId : null;
+            $f = [
+                'q' => (string) $request->query('p_q', ''), 'stage' => (string) $request->query('p_stage', ''), 'due' => (string) $request->query('p_due', ''),
+                'suburb' => (string) $request->query('p_suburb', ''), 'sort' => (string) $request->query('p_sort', 'due'), 'dir' => (string) $request->query('p_dir', 'asc'),
+            ];
+            $pipeline = app(\App\Services\RoadToSold\PipelineLineService::class);
+            $from = $date->copy()->startOfMonth();
+            $flowPhase = (string) $request->query('p_flow_phase', '');
+            $flowKind = (string) $request->query('p_flow', '');
+            $flowView = in_array($flowKind, ['moved', 'out'], true) && \App\Services\RoadToSold\ProspectStages::phaseIndex($flowPhase) >= 0
+                ? ['kind' => $flowKind, 'phase' => $flowPhase, 'label' => \App\Services\RoadToSold\ProspectStages::PHASES[$flowPhase]['label'],
+                   'rows' => $pipeline->flowList($viewer, $lineAgent, $lineBranch, $flowPhase, $flowKind, $from, $date, $track)]
+                : null;
+            $line = app(\App\Services\RoadToSold\ProspectListService::class)->line($viewer, $lineAgent, $f, $track, $lineBranch);
+            $chips = $line['rows'];
+            $owners = $steps->ownersOf(array_column($chips, 'tracked_property_id'));
+            $journeys = $pipeline->journeys(array_column($chips, 'id'));
+            foreach ($chips as &$c) {
+                $c['owner_contact_id'] = $owners[$c['tracked_property_id']] ?? null;
+                $c['primary'] = $steps->primary($c, $c['owner_contact_id'] !== null);
+                $c['journey'] = $journeys[$c['id']] ?? [];
+                $c['due_short'] = match ($c['due_state']) {
+                    'overdue', 'later' => \Illuminate\Support\Carbon::parse($c['next_action_at'])->format('D j M'),
+                    'today' => 'Today',
+                    default => 'No date',
+                };
+                $c['due_compact'] = match ($c['due_state']) {
+                    'overdue', 'later' => \Illuminate\Support\Carbon::parse($c['next_action_at'])->format('D j'),
+                    'today' => 'Today',
+                    default => 'No date',
+                };
+                $c['due_words'] = match ($c['due_state']) {
+                    'overdue' => 'Overdue - was due ' . $c['due_short'],
+                    'today' => 'Due today',
+                    'later' => 'Due ' . $c['due_short'],
+                    default => 'No date set',
+                };
+            }
+            unset($c);
+            $out += [
+                'lineWho' => $who, 'lineWhoOptions' => $whoOptions,
+                'linePhases' => $pipeline->phases($viewer, $lineAgent, $lineBranch, $from, $date, $track),
+                'lineChips' => $chips, 'lineTotal' => $line['total'], 'lineLimited' => $line['limited'], 'flowView' => $flowView,
+                'prospectFilters' => $f,
+                'suburbChoices' => $own()->activeStage()->join('tracked_properties as sp', 'sp.id', '=', 'rts_prospects.tracked_property_id')
+                    ->whereNotNull('sp.suburb')->where('sp.suburb', '<>', '')->distinct()->orderBy('sp.suburb')->pluck('sp.suburb')->all(),
+            ];
+            $out['canWriteProspects'] = $viewingOwn && $who === 'agent';
+        } elseif ($block === 'station') {
+            // a belt tile's list (spec 23.13): the stations that have no prospect stage yet
+            $stationKey = (string) $request->query('station', '');
+            $otherBelt = \App\Services\RoadToSold\BeltsService::station($stationKey);   // a Maintain / Sell station (23.31): its own list
+            abort_if($otherBelt === null && \App\Services\RoadToSold\BeltService::station($stationKey) === null, 404);
+            // 23.24: the list opens late-first (oldest due after), filtered by line 1 / 2 / 3 of the tile that was clicked (?filter=)
+            $sf = ['q' => (string) $request->query('s_q', ''), 'sort' => (string) $request->query('s_sort', 'due'), 'dir' => (string) $request->query('s_dir', 'asc'), 'page' => (int) $request->query('page', 1),
+                'filter' => (string) $request->query('filter', ''), 'owed' => (bool) $request->query('owed'), 'date' => $date->toDateString()];
+            $stationAgent = \App\Models\User::query()->withoutGlobalScopes()->where('agency_id', (int) ($viewer->effectiveAgencyId() ?: 0))->findOrFail($agentId);
+            $out += ['stationKey' => $stationKey, 'stationFilters' => $sf] + ['stationList' => $otherBelt !== null
+                ? app(\App\Services\RoadToSold\BeltsService::class)->list($stationAgent, $stationKey, $sf)
+                : app(\App\Services\RoadToSold\BeltService::class)->list($stationAgent, $stationKey, $sf, $track)];
+        } elseif ($block === 'parked') {
+            $everyone = $request->query('who') === 'all' && $agents->count() > 1;
+            $f = [
+                'q' => (string) $request->query('k_q', ''), 'reason' => (string) $request->query('k_reason', ''), 'revisit' => (string) $request->query('k_revisit', ''),
+                'sort' => (string) $request->query('k_sort', 'revisit'), 'dir' => (string) $request->query('k_dir', 'asc'), 'page' => (int) $request->query('page', 1),
+            ];
+            $list = app(\App\Services\RoadToSold\ProspectListService::class)->parked($viewer, $everyone ? null : $agentId, $f, $track);
+            $out += ['parkedRows' => $list['rows'], 'parkedByReason' => $list['by_reason'], 'parkedFilters' => $f, 'parkedEveryone' => $everyone];
+        }
+        $out['parkReasons'] = $block === 'prospects' && $viewingOwn
+            ? app(\App\Services\RoadToSold\ParkReasonService::class)->choices((int) ($viewer->effectiveAgencyId() ?: 0), $track)
+                ->map(fn ($r) => ['key' => $r->key, 'label' => $r->label, 'days' => (int) $r->default_revisit_days, 'station' => \App\Models\RoadToSold\RtsParkReason::hasStationColumns() ? $r->station : null])->values()->all()
+            : [];
+
+        return $out;
+    }
+
+    /**
+     * The overnight build normally has today's list ready; if it is missing, build it when the agent opens their own page.
+     * Nobody else's page builds: a manager gets the "Build" button instead (buildList).
+     *
+     * @return array{tried:bool,failed:bool} tried = a build was attempted now (or the list already exists); failed = it threw
+     */
+    private function buildIfMissing($viewer, int $agentId, $date, bool $viewingOwn, string $track): array
     {
         if (! $viewingOwn || ! $date->isToday()) {
-            return;
+            return ['tried' => false, 'failed' => false];
         }
         try {
             $has = RtsListItem::query()->visibleTo($viewer)->forDay($agentId, $date, $track)->exists();
@@ -130,10 +458,72 @@ class RoadToSoldController extends Controller
             // Never a silently empty page: log it, and tell the agent their list could not be built.
             report($e);
             session()->now('rts_error', 'We could not build your call list just now, so this list may be empty or short. Please try again in a minute or tell your manager.');
+
+            return ['tried' => true, 'failed' => true];
         }
+
+        return ['tried' => true, 'failed' => false];
     }
 
-    public function recordOutcome(Request $request): RedirectResponse
+    /**
+     * "Build my list" / "Build <agent>'s list" - the empty-state button. Runs the SAME builder the overnight job and the page use
+     * (idempotent: it tops the day up to the target and adds nothing the second time). Own list, or an agent the viewer may look at
+     * (the same breadth the page uses; anyone else is a 404). Today only.
+     */
+    public function buildList(Request $request): RedirectResponse
+    {
+        $viewer = $request->user();
+        abort_if((int) ($viewer->effectiveAgencyId() ?: 0) <= 0, 403, 'Switch into an agency to build a list.');
+
+        $track = Track::fromRequest($request);
+        $data = $request->validate(['agent' => ['nullable', 'integer', 'min:1']]);
+        $agentId = (int) ($data['agent'] ?? $viewer->ownershipUserId());
+        abort_unless($this->list->viewableAgents($viewer)->contains('id', $agentId), 404);
+        $agent = \App\Models\User::query()->findOrFail($agentId);
+        $own = $agentId === (int) $viewer->ownershipUserId();
+        $back = redirect()->route('road-to-sold.index', ($own ? [] : ['agent' => $agentId]) + Track::params($track));
+
+        try {
+            $items = app(ListBuilderService::class)->buildFor($agent, now()->startOfDay(), $track);
+        } catch (Throwable $e) {
+            report($e);
+
+            return $back->with('rts_build', ['agent' => $agentId, 'failed' => true]);
+        }
+
+        $n = $items->count();
+        $who = $own ? 'your' : trim(explode(' ', (string) $agent->name)[0]) . "'s";
+
+        return $back->with('rts_build', ['agent' => $agentId, 'failed' => false])
+            ->with($n > 0 ? ['status' => "Built {$who} list for today: {$n} " . ($n === 1 ? 'property.' : 'properties.')] : []);
+    }
+
+    /**
+     * Outcome ids that fit each listed property for this agent: the record's station (their open belt record, else none) and whether the owner is found.
+     *
+     * @param  int[]  $trackedIds
+     * @return array<int,int[]> tracked property id => outcome definition ids
+     */
+    private function outcomeFit(\App\Models\User $agent, array $trackedIds, string $track): array
+    {
+        $agencyId = (int) ($agent->effectiveAgencyId() ?: 0);
+        $ids = array_values(array_unique(array_filter(array_map('intval', $trackedIds))));
+        if ($agencyId <= 0 || $ids === []) {
+            return [];
+        }
+        $stages = \App\Models\RoadToSold\RtsProspect::withoutGlobalScopes()->where('agency_id', $agencyId)->where('track', $track)->whereIn('tracked_property_id', $ids)
+            ->where('user_id', (int) $agent->ownershipUserId())->whereNull('closed_at')->whereNull('released_at')->whereNull('deleted_at')->pluck('stage', 'tracked_property_id');
+        $blocked = app(\App\Services\RoadToSold\OwnerStationService::class)->blockedMany($agent, $ids);
+        $out = [];
+        foreach ($ids as $tp) {
+            $ownerFound = ! isset($blocked[$tp]);
+            $out[$tp] = $this->definitions->fitting($agencyId, $track, $stages[$tp] ?? null, $ownerFound)->pluck('id')->map(fn ($v) => (int) $v)->all();
+        }
+
+        return $out;
+    }
+
+    public function recordOutcome(Request $request): RedirectResponse|\Illuminate\Http\JsonResponse
     {
         $user = $request->user();
         $data = $request->validate([
@@ -144,11 +534,17 @@ class RoadToSoldController extends Controller
             'next_action_at'        => ['nullable', 'date'],
             'valuation_booked'      => ['nullable', 'boolean'],
             'appointment_at'        => ['nullable', 'date'],
+            'follow_up_months'      => ['nullable', 'integer', 'min:1', 'max:60'],
+            'channel'               => ['nullable', 'in:' . implode(',', array_keys(\App\Models\RoadToSold\RtsContactOutcome::CHANNELS))],
+            'occurred_at'           => ['nullable', 'date', 'before_or_equal:now'],
         ], [
+            'channel.in'                     => 'Pick how you contacted them: phone, WhatsApp, email or in person.',
             'tracked_property_id.required'   => 'Pick the property again.',
             'outcome_definition_id.required' => 'Pick an outcome.',
             'next_action_at.date'            => 'We could not read that date. Pick it again.',
-            'appointment_at.date'            => 'We could not read the evaluation date and time. Pick it again.',
+            'appointment_at.date'            => 'We could not read the appointment date and time. Pick it again.',
+            'occurred_at.date'               => 'We could not read the time of the call. Pick it again.',
+            'occurred_at.before_or_equal'    => 'The time cannot be in the future. Use now, or an earlier time.',
             'note.max'                       => 'Keep the note under 5000 characters.',
         ]);
 
@@ -157,6 +553,9 @@ class RoadToSoldController extends Controller
             'next_action_at'   => $data['next_action_at'] ?? null,
             'valuation_booked' => $request->boolean('valuation_booked'),
             'appointment_at'   => $data['appointment_at'] ?? null,
+            'follow_up_months' => $data['follow_up_months'] ?? null,
+            'channel'          => $data['channel'] ?? null,
+            'occurred_at'      => $data['occurred_at'] ?? null,
         ];
 
         if (! empty($data['list_item_id'])) {
@@ -170,15 +569,24 @@ class RoadToSoldController extends Controller
         try {
             $outcome = $this->outcomes->record($user, (int) $data['tracked_property_id'], (int) $data['outcome_definition_id'], $input, Track::fromRequest($request));
         } catch (RoadToSoldException $e) {
+            // the pitch popup's Phone call tab posts here too (road-to-sold.md 23.23): the same route, answered as JSON
+            if ($request->expectsJson()) {
+                return response()->json(['ok' => false, 'message' => $e->getMessage()], 422);
+            }
+
             return back()->withInput()->with('rts_error', $e->getMessage())
                 ->with('rts_reopen', ['tp' => (int) $data['tracked_property_id'], 'item' => $data['list_item_id'] ?? null]);
+        }
+
+        if ($request->expectsJson()) {
+            return response()->json(['ok' => true, 'message' => $this->doneMessage($outcome), 'outcome' => $outcome->outcome_label]);
         }
 
         return back()->with('status', $this->doneMessage($outcome));
     }
 
     /** "Add to my day" - extra properties from one selection, reported apart from the target (lane 2 builds them). */
-    public function addToDay(Request $request): RedirectResponse
+    public function addToDay(Request $request): \Symfony\Component\HttpFoundation\Response
     {
         $max = \App\Services\RoadToSold\SettingsService::forUser($request->user(), Track::fromRequest($request))->addToDayMax();
         $data = $request->validate([
@@ -192,19 +600,135 @@ class RoadToSoldController extends Controller
             'count.max'          => "You can add up to {$max} at a time.",
         ]);
 
+        $track = Track::fromRequest($request);
         try {
-            $added = app(ListBuilderService::class)->addToDay($request->user(), $data['selection'], (int) $data['count'], null, Track::fromRequest($request));
+            $added = app(ListBuilderService::class)->addToDay($request->user(), $data['selection'], (int) $data['count'], null, $track);
         } catch (\InvalidArgumentException $e) {
-            return back()->with('rts_error', $e->getMessage());
+            return $this->addToDayReply($request, false, $e->getMessage());
         } catch (Throwable $e) {
             report($e);
 
-            return back()->with('rts_error', 'We could not add those just now. Try again, or pick a smaller number.');
+            return $this->addToDayReply($request, false, 'We could not add those just now. Try again, or pick a smaller number.');
         }
 
+        // Always an answer, right beside the button (the old flash sat at the top of the page, out of sight): what was added, or why nothing was.
         $n = is_countable($added) ? count($added) : 0;
+        if ($n > 0) {
+            $names = collect($added)->map(fn ($i) => $this->addedAddress($i))->filter()->values();
+            $msg = 'Added: ' . ($names->isEmpty() ? "{$n} " . ($n === 1 ? 'property' : 'properties') : $names->take(2)->implode(', ') . ($names->count() > 2 ? ' and ' . ($names->count() - 2) . ' more' : ''));
 
-        return back()->with('status', $n > 0 ? "Added {$n} to your day." : 'Nothing more is available from that selection right now.');
+            return $this->addToDayReply($request, true, $msg, $n, 'status');
+        }
+        $label = app(CallListService::class)->selectionLabel($data['selection']);
+        $counts = app(CallListService::class)->dayCounts($request->user(), (int) app(ListBuilderService::class)->listOwner($request->user())->id, now()->startOfDay(), $track);
+        $target = app(\App\Services\RoadToSold\WorkdayService::class)->targetFor($request->user(), now(), $track);
+        $full = $target > 0 && (int) $counts['target_items'] >= $target;
+        $msg = ($full ? "Your day is full ({$counts['target_items']} of {$target}). " : '') . "Nothing more is available from {$label} right now.";
+
+        return $this->addToDayReply($request, false, $msg, 0, 'status');
+    }
+
+    /** The same answer for the page's in-place fetch (JSON) and for a plain form post (a flash on the reloaded page). */
+    private function addToDayReply(Request $request, bool $ok, string $message, int $added = 0, string $flash = 'rts_error')
+    {
+        if ($request->expectsJson()) {
+            return response()->json(['ok' => $ok, 'message' => $message, 'added' => $added]);
+        }
+
+        return back()->with($flash, $message);
+    }
+
+    /** The address of a row just added to the day. */
+    private function addedAddress(RtsListItem $item): ?string
+    {
+        $tp = $item->tracked_property_id ? \App\Models\Prospecting\TrackedProperty::query()->withoutGlobalScopes()->find($item->tracked_property_id) : null;
+        $address = $tp ? $tp->displayAddress() : null;
+        if (($address === null || $address === '(no address)') && $item->prospecting_listing_id) {
+            $address = \Illuminate\Support\Facades\DB::table('prospecting_listings')->where('id', $item->prospecting_listing_id)->value('address');
+        }
+
+        return $address && $address !== '(no address)' ? (string) $address : null;
+    }
+
+    /** "Swap" on a loaded property (23.14): it leaves the list with the reason, the property is released, and the next candidate takes its place. Own list only. */
+    /**
+     * "Find owner" on a loaded row (23.30.3): the first action on the row is the claim - out of the Market Intelligence pool, hold clock started, record moved
+     * Loaded -> Claimed in one transaction. The button is built on the screen (cc4); this is the action behind it.
+     */
+    public function claimLoaded(Request $request, int $item)
+    {
+        $row = RtsListItem::query()->visibleTo($request->user())->findOrFail($item);
+
+        try {
+            $r = app(\App\Services\RoadToSold\LoadedRowClaimService::class)->claim($request->user(), (int) $row->id);
+        } catch (\InvalidArgumentException $e) {
+            return $request->expectsJson() ? response()->json(['ok' => false, 'message' => $e->getMessage()], 422) : back()->with('rts_error', $e->getMessage());
+        } catch (Throwable $e) {
+            report($e);
+            $msg = 'We could not claim that just now. Try again.';
+
+            return $request->expectsJson() ? response()->json(['ok' => false, 'message' => $msg], 500) : back()->with('rts_error', $msg);
+        }
+
+        return $request->expectsJson() ? response()->json(['ok' => true, 'message' => $r['message'], 'already' => $r['already'], 'stage' => $r['prospect']?->stage]) : back()->with('rts_ok', $r['message']);
+    }
+
+    public function swap(Request $request, int $item): RedirectResponse|\Illuminate\Http\JsonResponse
+    {
+        // v4 (road-to-sold.md 23.11): a swap is the Stock loaded off-ramp - the agency's own reason for that station (wrong area, no address, I already know it, other),
+        // plus a few words when it is "other". The old free-text box still works (the words become an "other" with that note), so an old tab or the API is not broken.
+        $data = $request->validate(['reason_key' => ['nullable', 'string', 'max:40'], 'reason' => ['nullable', 'string', 'max:200'], 'note' => ['nullable', 'string', 'max:200']], [
+            'reason.max' => 'Keep the reason under 200 characters.',
+            'note.max'   => 'Keep the note under 200 characters.',
+        ]);
+        $agencyId = (int) ($request->user()->effectiveAgencyId() ?: 0);
+        // Belt v2: ONE list - the step 1 reasons the Stops here control shows (the swap and the popup's Property step share it); before the step columns exist, the Stock loaded station list
+        $reasonSvc = app(\App\Services\RoadToSold\ParkReasonService::class);
+        $stockReasons = \App\Models\RoadToSold\RtsParkReason::hasStepColumns() ? $reasonSvc->forStep($agencyId, 'sales', 1) : $reasonSvc->choices($agencyId, 'sales', 'found')->filter(fn ($r) => $r->station === 'found' || $r->station === null);
+        $fail = fn (string $m) => $request->expectsJson() ? response()->json(['ok' => false, 'message' => $m], 422) : back()->with('rts_error', $m);
+        $key = (string) ($data['reason_key'] ?? '');
+        $note = trim((string) ($data['note'] ?? ''));
+        if ($key !== '') {
+            $picked = $stockReasons->firstWhere('key', $key);
+            if (! $picked) {
+                return $fail('Pick one of the reasons shown for swapping it.');
+            }
+            if (! empty($picked->is_other) || $key === 'not_for_me_other') {
+                if (mb_strlen($note) < 3) {
+                    return $fail('Say in a few words why you are swapping it.');
+                }
+            }
+            $label = (string) $picked->label;
+        } else {
+            $text = trim(preg_replace('/\s+/u', ' ', (string) ($data['reason'] ?? '')) ?? '');
+            if (mb_strlen($text) < 3) {
+                throw \Illuminate\Validation\ValidationException::withMessages(['reason' => 'Say why you are swapping it (a few words).']);
+            }
+            $key = 'not_for_me_other';
+            $label = (string) ($stockReasons->firstWhere('key', $key)->label ?? 'Not for me - other');
+            $note = $text;
+        }
+        $reasonText = $label . ($note !== '' ? ': ' . $note : '');
+        $row = RtsListItem::query()->visibleTo($request->user())->findOrFail($item);
+
+        try {
+            $r = app(ListBuilderService::class)->swap($request->user(), (int) $row->id, $reasonText, $key, $label, $note !== '' ? $note : null);
+        } catch (\InvalidArgumentException $e) {
+            return $fail($e->getMessage());
+        } catch (Throwable $e) {
+            report($e);
+
+            return $fail('We could not swap that just now. Try again.');
+        }
+
+        $message = $r['replacement'] ? 'Swapped. Next up: ' . ($r['replacement']->reason ?: 'the next property') . '.' : 'Swapped. Nothing else is available to take its place right now.';
+        if ($request->expectsJson()) {
+            $request->session()->flash('status', $message);
+
+            return response()->json(['ok' => true, 'message' => $message]);
+        }
+
+        return back()->with('status', $message);
     }
 
     private function doneMessage($o): string
@@ -214,7 +738,7 @@ class RoadToSoldController extends Controller
             return $m . ' That is ' . $o->no_answer_streak . ' no-answers in a row, so it comes off your list and goes on the manager\'s report.';
         }
         if ($o->valuation_booked) {
-            return $m . ' The evaluation is in your calendar.';
+            return $m . ' The appointment is in your calendar.';
         }
         if ($o->next_action_at) {
             return $m . ' It comes back on ' . $o->next_action_at->format('j M Y') . '.';

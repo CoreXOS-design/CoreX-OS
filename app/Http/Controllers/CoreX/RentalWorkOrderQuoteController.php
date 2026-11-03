@@ -83,7 +83,13 @@ class RentalWorkOrderQuoteController extends Controller
             }
         }
 
+        // section 31.4 - a quote that is now the selected one and sits inside the owner's repair limit is authorised at once (the go-ahead follows by itself)
+        $advance = ($selected && $mayChoose) ? app(\App\Services\Rentals\RentalQuoteAutoAdvanceService::class)->afterQuote($rentalWorkOrder, null, $request->user()) : null;
+
         $message = $this->capturedMessage($rentalWorkOrder->fresh(), $selected);
+        if ($advance && $advance['authorised']) {
+            $message .= ' It is inside the owner\'s repair limit, so it has been authorised and the go-ahead is on its way.';
+        }
         if (! $mayChoose) {
             $message = 'Quote captured. ' . \App\Services\Rentals\RentalWorkOrderApprovalRules::ASK_MANAGER . ' - choosing a quote and sending it to the owner is theirs to do.';
         }
@@ -191,8 +197,9 @@ class RentalWorkOrderQuoteController extends Controller
         } catch (\LogicException $e) {
             return back()->withErrors(['quote' => $e->getMessage()]);
         }
+        $advance = app(\App\Services\Rentals\RentalQuoteAutoAdvanceService::class)->afterQuote($rentalWorkOrder, null, $request->user());
 
-        return redirect()->route('corex.rental-work-orders.show', $rentalWorkOrder)->with('success', 'Quote selected.');
+        return redirect()->route('corex.rental-work-orders.show', $rentalWorkOrder)->with('success', 'Quote selected.' . ($advance['authorised'] ? ' It is inside the owner\'s repair limit, so it has been authorised and the go-ahead is on its way.' : ''));
     }
 
     public function destroy(Request $request, RentalWorkOrder $rentalWorkOrder, RentalWorkOrderQuote $quote): RedirectResponse

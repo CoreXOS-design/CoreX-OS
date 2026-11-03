@@ -126,8 +126,8 @@ final class FaultScreenSimplifiedTest extends TestCase
         // reported / under review
         $html = $this->page($f);
         $this->assertStringContainsString('data-land-on-next data-stage="prepare" data-next="prepare"', $html);
-        $this->assertStringContainsString('Send to the owner to authorise', $html);
-        $this->assertStringContainsString('data-wo-click="[data-send-to-owner-to-authorise]"', $html, 'the bar button presses the real button; the confirm dialog still asks');
+        $this->assertMatchesRegularExpression('/<button type="submit" form="owner-version-form" formaction="[^"]*send-to-owner-to-authorise[^"]*" class="corex-btn-primary text-xs" data-next-button>Send to owner<\/button>/', $html, 'section 31: the bar button IS the send - it submits "What the owner will see" to the send route');
+        $this->assertStringNotContainsString('data-wo-click', $html, 'nothing is pressed for anyone');
         $this->assertStringContainsString('Reported', $html);
         $this->assertSame(1, preg_match_all('/<[^>]*\sdata-land-on-next[\s>]/', $html), 'the page lands on the bar, and only on the bar');
 
@@ -162,7 +162,7 @@ final class FaultScreenSimplifiedTest extends TestCase
         $out = $screen->build($f, $c);
         $this->assertSame('prepare', $out['stage']);
         $this->assertNotNull($out['next']['button']);
-        $this->assertSame('Send to the owner to authorise', $out['next']['button']['label']);
+        $this->assertSame('Send to owner', $out['next']['button']['label']);
 
         $f->forceFill(['status' => RentalFaultReport::STATUS_RESOLVED, 'resolved_at' => now(), 'outcome' => 'repaired'])->save();
         $closed = $screen->build($f->fresh(), $c);

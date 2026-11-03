@@ -1608,10 +1608,10 @@
                                     <div class="text-xs font-medium mt-0.5" style="color:var(--text-primary);">{{ $match->category }}</div>
                                 </div>
                                 @endif
-                                @if($match->property_type)
+                                @if($match->propertyTypeLabels())
                                 <div>
-                                    <span class="text-[10px] font-semibold uppercase tracking-wider" style="color:var(--text-muted);">Type</span>
-                                    <div class="text-xs font-medium mt-0.5" style="color:var(--text-primary);">{{ $match->property_type }}</div>
+                                    <span class="text-[10px] font-semibold uppercase tracking-wider" style="color:var(--text-muted);">{{ count($match->propertyTypeLabels()) > 1 ? 'Types' : 'Type' }}</span>
+                                    <div class="text-xs font-medium mt-0.5" style="color:var(--text-primary);">{{ implode(' · ', $match->propertyTypeLabels()) }}</div>
                                 </div>
                                 @endif
                                 @foreach([[$match->beds_min,'Beds'],[$match->baths_min,'Baths'],[$match->garages_min,'Garages'],[$match->parking_min,'Parking']] as [$val,$lbl])

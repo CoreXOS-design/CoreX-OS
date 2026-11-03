@@ -111,10 +111,9 @@ class P24EmailParserService
                 $listing['garages'] = (int) $garageMatch[1];
             }
 
-            // Check mandated status (within the block, not the whole body)
-            if (stripos($block, 'Mandated') !== false) {
-                $listing['is_mandated'] = true;
-            }
+            // Check sole-mandate wording (within the block, not the whole body)
+            // AT-520 (1 Nov): only "sole" / "exclusive" next to mandate / agent / agency counts - the agency called "Mandated" flagged 308 adverts as sole mandate
+            $listing['is_mandated'] = \App\Services\Prospecting\MicWork\SoleMandateMatcher::textSaysSoleMandate($block);
 
             $listings[] = $listing;
         }

@@ -238,7 +238,7 @@ return [
         'affects' => 'Whether the Market Intelligence and Prospecting areas appear and whether CoreX builds its property-intelligence dataset from your activity. Off hides them; captured data is kept.',
         'default' => true, 'core' => false, 'depends_on' => [],
         'nav_permission' => ['access_prospecting'], 'sidebar_section' => 'real-estate',
-        'settings_section' => null, 'route_prefixes' => ['prospecting', 'corex/market-intelligence', 'corex/tracked-properties'], 'global_flag' => null,
+        'settings_section' => null, 'route_prefixes' => ['prospecting', 'corex/market-intelligence', 'corex/tracked-properties', 'corex/prospecting'], 'global_flag' => null,
         'permission_modules' => ['prospecting', 'mic', 'market_intelligence', 'deeds_capture'],
     ],
     'road-to-sold' => [
@@ -511,7 +511,24 @@ return [
         'affects' => 'Whether the guided tours and their launcher are available. Off hides them; they store no agency data.',
         'default' => true, 'core' => false, 'depends_on' => [],
         'nav_permission' => [], 'sidebar_section' => 'tools',
-        'settings_section' => null, 'route_prefixes' => ['corex/guided-tours'], 'global_flag' => null,
+        // AT-525 - the auto-generated how-to videos (Training library + "Watch how") belong to THIS feature, not to 'training' (the LMS): an agency can have the
+        // learning centre switched off (HFC does) and still must see the how-to videos. permission_keys WIN over the 'training' module that the two keys sit in, and
+        // route_names are refused only if guided tours are off.
+        'settings_section' => null, 'route_prefixes' => ['corex/guided-tours', 'corex/training-library'], 'global_flag' => null,
+        'route_names' => ['corex.training-library.*'],
+        'view_dirs' => ['corex/training-library/'],
+        'permission_keys' => ['training_videos.view', 'training_videos.generate'],
+    ],
+
+    'narrated-tours' => [
+        'label' => 'Narrated guided tours', 'category' => 'Tools & Calculators',
+        'explain' => 'A "Guide me" button on a few key screens: a voice tells the agent what to do and why, and the tour waits until it is done.',
+        'affects' => 'Whether the "Guide me" voice tours are offered. Off hides the button; the plain guided tours and how-to videos stay as they are. Nothing is stored.',
+        'default' => true, 'core' => false, 'depends_on' => ['guided-tours'],
+        // No sidebar item of its own (the "Guide me" button sits on the screens), so no sidebar_section: FeatureNavGuardCoverageTest wants an @feature nav guard for every one that has it.
+        'nav_permission' => [], 'sidebar_section' => null,
+        'settings_section' => null, 'route_prefixes' => [], 'global_flag' => null,
+        'permission_keys' => ['training_tours.use'],
     ],
 
     // ── Learning & AI ──
@@ -668,7 +685,7 @@ return [
         'nav_permission' => ['rental_notices.create', 'rental_notices.view', 'rental_notices.review', 'rental_breaches.view'], 'sidebar_section' => 'rental-applications',
         'settings_section' => null, 'route_prefixes' => ['corex/rental-notices', 'corex/lease-notices', 'corex/breaches'], 'global_flag' => null,
         'route_names' => ['corex.rental-notices.*', 'corex.lease-notices.*', 'corex.leases.notice-cases.store', 'corex.breaches.*', 'corex.leases.breaches.*', 'api.v1.rentals.notices.*'],
-        'view_dirs' => ['corex/rental-notices/', 'corex/lease-notices/', 'corex/breaches/'],
+        'view_dirs' => ['corex/rental-notices/', 'corex/lease-notices/', 'corex/breaches/', 'corex/notices/', 'corex/rental-notice-templates/'],
         'permission_modules' => ['rental_notices', 'rental_breaches'],
     ],
     'rental-job-cards' => [

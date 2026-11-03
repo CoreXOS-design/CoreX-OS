@@ -9,6 +9,14 @@
      x-data="serverHealth({ dataUrl: '{{ route('api.v1.system-health') }}', amber: {{ $diskAmber }}, red: {{ $diskRed }} })"
      x-init="start()">
 
+    {{-- AT-523 - the queue watchdog's red line: a stuck queue, a queue with no worker, a new failed job, or the watchdog itself not reporting. Written by corex:queue-watchdog (system cron, every 15 min). --}}
+    <template x-if="d.corex?.watchdog && (d.corex.watchdog.findings.length > 0 || d.corex.watchdog.stale)">
+        <div class="rounded-md px-4 py-3 text-sm font-semibold space-y-1" style="background: color-mix(in srgb, var(--ds-crimson,#b3261e) 10%, var(--surface)); border:1px solid var(--ds-crimson,#b3261e); color: var(--ds-crimson,#b3261e);" data-queue-watchdog-red>
+            <template x-for="f in d.corex.watchdog.findings" :key="f.type + f.queue + (f.last_id || '')"><div x-text="f.text"></div></template>
+            <div x-show="d.corex.watchdog.stale" x-text="d.corex.watchdog.last_run ? 'The queue watchdog has not reported since ' + d.corex.watchdog.last_run + ' - it should run every 15 minutes.' : 'The queue watchdog has never run on this environment.'"></div>
+        </div>
+    </template>
+
     {{-- Header --}}
     <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">

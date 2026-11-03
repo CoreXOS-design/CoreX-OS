@@ -8,4 +8,5 @@
 @include('corex.partials._hub-tabs', [
     'hub' => \App\Support\Navigation\Hubs\MarketIntelligenceTabs::class,
     'hubActiveTab' => \App\Support\Navigation\Hubs\MarketIntelligenceTabs::activeKey() ?? 'work',
+    'hubCompact' => true,
 ])

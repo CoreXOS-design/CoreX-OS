@@ -45,13 +45,7 @@
   // ── SHARED CONSTANTS ──────────────────────────────────────
   // ══════════════════════════════════════════════════════════
 
-  const PROPERTY_TYPES = [
-    'house', 'apartment', 'townhouse', 'flat', 'duplex', 'simplex',
-    'cluster', 'cottage', 'farm', 'smallholding', 'vacant land',
-    'land', 'commercial', 'industrial', 'office', 'retail',
-    'penthouse', 'studio', 'garden cottage', 'granny flat',
-  ];
-
+  // the property type in a title comes from CorexMic.propertyTypeFromTitle (mic-lib.js, whole words - 3.16.2)
   // ══════════════════════════════════════════════════════════
   // ── PAGE TYPE DETECTION ───────────────────────────────────
   // ══════════════════════════════════════════════════════════
@@ -230,8 +224,8 @@
         const t = titleEl.textContent.trim();
         const bedMatch = t.match(/^(\d+)\s+Bedroom/i);
         if (bedMatch) listing.bedrooms = parseInt(bedMatch[1], 10);
-        const tl = t.toLowerCase();
-        for (const pt of PROPERTY_TYPES) { if (tl.includes(pt)) { listing.property_type = pt.charAt(0).toUpperCase() + pt.slice(1); break; } }
+        const pt = self.CorexMic ? self.CorexMic.propertyTypeFromTitle(t) : null;   // whole words (3.16.2): "Townhouse" is not a House
+        if (pt) listing.property_type = pt;
       }
     } catch (e) { /* */ }
 
@@ -286,6 +280,9 @@
 
     // MIC SOLD / OFF-MARKET — portal lifecycle status (active/under_offer/sold/withdrawn).
     listing.portal_status = extractP24Status(card);
+
+    // MIC capture (3.13.0): owner vs agency (never "Sale" as the agency), reduced, group, mandate id, badges, floor vs erf.
+    try { if (self.CorexMic) self.CorexMic.p24Tile(card, listing); } catch (e) { /* never block the tile */ }
 
     return listing;
   }
@@ -510,13 +507,10 @@
     } catch (e) { /* */ }
 
     if (!property.property_type && property.title) {
-      const tl = property.title.toLowerCase();
-      for (const pt of PROPERTY_TYPES) {
-        if (tl.includes(pt)) {
-          property.property_type = pt.charAt(0).toUpperCase() + pt.slice(1);
-          if (!property.property_type_raw) property.property_type_raw = property.property_type;
-          break;
-        }
+      const pt = self.CorexMic ? self.CorexMic.propertyTypeFromTitle(property.title) : null;   // whole words (3.16.2)
+      if (pt) {
+        property.property_type = pt;
+        if (!property.property_type_raw) property.property_type_raw = pt;
       }
     }
 
@@ -657,6 +651,45 @@
   }
 
   // ══════════════════════════════════════════════════════════
+  // ── MIC AREA PAGES (3.14.0) ───────────────────────────────
+  // CoreX opens a P24 trends / agencies / property-values page with "#corex-area" on the address. Only then does the
+  // extension read it (browsing P24 normally never sends anything), tells the background worker, and shows a small line.
+  // ══════════════════════════════════════════════════════════
+  function areaBanner(text) {
+    try {
+      let el = document.getElementById('corex-area-banner');
+      if (!el) {
+        el = document.createElement('div');
+        el.id = 'corex-area-banner';
+        el.style.cssText = 'position:fixed;right:12px;bottom:12px;z-index:2147483647;max-width:340px;padding:8px 12px;border-radius:6px;' +
+          'font:13px/1.35 system-ui,sans-serif;color:#fff;background:#0f3d5c;box-shadow:0 2px 8px rgba(0,0,0,.3)';
+        (document.body || document.documentElement).appendChild(el);
+      }
+      el.textContent = text;
+    } catch (e) { /* the banner is a courtesy only */ }
+  }
+
+  function runAreaCapture() {
+    try {
+      const payload = self.CorexMic ? self.CorexMic.p24AreaPage(document, window.location.href) : null;
+      if (!payload) { areaBanner('CoreX: this is not a page CoreX reads.'); return; }
+      areaBanner('CoreX: reading this page...');
+      const h = self.CorexMic.p24AreaHash(window.location.hash);
+      const next = h.all ? self.CorexMic.p24AreaChainNext(window.location.href, h.province) : null;
+      chrome.runtime.sendMessage({ action: 'captureAreaPage', payload, next }, (res) => {
+        if (chrome.runtime.lastError) { areaBanner('CoreX: could not reach the extension.'); return; }
+        areaBanner(res && res.ok ? ('CoreX: saved. ' + (res.summary || '')) : ('CoreX: not saved - ' + ((res && res.error) || 'unknown error')));
+      });
+    } catch (e) {
+      areaBanner('CoreX: could not read this page.');
+    }
+  }
+
+  if (/corex-area/.test(window.location.hash || '')) {
+    setTimeout(runAreaCapture, 1200);
+  }
+
+  // ══════════════════════════════════════════════════════════
   // ── MESSAGE HANDLER (single handler for all P24 actions) ──
   // ══════════════════════════════════════════════════════════
 
@@ -682,6 +715,33 @@
     if (msg.action === 'getListings') {
       sendResponse({ listings: extractAllListings() });
       return true;
+    }
+
+    // MIC capture (3.13.0): the public facts of ONE listing page (listing date, agent, rates, levies, map point,
+    // fingerprints). Nothing is clicked; no contact number is ever requested.
+    if (msg.action === 'getListingFacts') {
+      try {
+        sendResponse({ facts: self.CorexMic ? self.CorexMic.p24ListingPage(document, window.location.href) : null });
+      } catch (e) {
+        sendResponse({ facts: null, error: String(e && e.message || e) });
+      }
+      return true;
+    }
+
+    // MIC area pages (3.14.0): what this P24 trends / agencies / street page holds (spec 11.2.2).
+    if (msg.action === 'getAreaPage') {
+      try {
+        sendResponse({ payload: self.CorexMic ? self.CorexMic.p24AreaPage(document, window.location.href) : null });
+      } catch (e) {
+        sendResponse({ payload: null, error: String(e && e.message || e) });
+      }
+      return true;
+    }
+
+    // status line from the background worker while it walks further pages
+    if (msg.action === 'areaStatus') {
+      areaBanner(msg.text || '');
+      return false;
     }
 
     // Extract full property detail (used by Pull Property flow)

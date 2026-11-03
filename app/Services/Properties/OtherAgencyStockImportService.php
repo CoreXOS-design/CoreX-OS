@@ -9,6 +9,7 @@ use App\Models\OtherAgencyStockUnlock;
 use App\Models\Property;
 use App\Models\PropertyExternalSource;
 use App\Models\User;
+use App\Services\Audit\PropertyAuditService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
@@ -39,14 +40,27 @@ class OtherAgencyStockImportService
                 ? Property::withoutGlobalScopes()->findOrFail($existingSource->property_id)
                 : new Property();
 
+            // .ai/specs/other-agency-stock.md §5g — an ARCHIVED (soft-deleted) property is not "in CoreX" for this
+            // check: the same row is restored and refreshed below (history kept, never a second row). The lookups
+            // above deliberately see trashed rows (withoutGlobalScopes) so that row is FOUND, not duplicated.
+            $wasArchived = $isReimport && $property->trashed();
+            $statusBeforeRestore = $property->status;
+
             // .ai/specs/other-agency-stock.md §5e — once an authorised user has unlocked the property and
             // moved its status away, it is the agency's own stock: refuse, touch nothing (no property, source,
             // consent or unlock row is written). A property still in Other Agency Stock status updates in place.
-            if ($isReimport && ! $property->isOtherAgencyStock()) {
+            // Not applied to an archived row (§5g): archiving took it off the books, so there is nothing live to protect.
+            if ($isReimport && ! $wasArchived && ! $property->isOtherAgencyStock()) {
                 throw new OtherAgencyStockAlreadyAgencyStockException((int) $property->id);
             }
 
             $property->allowOtherAgencyStockContentWrite = true;
+            if ($wasArchived) {
+                $property->restore();
+            }
+            if ($existingSource?->trashed()) {
+                $existingSource->restore();
+            }
             // AT-453 — another agency's listing has no mandate of ours to chase: no "Upload signed
             // mandate / owner ID / proof of ownership" tasks (AutoEventService::onPropertyCreated()).
             $property->skipNewListingAutomation = true;
@@ -228,6 +242,16 @@ class OtherAgencyStockImportService
                 'pet_friendly'  => array_key_exists('pets_allowed', $data) ? $data['pets_allowed'] : ($property->pet_friendly ?? null),
                 'spaces_json'   => $spacesJson,
             ])->save();
+
+            if ($wasArchived) {
+                app(PropertyAuditService::class)->log(
+                    $property, 'property', 'restored_by_reimport', $actor,
+                    ['status' => $statusBeforeRestore, 'archived' => true],
+                    ['status' => $property->status, 'archived' => false],
+                    ['portal' => $data['portal'], 'listing_ref' => $data['listing_ref']],
+                    'Restored by re-import from ' . strtoupper($data['portal']) . ' listing ' . $data['listing_ref'],
+                );
+            }
 
             $source = PropertyExternalSource::updateOrCreate(
                 ['agency_id' => $agencyId, 'portal' => $data['portal'], 'listing_ref' => $data['listing_ref']],

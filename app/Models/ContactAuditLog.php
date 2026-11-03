@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\StampsOnBehalfOf;
 use App\Models\Concerns\BelongsToAgency;
 use App\Models\Concerns\BelongsToBranch;
 use App\Models\Concerns\InheritsBranchFromParent;
@@ -16,7 +17,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  */
 class ContactAuditLog extends Model
 {
-    use BelongsToBranch, InheritsBranchFromParent, BelongsToAgency, SoftDeletes;
+    use BelongsToBranch, InheritsBranchFromParent, BelongsToAgency, SoftDeletes, StampsOnBehalfOf;
 
     /** A child's branch is its parent's branch, never the acting user's. */
     protected function branchParent(): array

@@ -271,6 +271,8 @@ final class ArticleOriginalityTest extends TestCase
             . '<pubDate>' . now()->toRfc2822String() . '</pubDate><content:encoded><![CDATA[' . $content . ']]></content:encoded></item></channel></rss>';
         $fast = config('services.anthropic.models.fast');
 
+        // Http::fake() called a second time ADDS a stub behind the first, and the first still answers - so start from a clean client each time (the feed text changes between calls).
+        Http::swap(new \Illuminate\Http\Client\Factory());
         Http::fake(function ($request) use ($feed, $fast) {
             if (str_contains($request->url(), 'api.anthropic.com')) {
                 $body = json_decode($request->body(), true);

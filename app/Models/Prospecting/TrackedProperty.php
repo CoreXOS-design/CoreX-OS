@@ -100,6 +100,7 @@ final class TrackedProperty extends Model
     protected static function booted(): void
     {
         static::creating(function (TrackedProperty $tp) {
+            $tp->street_name = \App\Support\Address\StreetTypes::collapseDoubled($tp->street_name);
             if (empty($tp->external_id)) {
                 $tp->external_id = (string) Str::uuid();
             }
@@ -114,6 +115,9 @@ final class TrackedProperty extends Model
         });
 
         static::updating(function (TrackedProperty $tp) {
+            if ($tp->isDirty('street_name')) {
+                $tp->street_name = \App\Support\Address\StreetTypes::collapseDoubled($tp->street_name);
+            }
             if ($tp->isDirty('suburb')) {
                 $tp->suburb_normalised = static::normaliseSuburb($tp->suburb);
             }
@@ -203,6 +207,25 @@ final class TrackedProperty extends Model
     public function deedsCapturedBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'deeds_captured_by_user_id');
+    }
+
+    /**
+     * Files that carry a street — on the file itself, or on any of its address rows (not only the primary one: only
+     * a few hundred files have a primary address row, while thousands carry a street). The Opportunities "with address"
+     * tile and filter use this one definition.
+     */
+    public function scopeHasStreet($query)
+    {
+        return $query->where(function ($q) {
+            $q->whereRaw("COALESCE(tracked_properties.street_name, '') <> ''")
+              ->orWhereHas('addresses', fn ($a) => $a->whereRaw("COALESCE(street_name, '') <> ''"));
+        });
+    }
+
+    public function scopeLacksStreet($query)
+    {
+        return $query->whereRaw("COALESCE(tracked_properties.street_name, '') = ''")
+            ->whereDoesntHave('addresses', fn ($a) => $a->whereRaw("COALESCE(street_name, '') <> ''"));
     }
 
     /**

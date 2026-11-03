@@ -12,7 +12,7 @@
     $criteriaChips = [];
     foreach ($match->suburbList() as $sub)      { $criteriaChips[] = $sub; }
     if ($match->category)                       { $criteriaChips[] = $match->category; }
-    if ($match->property_type)                  { $criteriaChips[] = $match->property_type; }
+    foreach ($match->propertyTypeLabels() as $typeLabel) { $criteriaChips[] = $typeLabel; }
     foreach ([[$match->beds_min, 'Beds'], [$match->baths_min, 'Baths'], [$match->garages_min, 'Gar']] as [$val, $lbl]) {
         if ($val !== null) { $criteriaChips[] = $val . '+ ' . $lbl; }
     }

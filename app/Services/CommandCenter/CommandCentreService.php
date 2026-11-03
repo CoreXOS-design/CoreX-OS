@@ -737,6 +737,13 @@ class CommandCentreService
                         ->from('daily_activity_entries')
                         ->whereColumn('daily_activity_entries.user_id', 'users.id')
                         ->where('created_at', '>=', now()->subDays(7));
+                })->whereNotExists(function ($sub) {
+                    // an agent whose daily activity now lives in Road to Sold (captured tasks) is active too
+                    $sub->select(DB::raw(1))
+                        ->from('rts_task_completions')
+                        ->whereColumn('rts_task_completions.user_id', 'users.id')
+                        ->whereNull('rts_task_completions.deleted_at')
+                        ->where('rts_task_completions.created_at', '>=', now()->subDays(7));
                 });
             })
             ->orderBy('name')

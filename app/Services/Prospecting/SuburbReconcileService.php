@@ -2,12 +2,14 @@
 
 namespace App\Services\Prospecting;
 
-use App\Models\ProspectingListing;
 use App\Models\ProspectingSearch;
-use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
 
 /**
+ * AT-520 4.3: this service now delegates to the crawl record + Gone rule (mic-work-tab.md 11.3) - CrawlRecorder::finalise() marks the crawl complete
+ * and records the suburbs it covered, GoneRule::apply() labels what it did not see `gone` / `probably_sold` (it used to say `withdrawn`, and never
+ * looked at adverts under offer). A FILTERED search (price band, bedrooms, type) is not a complete picture of a suburb and retires nothing. The
+ * return shape and the caller (import() and mic:reconcile-suburb) are unchanged. The text below is the original cc2 header.
+ *
  * MIC SUBURB RECONCILE (cc2).
  *
  * When a COMPLETE suburb scrape lands, any currently-active listing in that suburb whose
@@ -31,90 +33,26 @@ use Illuminate\Support\Facades\Log;
  */
 class SuburbReconcileService
 {
+    public function __construct(private readonly CrawlRecorder $recorder, private readonly GoneRule $rule)
+    {
+    }
+
     /**
      * @return array{suburbs: array<int,string>, present: int, retired: int, retired_ids: array<int,int>, skipped_reason: ?string}
      */
     public function reconcile(int $agencyId, string $portalSource, ProspectingSearch $search, bool $dryRun = false): array
     {
-        // The suburb(s) THIS capture actually covered — derived from the session's own
-        // listings (last_search_id = this search), never from free text.
-        $sessionSuburbs = ProspectingListing::withoutGlobalScopes()
-            ->where('agency_id', $agencyId)
-            ->where('portal_source', $portalSource)
-            ->where('last_search_id', $search->id)
-            ->whereNotNull('suburb')
-            ->where('suburb', '!=', '')
-            ->distinct()
-            ->pluck('suburb')
-            ->all();
+        // the caller guarantees completeness (the extension's final batch); the crawl records it and what it covered
+        $crawl = $this->recorder->finalise($search, ! $dryRun);
+        $suburbs = $crawl->suburbs->pluck('suburb_name')->filter()->values()->all();
+        $r = $this->rule->apply($crawl, $dryRun);
 
-        $present = ProspectingListing::withoutGlobalScopes()
-            ->where('agency_id', $agencyId)
-            ->where('portal_source', $portalSource)
-            ->where('last_search_id', $search->id)
-            ->count();
-
-        // Safeguard: nothing recognisably captured for this search → do NOT reconcile.
-        // (A zero/near-zero capture must never retire a suburb's whole stock.)
-        if (empty($sessionSuburbs) || $present === 0) {
-            return ['suburbs' => [], 'present' => $present, 'retired' => 0, 'retired_ids' => [], 'skipped_reason' => 'no session listings to reconcile against'];
-        }
-
-        // Gone = active listings in the SAME suburb(s), same portal, that this complete
-        // capture did NOT include (last_search_id points at an older capture, or is null).
-        $goneIds = ProspectingListing::withoutGlobalScopes()
-            ->where('agency_id', $agencyId)
-            ->where('portal_source', $portalSource)
-            ->where('is_active', true)
-            ->whereIn('suburb', $sessionSuburbs)
-            ->where(function ($q) use ($search) {
-                $q->whereNull('last_search_id')->orWhere('last_search_id', '!=', $search->id);
-            })
-            ->pluck('id')
-            ->all();
-
-        if ($dryRun) {
-            return ['suburbs' => $sessionSuburbs, 'present' => $present, 'retired' => count($goneIds), 'retired_ids' => $goneIds, 'skipped_reason' => 'dry-run (no writes)'];
-        }
-
-        if (! empty($goneIds)) {
-            DB::transaction(function () use ($goneIds) {
-                $now = now();
-
-                // SOFT retire — the row stays for lifecycle history; only its live flags change.
-                ProspectingListing::withoutGlobalScopes()->whereIn('id', $goneIds)
-                    ->update(['is_active' => false]);
-
-                // Stamp the exit date once (days-on-market stays truthful on re-runs).
-                ProspectingListing::withoutGlobalScopes()->whereIn('id', $goneIds)
-                    ->whereNull('off_market_at')
-                    ->update(['off_market_at' => $now]);
-
-                // Gone from a for-sale suburb search = no longer available. Label 'withdrawn'
-                // but NEVER overwrite an explicit sold/under_offer already recorded.
-                ProspectingListing::withoutGlobalScopes()->whereIn('id', $goneIds)
-                    ->where(function ($q) {
-                        $q->whereNull('portal_status')->orWhere('portal_status', ProspectingListing::PORTAL_STATUS_ACTIVE);
-                    })
-                    ->update([
-                        'portal_status'            => ProspectingListing::PORTAL_STATUS_WITHDRAWN,
-                        'portal_status_changed_at' => $now,
-                    ]);
-
-                // Their cached buyer-match score is now for an off-market listing — purge it.
-                DB::table('prospecting_buyer_matches')->whereIn('prospecting_listing_id', $goneIds)->delete();
-            });
-
-            Log::info('MIC suburb reconcile — retired listings gone from a complete capture', [
-                'agency_id'     => $agencyId,
-                'portal_source' => $portalSource,
-                'search_id'     => $search->id,
-                'suburbs'       => $sessionSuburbs,
-                'present'       => $present,
-                'retired'       => count($goneIds),
-            ]);
-        }
-
-        return ['suburbs' => $sessionSuburbs, 'present' => $present, 'retired' => count($goneIds), 'retired_ids' => $goneIds, 'skipped_reason' => null];
+        return [
+            'suburbs'        => $suburbs,
+            'present'        => (int) $crawl->adverts_seen,
+            'retired'        => $r['gone'] + $r['probably_sold'],
+            'retired_ids'    => $r['ids'],
+            'skipped_reason' => $r['skipped_reason'] ?? ($dryRun ? 'dry-run (no writes)' : null),
+        ];
     }
 }

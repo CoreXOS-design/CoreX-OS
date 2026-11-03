@@ -43,7 +43,7 @@ final class ContactFormErrorScrollTest extends TestCase
     {
         foreach (['show', 'index'] as $view) {
             $src = (string) file_get_contents(resource_path("views/corex/contacts/{$view}.blade.php"));
-            $this->assertMatchesRegularExpression('/<input type="text" id="id_number" name="id_number"/', $src, $view);
+            $this->assertMatchesRegularExpression('/<input[^>]*? type="text" id="id_number" name="id_number"/', $src, $view);
         }
     }
 }

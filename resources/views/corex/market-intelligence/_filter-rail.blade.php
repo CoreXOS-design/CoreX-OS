@@ -27,6 +27,7 @@
     Spec: build-f-market-intelligence-redesign-spec.md §8.3.
 --}}
 @php
+    $railCompact = $railCompact ?? false;   // inside the top bar's "More filters": the groups that live in the bar's first row are not repeated
     $agg = $filterRailAggregates ?? ['by_suburb'=>collect(),'by_type'=>collect(),'by_beds'=>collect()];
     $pockets = $demandPockets ?? [];
     $captureUsers = $users ?? collect();  // Reuses the existing $users from controller
@@ -54,7 +55,7 @@
         $keys = is_array($keys) ? $keys : [$keys];
         return route('market-intelligence.work', request()->except(array_merge($keys, ['page'])));
     };
-    $urlClearAll = route('market-intelligence.work');
+    $urlClearAll = route('market-intelligence.work', ['clear' => 1]);
 
     // AT-242 / AT-239 — buyer-led prospecting + region.
     $micBuyers     = $micBuyers ?? collect();
@@ -90,6 +91,7 @@
         $activePills[] = ['label' => $lo . ' – ' . $hi,                                                                          'remove' => $urlWithout(['price_min','price_max'])];
     }
     if (in_array($activeStatus, ['0', 0], true))         $activePills[] = ['label' => 'Status · removed',                        'remove' => $urlWithout('is_active')];
+    if (request('source') && isset(\App\Services\Prospecting\PropertySourceFacts::FILTERS[request('source')])) $activePills[] = ['label' => 'Source · ' . \App\Services\Prospecting\PropertySourceFacts::FILTERS[request('source')], 'remove' => $urlWithout('source')];
     if ($activeCapturedBy) {
         $u = $captureUsers->firstWhere('id', (int) $activeCapturedBy);
         $activePills[] = ['label' => 'Captured · ' . ($u->name ?? '?'),                                                          'remove' => $urlWithout('captured_by')];
@@ -110,6 +112,7 @@
 
 <aside class="mi-filter-rail corex-brand-scroll">
 
+    @unless($railCompact)
     {{-- Sticky search at top --}}
     <form method="GET" action="{{ route('market-intelligence.work') }}"
           style="padding: 10px 12px; position: sticky; top: 0; background: var(--surface); border-bottom: 1px solid var(--border); z-index: 2;">
@@ -126,8 +129,10 @@
                style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary); font-size: 0.8125rem;">
     </form>
 
+    @endunless
+
     {{-- Active filter pills --}}
-    @if(!empty($activePills))
+    @if(!$railCompact && !empty($activePills))
     <div style="padding: 8px 12px; border-bottom: 1px solid var(--border);">
         <div style="display: flex; align-items: center; justify-content: space-between; gap: 4px; margin-bottom: 4px;">
             <span style="{{ $sectionTitleStyle }}; padding: 0;">Active filters</span>
@@ -165,7 +170,7 @@
         ])->values();
     @endphp
     <div x-data="{
-            open: true, q: '',
+            open: {{ $railCompact ? 'false' : 'true' }}, q: '',
             hays: {{ \Illuminate\Support\Js::from($micBuyerHays) }},
             hit(h) { const n = this.q.trim().toLowerCase(); return n === '' || h.w.some(w => w.startsWith(n)); },
             get matches() { return this.hays.filter(h => this.hit(h)).length; },
@@ -235,7 +240,7 @@
 
     {{-- AT-239 — Region. Canonical region from the property spine (towns.region).
          ALWAYS rendered; empty state explains where region data comes from. --}}
-    <div x-data="{ open: true }" data-tour="mic-by-region" style="border-bottom: 1px solid var(--border);">
+    <div x-data="{ open: {{ $railCompact ? 'false' : 'true' }} }" data-tour="mic-by-region" style="border-bottom: 1px solid var(--border);">
         <button @click="open = !open" type="button" style="{{ $sectionTitleStyle }}; width: 100%; text-align: left; background: none; border: none; cursor: pointer; padding: 8px 12px;">
             <span x-text="open ? '▾' : '▸'" style="display: inline-block; width: 12px;"></span> By region
         </button>
@@ -257,6 +262,7 @@
         </div>
     </div>
 
+    @unless($railCompact)
     {{-- By suburb --}}
     @php
         $micSuburbCountTip = 'Properties (by address) — distinct addresses in this suburb, honouring your other active filters. Rotating-ref re-scrapes of the same address count once. This may differ from the "rows shown" total below the list, which is grouped by matched development instead.';
@@ -334,9 +340,11 @@
     </div>
     @endif
 
+    @endunless
+
     {{-- Demand pockets --}}
     @if(!empty($pockets))
-    <div x-data="{ open: true }" style="border-bottom: 1px solid var(--border);">
+    <div x-data="{ open: {{ $railCompact ? 'false' : 'true' }} }" style="border-bottom: 1px solid var(--border);">
         <button @click="open = !open" type="button" style="{{ $sectionTitleStyle }}; width: 100%; text-align: left; background: none; border: none; cursor: pointer; padding: 8px 12px;">
             <span x-text="open ? '▾' : '▸'" style="display: inline-block; width: 12px;"></span> Demand pockets
         </button>
@@ -396,6 +404,20 @@
             @foreach([['1','Active'],['0','Removed'],['all','All']] as [$val, $lbl])
                 @php $isActive = (string) $activeStatus === (string) $val; @endphp
                 <a href="{{ $urlWith(['is_active' => $val]) }}" style="{{ $isActive ? $activeRowStyle : $rowStyle }}">
+                    <span>{{ $lbl }}</span>
+                </a>
+            @endforeach
+        </div>
+    </div>
+
+    {{-- By source (email alert / extension / deeds) --}}
+    <div x-data="{ open: {{ request('source') ? 'true' : 'false' }} }" style="border-bottom: 1px solid var(--border);">
+        <button @click="open = !open" type="button" style="{{ $sectionTitleStyle }}; width: 100%; text-align: left; background: none; border: none; cursor: pointer; padding: 8px 12px;">
+            <span x-text="open ? '▾' : '▸'" style="display: inline-block; width: 12px;"></span> By source
+        </button>
+        <div x-show="open" x-cloak>
+            @foreach(\App\Services\Prospecting\PropertySourceFacts::FILTERS as $val => $lbl)
+                <a href="{{ $urlWith(['source' => request('source') === $val ? null : $val]) }}" data-qa="source-filter-{{ $val }}" style="{{ request('source') === $val ? $activeRowStyle : $rowStyle }}">
                     <span>{{ $lbl }}</span>
                 </a>
             @endforeach

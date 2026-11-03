@@ -1408,7 +1408,7 @@
                 <div class="w-full max-w-lg rounded-2xl bg-white shadow-xl border border-slate-200 p-5 space-y-4 max-h-[92vh] overflow-y-auto">
                     <div>
                         <h2 class="text-base font-bold text-slate-900">Add your signature and initials</h2>
-                        <p class="text-xs text-slate-500 mt-1">Do this once. CoreX then puts them wherever you need to sign — one at a time with Next, or all at once with Sign everything.</p>
+                        <p class="text-xs text-slate-500 mt-1">Do this once. We then put them wherever you need to sign — one at a time with Next, or all at once with Sign everything.</p>
                     </div>
 
                     <div class="grid grid-cols-2 gap-3">

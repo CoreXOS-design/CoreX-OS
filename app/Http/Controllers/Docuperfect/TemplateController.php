@@ -184,6 +184,14 @@ class TemplateController extends Controller
             $draft = null;
         }
 
+        // A reused draft seeded before signing_parties was part of the seed has no such key,
+        // and the builder would show its default roles over the template's real ones.
+        if ($draft !== null && !array_key_exists('signing_parties', $draft->settings ?? [])) {
+            $draft->update(['settings' => array_merge($draft->settings ?? [], [
+                'signing_parties' => $template->signing_parties,
+            ])]);
+        }
+
         if (!$draft) {
             $draft = CdsDraft::create([
                 'user_id' => auth()->id(),

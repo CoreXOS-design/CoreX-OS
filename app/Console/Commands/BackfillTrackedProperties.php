@@ -149,14 +149,10 @@ final class BackfillTrackedProperties extends Command
             foreach ($rows as $listing) {
                 try {
                     if (!$dryRun) {
-                        $streetNumber = null;
-                        $streetName   = null;
                         $addr = trim((string) ($listing->address ?? ''));
-                        if ($addr !== '' && $addr !== 'Address not available'
-                            && preg_match('/^(\d+\w*)\s+(.+)$/', $addr, $m)) {
-                            $streetNumber = $m[1];
-                            $streetName   = $m[2];
-                        }
+                        $line = \App\Services\Address\AddressLineFacts::split($addr, (string) $listing->suburb) ?? [];
+                        $streetNumber = $line['street_number'] ?? null;
+                        $streetName   = $line['street_name'] ?? null;
 
                         $tp = $service->matchOrCreate(
                             agencyId: (int) $listing->agency_id,
@@ -164,6 +160,8 @@ final class BackfillTrackedProperties extends Command
                                 'address'                 => $addr !== '' && $addr !== 'Address not available' ? $addr : null,
                                 'street_number'           => $streetNumber,
                                 'street_name'             => $streetName,
+                                'unit_number'             => $line['unit_number'] ?? null,
+                                'complex_name'            => $line['complex_name'] ?? null,
                                 'suburb'                  => $listing->suburb !== '' ? $listing->suburb : null,
                                 'property_type'           => $listing->property_type,
                                 'bedrooms'                => $listing->bedrooms,
@@ -198,9 +196,7 @@ final class BackfillTrackedProperties extends Command
     }
 
     /**
-     * portal_listings has no agency_id column — resolve via the last_capture_id's user.
-     * Rows whose capturing user has no agency_id are skipped (super-admin captures
-     * without an active agency switcher).
+     * portal_listings carries its own agency_id (Lane B step 1); the capturing user is only used for attribution.
      */
     private function backfillPortalListings(
         TrackedPropertyMatchOrCreateService $service,
@@ -216,9 +212,7 @@ final class BackfillTrackedProperties extends Command
             ->whereNull('pl.tracked_property_id');
 
         if ($agencyId !== null) {
-            $query->where('u.agency_id', $agencyId);
-        } else {
-            $query->whereNotNull('u.agency_id');
+            $query->where('pl.agency_id', $agencyId);
         }
 
         // Always re-query from the start of the filter — as rows get linked to TPs,
@@ -233,7 +227,7 @@ final class BackfillTrackedProperties extends Command
                 ->select(
                     'pl.id', 'pl.source_site', 'pl.portal_listing_id',
                     'pl.current_fields_json', 'pl.last_capture_id',
-                    'u.agency_id', 'u.id as captured_by_user_id'
+                    'pl.agency_id', 'u.id as captured_by_user_id'
                 )
                 ->orderBy('pl.id')
                 ->limit($batch)
@@ -259,12 +253,9 @@ final class BackfillTrackedProperties extends Command
                         if (!is_array($fields)) $fields = [];
 
                         $addr = isset($fields['address']) ? trim((string) $fields['address']) : null;
-                        $streetNumber = null;
-                        $streetName   = null;
-                        if ($addr && preg_match('/^(\d+\w*)\s+(.+)$/', $addr, $m)) {
-                            $streetNumber = $m[1];
-                            $streetName   = $m[2];
-                        }
+                        $line = \App\Services\Address\AddressLineFacts::split($addr, $fields['suburb'] ?? null) ?? [];
+                        $streetNumber = $line['street_number'] ?? null;
+                        $streetName   = $line['street_name'] ?? null;
 
                         $tp = $service->matchOrCreate(
                             agencyId: (int) $pl->agency_id,
@@ -272,6 +263,8 @@ final class BackfillTrackedProperties extends Command
                                 'address'                 => $addr,
                                 'street_number'           => $streetNumber,
                                 'street_name'             => $streetName,
+                                'unit_number'             => $line['unit_number'] ?? null,
+                                'complex_name'            => $line['complex_name'] ?? null,
                                 'suburb'                  => $fields['suburb'] ?? null,
                                 'property_type'           => $fields['property_type'] ?? null,
                                 'bedrooms'                => $fields['beds'] ?? $fields['bedrooms'] ?? null,

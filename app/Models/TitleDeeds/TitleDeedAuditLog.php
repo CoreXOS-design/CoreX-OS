@@ -2,6 +2,7 @@
 
 namespace App\Models\TitleDeeds;
 
+use App\Models\Concerns\StampsOnBehalfOf;
 use App\Models\Concerns\BelongsToAgency;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
@@ -14,7 +15,7 @@ use Illuminate\Support\Facades\Log;
  */
 class TitleDeedAuditLog extends Model
 {
-    use BelongsToAgency;
+    use BelongsToAgency, StampsOnBehalfOf;
 
     protected $table = 'title_deed_audit_log';
 

@@ -65,7 +65,12 @@
                                 {{ $a['source_label'] }}
                             </td>
                             <td style="padding: 8px 12px; color: var(--text-secondary); font-family: monospace; font-size: 0.75rem;">
-                                {{ $a['reference'] ?? '—' }}
+                                @if(!empty($a['property_url']))
+                                    <a href="{{ $a['property_url'] }}" data-qa="alert-property-link" title="Open the property file this alert is linked to"
+                                       style="color: var(--brand-button, #0ea5e9); text-decoration: none;">{{ $a['reference'] ?? '—' }}</a>
+                                @else
+                                    {{ $a['reference'] ?? '—' }}
+                                @endif
                             </td>
                             <td style="padding: 8px 12px; color: var(--text-primary);">
                                 {{ $a['suburb'] ?? ($a['area'] ?? '—') }}

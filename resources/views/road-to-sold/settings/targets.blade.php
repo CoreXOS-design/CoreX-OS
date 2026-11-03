@@ -54,6 +54,60 @@
     @endunless
 
 
+    {{-- ───────────────────── Belt targets: one dense row per station (23.29.4) ───────────────────── --}}
+    @if(! empty($beltPanel))
+    <section id="belt-targets" data-qa="belt-targets-panel">
+        <form method="POST" action="{{ route($rb . 'general.update') }}">
+            @csrf @method('PUT')
+            <input type="hidden" name="back_to" value="targets">
+            <div class="flex items-baseline justify-between gap-3 mb-1">
+                <div class="text-xs font-semibold" data-qa="belt-targets-line" style="color:var(--text-primary);">{{ $beltPanel['line']['plain'] }}</div>
+                <a class="text-xs underline" style="color:var(--text-muted);" href="{{ route($rb . 'index', ['section' => 'belttargets']) }}">Rates and window</a>
+            </div>
+            <div class="overflow-x-auto" style="background:var(--surface); border:1px solid var(--border); border-radius:6px;">
+                <table class="w-full text-xs" style="border-collapse: collapse;" data-qa="belt-targets-table">
+                    <thead>
+                        <tr class="text-left" style="color: var(--text-muted);">
+                            <th class="px-2 py-1">Station</th>
+                            <th class="px-2 py-1 text-right">Here now</th>
+                            <th class="px-2 py-1 text-right">Reached {{ $beltPanel['window_days'] }}d</th>
+                            <th class="px-2 py-1 text-right">% to next</th>
+                            <th class="px-2 py-1 text-right">Should be / month</th>
+                            <th class="px-2 py-1 text-right">Per day</th>
+                            <th class="px-2 py-1 text-right">Own target / agent / month</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach($beltPanel['rows'] as $br)
+                            <tr style="border-top: 1px solid var(--border);" data-qa="belt-row-{{ $br['station'] }}">
+                                <td class="px-2 py-1" style="color: var(--text-primary);">{{ $br['label'] }}</td>
+                                <td class="px-2 py-1 text-right tabular-nums">{{ $br['now'] }}</td>
+                                <td class="px-2 py-1 text-right tabular-nums">{{ $br['reached'] }}</td>
+                                <td class="px-2 py-1 text-right tabular-nums">@if($br['rate_next'] !== null){{ $br['rate_next'] }}%@if($br['rate_estimate']) <span style="color: var(--text-muted);">est.</span>@endif @else - @endif</td>
+                                <td class="px-2 py-1 text-right tabular-nums font-semibold" style="color: var(--text-primary);">{{ $br['should_month'] }}</td>
+                                <td class="px-2 py-1 text-right tabular-nums">{{ $br['should_day'] }}</td>
+                                <td class="px-2 py-1 text-right">
+                                    @if($br['station'] === 'loaded')
+                                        <span style="color: var(--text-muted);">set {{ $br['set_day'] }}/day below</span>
+                                    @elseif($canEditDefault)
+                                        <input type="number" step="1" min="0" max="100000" name="target_overrides[{{ $br['station'] }}]" value="{{ old('target_overrides.' . $br['station'], isset($br['override']) ? (int) $br['override'] : '') }}" data-qa="override-{{ $br['station'] }}"
+                                               placeholder="{{ $br['source'] === 'recipe' ? 'recipe' : '' }}" class="w-20 rounded px-1 py-0.5 text-xs text-right" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                    @else
+                                        <span style="color: var(--text-muted);">{{ isset($br['override']) ? (int) $br['override'] : '' }}</span>
+                                    @endif
+                                </td>
+                            </tr>
+                        @endforeach
+                    </tbody>
+                </table>
+            </div>
+            @if($canEditDefault)
+                <div class="mt-1 text-right"><button type="submit" class="corex-btn-outline text-xs px-3 py-1" data-qa="belt-targets-save">Save own targets</button></div>
+            @endif
+        </form>
+    </section>
+    @endif
+
     {{-- ───────────────────────── Monthly targets ───────────────────────── --}}
     <section id="monthly" class="space-y-4">
         <div>
@@ -72,6 +126,10 @@
                 </form>
             @endif
         </div>
+
+        @if($mo['split'])
+            @include('road-to-sold.settings._split', ['split' => $mo['split']])
+        @endif
 
         {{-- Agency default --}}
         <div class="rounded-md p-4" style="background:var(--surface); border:2px solid var(--brand-icon, #0ea5e9);">
@@ -230,12 +288,12 @@
     {{-- The daily call targets belong to the Road to Sold call list: shown only while that feature is on (Johan, 23 Oct 2026 - Budgets and monthly targets stay without it). --}}
     @if($weekdayOn)
     <div>
-        <h2 class="text-base font-bold" style="color:var(--text-primary);">Daily call targets</h2>
+        <h2 class="text-base font-bold" style="color:var(--text-primary);">Stock loaded per agent per day</h2>
     </div>
 
     {{-- Agency default --}}
     <div class="rounded-md p-4" style="background:var(--surface); border:2px solid var(--brand-icon, #0ea5e9);" data-tour="smk-rt-default">
-        <h3 class="text-sm font-bold mb-1" style="color:var(--text-primary);">Agency default week</h3>
+        <h3 class="text-sm font-bold mb-1" style="color:var(--text-primary);">Agency default: stock loaded per agent per day</h3>
         <form method="POST" action="{{ route($rb . 'targets.default') }}" class="flex flex-wrap items-end gap-3">
             @csrf @method('PUT')
             @foreach($keep as $k => $v)<input type="hidden" name="{{ $k }}" value="{{ $v }}">@endforeach
@@ -308,7 +366,7 @@
                 <tr class="text-left text-xs uppercase tracking-wide" style="background:var(--surface-2); border-bottom:1px solid var(--border); color:var(--text-muted);">
                     <th class="px-4 py-2">Agent</th>
                     @foreach($weekdays as $label)<th class="px-2 py-2 text-center">{{ $label }}</th>@endforeach
-                    <th class="px-3 py-2 text-center" data-tour="smk-rt-week">Week</th>
+                    <th class="px-3 py-2 text-center" title="Properties loaded per agent in a normal week" data-tour="smk-rt-week">Loaded / week</th>
                     <th class="px-3 py-2 text-center" title="What the agent should have done by today / the whole month, after taking off public holidays and approved leave">{{ now()->format('F') }}</th>
                     <th class="px-4 py-2"></th>
                 </tr>

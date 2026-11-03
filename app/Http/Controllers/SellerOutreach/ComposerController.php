@@ -39,11 +39,38 @@ final class ComposerController extends Controller
         private readonly MapProspectStatusService $prospectStatus = new MapProspectStatusService(),
     ) {}
 
+    /** The owner gate (road-to-sold.md 23.6) for a pitch about this property; null = may send. A property off the belt is not gated here. */
+    private function ownerGate(Request $request, ?Property $property): ?string
+    {
+        // the same file the Road to Sold row judges (23.23 drop 5): the agent's own record first, not whatever the property row points at
+        $tpId = app(\App\Services\SellerOutreach\PitchBeltResolver::class)->trackedFor($request->user(), $property, (int) $request->input('rts_prospect') ?: null);
+        if (! $tpId) {
+            return null;
+        }
+
+        return app(\App\Services\RoadToSold\OwnerStationService::class)->refusal($request->user(), (int) $tpId);
+    }
+
     public function show(Request $request, Contact $contact)
     {
         $agencyId = $this->ensureAgencyContext($request, $contact);
 
         $linkedProperties = $this->loadLinkedProperties($agencyId, $contact);
+
+        // Road to Sold (road-to-sold.md 22.10 step 2): opened from a prospect's row on a contact with no property, the property is made from
+        // the MIC address now, so the agent never lands on "No property or address to pitch about". If none can be made, the address capture.
+        if ($linkedProperties->isEmpty() && $request->filled('rts_prospect')) {
+            $pitchPath = app(\App\Services\RoadToSold\PitchPathService::class);
+            $prospect = $pitchPath->prospectFor($request, $request->user());
+            if ($prospect && ! $contact->hasStructuredAddress()) {
+                if ($pitchPath->ready($prospect, $contact, $request->user())) {
+                    $linkedProperties = $this->loadLinkedProperties($agencyId, $contact);
+                } else {
+                    return redirect()->to($pitchPath->next($prospect, $request->user(), $pitchPath->carry($request))['url'])
+                        ->with('error', 'Add the property address first - there is nothing to pitch about yet.');
+                }
+            }
+        }
 
         // Other Agency Stock can never be pitched (spec other-agency-stock.md §5c): refuse a
         // direct address to it, and keep it out of the picker / the "first linked" default.
@@ -58,14 +85,21 @@ final class ComposerController extends Controller
 
         $property = $this->resolvePropertyForContact($propertyId, $linkedProperties);
 
+        $contactRecord = app(\App\Services\SellerOutreach\PitchContactService::class);
+        $phoneTab = $contactRecord->phoneTabAvailable($request->user());
         $channel = $request->query('channel', 'whatsapp');
-        if (!in_array($channel, ['whatsapp', 'email'], true)) {
+        if (!in_array($channel, ['whatsapp', 'email'], true) && ! ($channel === 'phone' && $phoneTab)) {
             $channel = 'whatsapp';
         }
 
+        // The Phone call tab (road-to-sold.md 23.23): no template, no composed message - the call has already happened, the agent says how it went.
+        $phoneCall = $channel === 'phone' ? $contactRecord->phoneForm($request->user(), $contact, $property, app(\App\Services\RoadToSold\PitchPathService::class)->carry($request)) : null;
+        // the popup's step 5: known as soon as the composer is open, so its pill works before any call is logged
+        $bookUrl = $phoneTab && $property ? app(\App\Services\SellerOutreach\PitchBookService::class)->url($property, $contact, app(\App\Services\RoadToSold\PitchPathService::class)->carry($request)) : null;
+
         $availableTemplates = SellerOutreachTemplate::withoutGlobalScopes()
             ->where('agency_id', $agencyId)
-            ->where('channel', $channel)
+            ->where('channel', $channel === 'phone' ? 'whatsapp' : $channel)
             ->where('is_active', true)
             ->whereNull('deleted_at')
             ->orderByDesc('is_default_for_channel')
@@ -97,7 +131,7 @@ final class ComposerController extends Controller
 
         // Compose context when a property is selected OR in address-only mode.
         $context = null;
-        if ($property || $addressOnly) {
+        if (($property || $addressOnly) && $channel !== 'phone') {
             $context = $this->composer->composeContext(
                 agencyId:        $agencyId,
                 contact:         $contact,
@@ -114,14 +148,23 @@ final class ComposerController extends Controller
         // picker can surface collision badges. ≤2 linked properties per
         // contact (per loadLinkedProperties() comment), so calling resolve()
         // per row is cheap — no batching layer needed.
-        $propertyStatuses = $this->resolveStatusesForPicker(
+        // (the picker, which shows them, is not in the pitch popup: skip the address-matching lookups there - they cost about a third of a second)
+        $propertyStatuses = \App\Support\Embed::on() ? [] : $this->resolveStatusesForPicker(
             $linkedProperties,
             $agencyId,
             (int) $request->user()->id,
         );
 
+        // inside the pitch popup the address is the advert's, on every step (23.30); the property's own (deed) wording shows once, under the popup header
+        $advertAddress = null;
+        if (\App\Support\Embed::on() && $request->filled('rts_prospect')) {
+            $rts = \App\Models\RoadToSold\RtsProspect::withoutGlobalScopes()->where('agency_id', $agencyId)->where('user_id', (int) $request->user()->ownershipUserId())->find((int) $request->query('rts_prospect'));
+            $advertAddress = $rts ? \App\Services\SellerOutreach\AdvertAddress::forProspect($rts) : null;
+        }
+
         return view('seller-outreach.compose', [
             'contact'            => $contact,
+            'advertAddress'      => $advertAddress,
             'property'           => $property,
             'linkedProperties'   => $linkedProperties,
             'channel'            => $channel,
@@ -130,6 +173,9 @@ final class ComposerController extends Controller
             'agencyId'           => $agencyId,
             'propertyStatuses'   => $propertyStatuses,
             'addressOnly'        => $addressOnly,
+            'phoneTab'           => $phoneTab,
+            'phoneCall'          => $phoneCall,
+            'bookUrl'            => $bookUrl,
         ]);
     }
 
@@ -183,6 +229,11 @@ final class ComposerController extends Controller
             return $request->wantsJson()
                 ? response()->json(['message' => $msg], 422)
                 : back()->with('error', $msg);
+        }
+
+        // v4 gate (road-to-sold.md 23.6): no send for a belt property whose owner is not found yet.
+        if ($gate = $this->ownerGate($request, $property)) {
+            return $request->wantsJson() ? response()->json(['message' => $gate, 'find_owner' => true], 422) : back()->with('error', $gate);
         }
 
         // Laravel's `nullable|integer` validates but does NOT cast — the value
@@ -295,11 +346,23 @@ final class ComposerController extends Controller
             ? $this->sender->whatsappUrl($send)
             : null;
 
+        // The contact record (road-to-sold.md 23.23 / 23.7a): an e-mail is sent by CoreX itself, so it is a contact now; a WhatsApp is recorded when the
+        // agent confirms it went (markSent), because CoreX cannot tell.
+        $logged = $validated['channel'] === 'email'
+            ? app(\App\Services\SellerOutreach\PitchContactService::class)->recordSend($request->user(), $send, $property)
+            : ['logged' => false, 'message' => null];
+
+        if ($logged['message']) {
+            session()->flash('contact_message', $logged['message']);   // shown on the sent page the agent is sent to next
+        }
+
         if ($request->wantsJson()) {
             return response()->json([
                 'send_id'             => $send->id,
                 'tracking_short_code' => $send->tracking_short_code,
                 'client_url'          => $clientUrl,
+                'contact_logged'      => $logged['logged'],
+                'contact_message'     => $logged['message'],
                 'message'             => $validated['channel'] === 'whatsapp'
                     ? 'Pitch recorded — opening WhatsApp.'
                     : 'Pitch recorded — branded email sent.',
@@ -342,6 +405,10 @@ final class ComposerController extends Controller
             \App\Services\Properties\OtherAgencyStockActionRules::assertAllowed('pitch_seller', $property);
         } elseif (!$contact->hasStructuredAddress()) {
             return $this->queueError($request, 'Cannot queue: this contact has no linked property and no captured address to pitch.');
+        }
+
+        if ($gate = $this->ownerGate($request, $property)) {
+            return $this->queueError($request, $gate);
         }
 
         $templateId = !empty($validated['template_id']) ? (int) $validated['template_id'] : null;
@@ -403,10 +470,16 @@ final class ComposerController extends Controller
             ? $this->sender->whatsappUrl($sendModel)
             : null;
 
+        $sentProperty = $sendModel->property_id
+            ? Property::withoutGlobalScopes()->where('agency_id', $agencyId)->find((int) $sendModel->property_id)
+            : null;
+
         return view('seller-outreach.sent', [
             'contact'   => $contact,
             'send'      => $sendModel,
             'clientUrl' => $clientUrl,
+            // what the pitch popup says when the agent presses Done ("Pitched · 73 Marine Drive")
+            'address'   => $sentProperty ? (trim((string) $sentProperty->composeAddressFromParts()) ?: (string) $sentProperty->address) : '',
         ]);
     }
 
@@ -508,8 +581,14 @@ final class ComposerController extends Controller
             }
         }
 
+        // the agent says the WhatsApp went: that is the contact (road-to-sold.md 23.23)
+        $property = $sendModel->property_id
+            ? Property::withoutGlobalScopes()->where('agency_id', $agencyId)->whereNull('deleted_at')->find((int) $sendModel->property_id)
+            : null;
+        $logged = app(\App\Services\SellerOutreach\PitchContactService::class)->recordSend($request->user(), $sendModel, $property);
+
         return $request->wantsJson()
-            ? response()->json(['ok' => true, 'message' => 'Recorded as sent.'])
+            ? response()->json(['ok' => true, 'message' => 'Recorded as sent.', 'contact_logged' => $logged['logged'], 'contact_message' => $logged['message']])
             : back()->with('success', 'Recorded as sent.');
     }
 

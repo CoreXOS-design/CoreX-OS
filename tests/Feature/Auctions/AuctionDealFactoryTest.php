@@ -129,8 +129,9 @@ final class AuctionDealFactoryTest extends TestCase
 
     public function test_double_opening_a_deal_on_the_same_lot_is_refused(): void
     {
+        // With a linked seller the deal is opened automatically on the fall of the hammer (CreateDealOnLotSold), so the lot already carries one.
         $lot = $this->makeSoldLot(withSeller: true);
-        $this->factory->createFromSoldLot($lot->refresh());
+        $this->assertNotNull($lot->refresh()->deal_id);
 
         $this->expectException(\RuntimeException::class);
         $this->factory->createFromSoldLot($lot->refresh());
@@ -139,7 +140,7 @@ final class AuctionDealFactoryTest extends TestCase
     public function test_pipeline_steps_are_created_for_the_agencys_cash_template(): void
     {
         \App\Models\DealV2\DealPipelineTemplate::create([
-            'agency_id' => $this->agency->id, 'name' => 'Cash Sale', 'deal_type' => 'cash', 'is_default' => true,
+            'agency_id' => $this->agency->id, 'name' => 'Cash Sale', 'deal_type' => 'cash', 'is_default' => true, 'created_by_id' => $this->agent->id,
         ]);
         // A template with zero steps is a legitimate (if unusual) real-world
         // case — this just proves the attach happens, not that steps exist;

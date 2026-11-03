@@ -56,6 +56,17 @@ class OutcomeService
             throw new RoadToSoldException('That outcome is not available any more. Pick another one.');
         }
 
+        // v4 (23.7): how the owner was contacted. Required for every outcome that is a contact (the ones that only report an owner problem say nothing was
+        // contacted). Until the migration has run the column is not there and nothing is asked.
+        $channel = strtolower(trim((string) ($input['channel'] ?? '')));
+        if ($channel !== '' && ! array_key_exists($channel, RtsContactOutcome::CHANNELS)) {
+            throw new RoadToSoldException('Pick how you contacted them: phone, WhatsApp, email or in person.');
+        }
+        if ($channel === '' && RtsContactOutcome::hasChannelColumn() && config('road-to-sold-belt.require_channel', true) && ! app(OwnerStationService::class)->exempt($def)) {
+            throw new RoadToSoldException('Pick how you contacted them.');
+        }
+        $channel = $channel !== '' && RtsContactOutcome::hasChannelColumn() ? $channel : null;
+
         $note = trim((string) ($input['note'] ?? ''));
         if (mb_strlen($note) > 5000) {
             throw new RoadToSoldException('Keep the note under 5000 characters.');
@@ -66,17 +77,22 @@ class OutcomeService
             && ($def->next_action === Def::ACTION_APPOINTMENT
                 || ($def->isConversation() && filter_var($input['valuation_booked'] ?? false, FILTER_VALIDATE_BOOLEAN)));
         $appointmentAt = null;
-        if ($wantsValuation) {
-            $appointmentAt = $this->parseDateTime($input['appointment_at'] ?? null, 'the evaluation');
+        // The pitch popup's Book evaluation step (road-to-sold.md 23.23 drop 4) books the evaluation in the calendar's own form FIRST and then records the
+        // call against it: the appointment already exists, so it is used (its own date and time) and no second one is made.
+        $preBooked = $wantsValuation ? $this->preBookedEvaluation($actor, $agencyId, $input['calendar_event_id'] ?? null) : null;
+        if ($preBooked) {
+            $appointmentAt = \Illuminate\Support\Carbon::parse($preBooked->event_date);
+        } elseif ($wantsValuation) {
+            $appointmentAt = $this->parseDateTime($input['appointment_at'] ?? null, 'the appointment');
             if (! $appointmentAt) {
-                throw new RoadToSoldException('Pick the date and time of the evaluation.');
+                throw new RoadToSoldException('Pick the date and time of the appointment.');
             }
             if ($appointmentAt->lt(now()->startOfMinute())) {
-                throw new RoadToSoldException('The evaluation cannot be booked in the past. Pick a date and time from now on.');
+                throw new RoadToSoldException('The appointment cannot be booked in the past. Pick a date and time from now on.');
             }
         }
 
-        $outcome = DB::transaction(function () use ($actor, $agencyId, $agentId, $trackedPropertyId, $def, $input, $track, $note, $occurredAt, $wantsValuation, $appointmentAt, $settings) {
+        $outcome = DB::transaction(function () use ($actor, $agencyId, $agentId, $trackedPropertyId, $def, $input, $track, $note, $occurredAt, $wantsValuation, $appointmentAt, $settings, $channel, $preBooked) {
             $tp = TrackedProperty::query()->where('agency_id', $agencyId)->lockForUpdate()->find($trackedPropertyId);
             if (! $tp) {
                 throw new RoadToSoldException('That property could not be found.');
@@ -92,7 +108,20 @@ class OutcomeService
                 }
             }
 
-            [$nextAction, $nextAt, $listTag] = $this->resolveNextAction($def, $input, $tp, $wantsValuation);
+            // The allocation (road-to-sold.md 22.6): another agent's prospect is theirs, whether or not a hold has been written.
+            $prospects = app(ProspectService::class);
+            $owned = $prospects->find($agencyId, (int) $tp->id, $track);
+            if (! $def->records_do_not_contact && $owned && $owned->closed_at === null && $owned->released_at === null && (int) $owned->user_id !== $agentId) {
+                $who = User::withoutGlobalScopes()->whereKey($owned->user_id)->value('name') ?: 'Another agent';
+                throw new RoadToSoldException("{$who} is working this property.");
+            }
+
+            // v4 gate (23.6): no contact outcome until the owner is found; the outcomes that report an owner problem always go through.
+            if ($gate = app(OwnerStationService::class)->refusal($actor, (int) $tp->id, $def)) {
+                throw new RoadToSoldException($gate);
+            }
+
+            [$nextAction, $nextAt, $listTag] = $this->resolveNextAction($def, $input, $tp, $wantsValuation, $appointmentAt);
 
             // N no-answers in a row (this agent, this property). A conversation, or any outcome that
             // is not a no-answer, resets the run.
@@ -117,15 +146,47 @@ class OutcomeService
                 ? Contact::query()->withoutGlobalScope(ContactScope::class)->where('agency_id', $agencyId)->find($tp->owner_contact_id)
                 : null;
 
+            // R10 (road-to-sold.md 22.11): an evaluation booked from a call attaches the PROPERTY. A prospect that is still only a tracked
+            // property gets its property row here (the existing promote-to-stock path), with the owner linked, so the calendar entry carries
+            // the property and the parties.
+            // a property that was archived since the file was promoted is not a property to book against: the appointment would sit on a deleted record and the calendar
+            // could not open its feedback form (found walking Evaluation feedback on QA1)
+            $livePromoted = $tp->promoted_to_property_id
+                ? \App\Models\Property::query()->withoutGlobalScopes()->whereNull('deleted_at')->whereKey($tp->promoted_to_property_id)->value('id')
+                : null;
+            $propertyId = $input['property_id'] ?? ($livePromoted ?: null);
+            if ($wantsValuation && ! $propertyId) {
+                // made by the belt for the agent, not captured by them: scores nothing (23.16)
+                $propertyId = \App\Models\Property::withoutActivityPoints(fn () => app(ProspectPropertyService::class)->ensureProperty($tp, $actor))?->id;
+                $input['property_id'] = $propertyId;
+            }
+
             $eventId = null;
-            if ($wantsValuation) {
+            if ($wantsValuation && $preBooked) {
+                $eventId = (int) $preBooked->id;
+            } elseif ($wantsValuation) {
+                // The parties (R10): every owner CoreX knows for the property, as attendees of the appointment - not only the event's
+                // contact field - and each linked to the property as its seller so the appointment, the property and the owners agree.
+                $parties = $this->partiesOf($tp, $contact, $agencyId);
+                $propertyRow = $propertyId ? \App\Models\Property::query()->withoutGlobalScopes()->whereNull('deleted_at')->find($propertyId) : null;
+                foreach ($propertyRow ? $parties : [] as $partyId) {
+                    try {
+                        PitchPathService::linkSellerIfNone($partyId, $propertyRow);
+                    } catch (Throwable $e) {
+                        // an owner set behind an open deal cannot move; the appointment still names them
+                    }
+                }
                 $event = $this->calendar->create([
                     'title'       => 'Evaluation: ' . ($tp->displayAddress() ?: 'property'),
                     'category'    => 'property_evaluation',
                     'event_date'  => $appointmentAt->format('Y-m-d H:i:s'),
                     'description' => 'Booked from Road to Sold' . ($note !== '' ? ': ' . $note : ''),
-                    'property_id' => $input['property_id'] ?? ($tp->promoted_to_property_id ?: null),
+                    'property_id' => $propertyId,
                     'contact_id'  => $contact?->id,
+                    'attendees'   => array_map(fn (int $id) => ['id' => $id, 'type' => 'contact', 'role' => 'seller_contact'], $parties),
+                    // v4 A4 (23.8): the appointment carries the tracked property and (when the agent already has one) the belt record
+                    'tracked_property_id' => (int) $tp->id,
+                    'rts_prospect_id'     => ($owned && $owned->closed_at === null && $owned->released_at === null && (int) $owned->user_id === $agentId) ? (int) $owned->id : null,
                 ], $actor);
                 $eventId = $event->id;
             }
@@ -143,14 +204,15 @@ class OutcomeService
                 // the assistant who made the call for the agent (null = the agent did): the outcome is the agent's, the call was theirs
                 'recorded_by_user_id'    => (int) $actor->id !== $agentId ? (int) $actor->id : null,
                 'tracked_property_id'    => $tp->id,
-                'property_id'            => $input['property_id'] ?? ($tp->promoted_to_property_id ?: null),
+                'property_id'            => $propertyId,
                 'prospecting_listing_id' => $input['prospecting_listing_id'] ?? null,
                 'list_item_id'           => $input['list_item_id'] ?? null,
                 'contact_id'             => $contact?->id,
                 'outcome_definition_id'  => $def->id,
                 'outcome_key'            => $def->key,
-                'outcome_label'          => $def->label,
+                'outcome_label'          => $def->labelFor($channel),
                 'kind'                   => $def->kind,
+                'channel'                => $channel,
                 'note'                   => $note !== '' ? $note : null,
                 'valuation_booked'       => $wantsValuation,
                 'calendar_event_id'      => $eventId,
@@ -169,6 +231,20 @@ class OutcomeService
                 $this->holds->acquire($agencyId, $actor->effectiveBranchId(), $tp->id, $agentId, $settings->holdDays(), $outcome->id, $track, $occurredAt);
             }
 
+            // The prospect: take the property (or adopt it), then let the outcome set its next action, due date, stage and any park.
+            $prospect = $prospects->place($actor, (int) $tp->id, $track, [
+                'prospecting_listing_id' => $input['prospecting_listing_id'] ?? null,
+                'property_id' => $propertyId,
+                'stage' => $def->isConversation() ? ProspectStages::CONTACTED : ProspectStages::FOUND, 'actor' => $actor,
+            ]);
+            if ($prospect) {
+                $prospects->applyOutcome($prospect, $outcome, $def, $actor);
+                // the property was taken by this very outcome: the appointment it booked names the belt record too (23.8)
+                if ($eventId && BeltLinks::calendarColumns()) {
+                    DB::table('calendar_events')->where('id', $eventId)->whereNull('rts_prospect_id')->update(['rts_prospect_id' => (int) $prospect->id]);
+                }
+            }
+
             if ($contact) {
                 $this->writeContactSide($contact, $def, $outcome, $note, $agentId, $occurredAt, (int) $actor->id !== $agentId ? $actor->name : null);
             }
@@ -177,6 +253,22 @@ class OutcomeService
         });
 
         $this->markListItemWorked($outcome, $agencyId, $agentId);
+
+        // The outcome is saved: tell the rest of CoreX once (road-to-sold.md step 3). Never breaks the capture.
+        \App\Support\Events\SafeRaise::dispatch('RoadToSoldOutcomeRecorded', fn () => new \App\Events\RoadToSold\RoadToSoldOutcomeRecorded(
+            outcomeId: (int) $outcome->id,
+            agencyId: $agencyId,
+            track: $track,
+            outcomeKey: (string) $outcome->outcome_key,
+            kind: (string) $outcome->kind,
+            trackedPropertyId: (int) $outcome->tracked_property_id,
+            userId: $agentId,
+            recordedByUserId: $outcome->recorded_by_user_id ? (int) $outcome->recorded_by_user_id : null,
+            evaluationBooked: (bool) $outcome->valuation_booked,
+            calendarEventId: $outcome->calendar_event_id ? (int) $outcome->calendar_event_id : null,
+            actorUserId: (int) $actor->id,
+            channel: $outcome->channel ?: null,
+        ));
 
         return $outcome;
     }
@@ -189,10 +281,31 @@ class OutcomeService
      *
      * @return array{0:string,1:?Carbon,2:?string}
      */
-    private function resolveNextAction(Def $def, array $input, TrackedProperty $tp, bool $wantsValuation): array
+    /**
+     * The people to put on an evaluation appointment: the tracked property's owner contact first, then any other owner CoreX has a contact
+     * for. Same agency only; no duplicates. Empty when nobody is known (the appointment still carries the property).
+     *
+     * @return int[]
+     */
+    private function partiesOf(TrackedProperty $tp, ?Contact $primary, int $agencyId): array
+    {
+        $ids = $primary ? [(int) $primary->id] : [];
+        $others = DB::table('tracked_property_owners')->where('tracked_property_id', $tp->id)->whereNotNull('contact_id')
+            ->orderByDesc('is_primary')->pluck('contact_id')->map(fn ($v) => (int) $v)->all();
+        $ids = array_values(array_unique(array_merge($ids, $others)));
+        if ($ids === []) {
+            return [];
+        }
+
+        return Contact::query()->withoutGlobalScopes()->where('agency_id', $agencyId)->whereNull('deleted_at')->whereIn('id', $ids)
+            ->pluck('id')->map(fn ($v) => (int) $v)->sortBy(fn ($id) => array_search($id, $ids, true))->values()->all();
+    }
+
+    private function resolveNextAction(Def $def, array $input, TrackedProperty $tp, bool $wantsValuation, ?Carbon $appointmentAt = null): array
     {
         if ($wantsValuation) {
-            return [Def::ACTION_APPOINTMENT, null, null];
+            // the next action is the evaluation, on the appointment's day (road-to-sold.md 22.7)
+            return [Def::ACTION_APPOINTMENT, $appointmentAt?->copy()->startOfDay(), null];
         }
 
         $today = now()->startOfDay();
@@ -226,6 +339,26 @@ class OutcomeService
                 }
 
                 return [Def::ACTION_EXPIRY_ELSE, $picked, null];
+
+            case Def::ACTION_AFTER_MONTHS:
+                $choices = array_values(array_filter(array_map('intval', (array) $def->choice_months)));
+                $months = (int) ($input['follow_up_months'] ?? 0) ?: (int) ($def->default_months ?: ($choices[0] ?? 6));
+                if ($choices !== [] && ! in_array($months, $choices, true)) {
+                    throw new RoadToSoldException('Pick when this property should come back: ' . implode(', ', $choices) . ' months.');
+                }
+
+                return [Def::ACTION_AFTER_MONTHS, $today->copy()->addMonthsNoOverflow(max(1, $months)), null];
+
+            case Def::ACTION_EXPIRY_ELSE_DAYS:
+                $expiry = $this->knownExpiryDate($tp);
+                if ($expiry && $expiry->gte($today)) {
+                    return [Def::ACTION_EXPIRY_ELSE_DAYS, $expiry->startOfDay(), null];
+                }
+
+                return [Def::ACTION_EXPIRY_ELSE_DAYS, $today->copy()->addDays(max(1, (int) ($def->fallback_days ?: 90))), null];
+
+            case Def::ACTION_FIND_OWNER:
+                return [Def::ACTION_FIND_OWNER, $today->copy()->addDays(max(1, (int) $def->delay_days ?: 3)), $def->list_tag ?: null];
 
             case Def::ACTION_MOVE_TO_LIST:
                 return [Def::ACTION_MOVE_TO_LIST, null, $def->list_tag];
@@ -288,6 +421,21 @@ class OutcomeService
         }
     }
 
+    /** An evaluation appointment this agent already made in the calendar form (agency wall, their own, category property_evaluation), or null. */
+    private function preBookedEvaluation(User $actor, int $agencyId, mixed $eventId): ?\App\Models\CommandCenter\CalendarEvent
+    {
+        $id = (int) $eventId;
+        if ($id <= 0) {
+            return null;
+        }
+        $event = \App\Models\CommandCenter\CalendarEvent::withoutGlobalScopes()->where('agency_id', $agencyId)->whereNull('deleted_at')->find($id);
+        if (! $event || (string) $event->category !== 'property_evaluation' || ! in_array((int) $event->user_id, [(int) $actor->id, (int) $actor->ownershipUserId()], true)) {
+            throw new RoadToSoldException('That appointment could not be found. Book it again.');
+        }
+
+        return $event;
+    }
+
     private function parseDateTime(mixed $value, string $what): ?Carbon
     {
         $value = trim((string) $value);
@@ -322,7 +470,7 @@ class OutcomeService
             ->where('is_current', true)->where('dropped', false)
             ->whereNotNull('next_action_at')
             ->whereDate('next_action_at', '<=', Carbon::parse($date)->toDateString())
-            ->whereIn('next_action', [Def::ACTION_AFTER_DAYS, Def::ACTION_PICKED_DATE, Def::ACTION_EXPIRY_ELSE])
+            ->whereIn('next_action', Def::DATED_ACTIONS)
             ->orderBy('next_action_at')->orderBy('id')
             ->get();
     }

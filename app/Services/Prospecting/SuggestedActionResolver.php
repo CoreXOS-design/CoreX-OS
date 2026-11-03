@@ -344,7 +344,7 @@ final class SuggestedActionResolver
 
         return new SuggestedAction(
             rank:        'R5',
-            label:       'PITCH NOW · HIGH',
+            label:       'CLAIM · HIGH',
             tier:        'action',
             icon:        'target',
             tooltipHtml: $tooltip,
@@ -364,7 +364,7 @@ final class SuggestedActionResolver
 
         return new SuggestedAction(
             rank:        'R6',
-            label:       'PITCH NOW',
+            label:       'CLAIM',
             tier:        'action',
             icon:        'target',
             tooltipHtml: $tooltip,
@@ -511,7 +511,7 @@ final class SuggestedActionResolver
 
         return new SuggestedAction(
             rank:        'R10',
-            label:       'PITCH NOW',
+            label:       'CLAIM',
             tier:        'action',
             icon:        'target',
             tooltipHtml: $tooltip,

@@ -82,7 +82,10 @@
             @endforeach
         </select>
     </label>
-    @foreach(($hiddenFields ?? []) as $hk => $hv)<input type="hidden" name="{{ $hk }}" value="{{ $hv }}">@endforeach
+    @foreach(($hiddenFields ?? []) as $hk => $hv)
+        @if(is_array($hv))@foreach($hv as $one)<input type="hidden" name="{{ $hk }}[]" value="{{ $one }}">@endforeach
+        @else<input type="hidden" name="{{ $hk }}" value="{{ $hv }}">@endif
+    @endforeach
     <template x-if="preset === 'custom'">
         <div class="flex items-end gap-2 flex-wrap">
             <label class="text-[11px]" style="color:var(--text-muted);">Start

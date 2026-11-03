@@ -10,9 +10,18 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 use App\Models\Concerns\BelongsToAgency;
 use App\Models\Concerns\BelongsToBranch;
 use App\Models\Concerns\InheritsBranchFromParent;
+use App\Models\Concerns\HasCanonicalPortalRef;
+use App\Support\Property\PortalRef;
 class ProspectingListing extends Model
 {
     use BelongsToBranch, InheritsBranchFromParent, BelongsToAgency, SoftDeletes;
+    use HasCanonicalPortalRef;
+
+    /** @return array<string, ?string> */
+    public function canonicalRefValues(): array
+    {
+        return ['canonical_ref' => PortalRef::normalise($this->portal_ref, PortalRef::portal($this->portal_source))];
+    }
 
     /**
      * Branch follows the capturing agent — set here (not the acting user) so a
@@ -70,12 +79,33 @@ class ProspectingListing extends Model
         // AT-454 — the advert's REAL listed date (portal's own), separate from first_seen_at
         'listed_date',
         'listed_date_source',
+        // MIC capture lane (.ai/specs/mic-work-tab.md §11.2) — public advert facts read off tiles / listing pages
+        'advertiser_type',
+        'agent_portal_id',
+        'agency_portal_id',
+        'rates_amount',
+        'levies_amount',
+        'portal_latitude',
+        'portal_longitude',
+        'portal_geo_source',
+        'is_reduced',
+        'is_exclusive',
+        'badges',
+        'p24_group_id',
+        'p24_mandate_id',
+        'wording_fingerprint',
+        'first_photo_fingerprint',
+        'details_read_at',
+        'details_read_price',
+        'details_read_by',
+        'details_read_card_hash',
     ];
 
     protected $casts = [
         'price'            => 'integer',
         'is_active'        => 'boolean',
         'first_seen_at'    => 'datetime',
+        'sole_mandate_first_seen_at' => 'datetime',
         'last_seen_at'     => 'datetime',
         'price_changed_at'      => 'datetime',
         'first_seen_email_date' => 'datetime',
@@ -88,7 +118,21 @@ class ProspectingListing extends Model
         'off_market_at'            => 'datetime',
         'last_search_id'           => 'integer',
         'listed_date'              => 'date',
+        'is_reduced'               => 'boolean',
+        'is_exclusive'             => 'boolean',
+        'badges'                   => 'array',
+        'photo_urls'               => 'array',
+        'features'                 => 'array',
+        'details_read_at'          => 'datetime',
+        'portal_latitude'          => 'float',
+        'portal_longitude'         => 'float',
     ];
+
+    /** MIC capture lane — who is advertising (spec §11.2). NULL = not read yet. */
+    public const ADVERTISER_TYPES = ['agency', 'owner', 'developer'];
+
+    /** MIC capture lane — the badge slugs the extension may send (spec §11.2). */
+    public const BADGES = ['retirement', 'auction', 'repossessed', 'on_show', 'no_transfer_duty', 'bank_sale'];
 
     public const LISTED_DATE_SOURCE_PORTAL = 'portal';
     public const LISTED_DATE_SOURCE_AGENT  = 'agent';
@@ -98,12 +142,24 @@ class ProspectingListing extends Model
     public const PORTAL_STATUS_UNDER_OFFER = 'under_offer';
     public const PORTAL_STATUS_SOLD        = 'sold';
     public const PORTAL_STATUS_WITHDRAWN   = 'withdrawn';
+    /** AT-520 4.3 (mic-work-tab.md 11.3.B): written ONLY by the Gone rule, never accepted from the extension. */
+    public const PORTAL_STATUS_GONE          = 'gone';
+    public const PORTAL_STATUS_PROBABLY_SOLD = 'probably_sold';
+
+    /** Off-market labels a re-sighting clears (the advert is back on the portal). */
+    public const REAPPEARING_CLEARS = [
+        self::PORTAL_STATUS_WITHDRAWN,
+        self::PORTAL_STATUS_GONE,
+        self::PORTAL_STATUS_PROBABLY_SOLD,
+    ];
 
     /** Statuses that take a listing OUT of the active canvass pool. */
     public const OFF_MARKET_STATUSES = [
         self::PORTAL_STATUS_UNDER_OFFER,
         self::PORTAL_STATUS_SOLD,
         self::PORTAL_STATUS_WITHDRAWN,
+        self::PORTAL_STATUS_GONE,
+        self::PORTAL_STATUS_PROBABLY_SOLD,
     ];
 
     /** The full accepted status vocabulary (for validation / normalisation). */
@@ -231,6 +287,71 @@ class ProspectingListing extends Model
         });
     }
 
+    /**
+     * The Work tab's ONE search box (mic-work-tab.md 2.1 H). Every word must match somewhere (AND across words, OR across fields): the listing's own
+     * text, suburb, agent, agency, the advert ref (P24-/PP-T... or just the digits), AND the property file's resolved address - street number + street
+     * name, complex, suburb - so "Newport" finds a PP advert whose own address is blank but whose file is on Newport Road. Agency named on the file.
+     */
+    public function scopeSearchResolved($query, string $term, int $agencyId, string $table = 'prospecting_listings')
+    {
+        $words = array_slice(array_values(array_filter(preg_split('/\s+/', trim($term)) ?: [], fn ($w) => $w !== '')), 0, 6);
+        $fast = static::hasSearchText();
+        foreach ($words as $w) {
+            $like = '%' . str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $w) . '%';
+            $query->where(function ($q) use ($like, $table, $agencyId, $fast) {
+                if ($fast) {
+                    // one generated column per table (address + suburb + agent + agency + ref / the file's street, number, complex, suburb): the same
+                    // substring match as the five-column form below, one scan instead of five LIKEs per row
+                    $q->where("{$table}.search_text", 'like', $like);
+                } else {
+                    $q->where("{$table}.address", 'like', $like)->orWhere("{$table}.suburb", 'like', $like)
+                        ->orWhere("{$table}.agent_name", 'like', $like)->orWhere("{$table}.agency_name", 'like', $like)
+                        ->orWhere("{$table}.portal_ref", 'like', $like);
+                }
+                // The file's address. Fast path: look the matching files up FIRST (a narrow indexed scan) and hand the main query a short id list - far
+                // cheaper than OR-ing a correlated semi-join into a 24k-row scan. A very common word (more than 5,000 files) keeps the semi-join.
+                $ids = $fast ? static::fileIdsMatching($agencyId, $like) : null;
+                if ($ids !== null) {
+                    if ($ids) {
+                        $q->orWhereIn("{$table}.tracked_property_id", $ids);
+                    }
+
+                    return;
+                }
+                $q->orWhereIn("{$table}.tracked_property_id", function ($s) use ($like, $agencyId, $fast) {
+                    $s->select('tp_s.id')->from('tracked_properties as tp_s')->where('tp_s.agency_id', $agencyId)->whereNull('tp_s.deleted_at');
+                    $fast
+                        ? $s->where('tp_s.search_text', 'like', $like)
+                        : $s->where(fn ($t) => $t->where('tp_s.street_name', 'like', $like)->orWhereRaw("CONCAT_WS(' ', tp_s.street_number, tp_s.street_name) LIKE ?", [$like])
+                            ->orWhere('tp_s.complex_name', 'like', $like)->orWhere('tp_s.suburb', 'like', $like));
+                });
+            });
+        }
+
+        return $query;
+    }
+
+    /**
+     * The agency's property files whose address text matches $like, or null when there are more than 5,000 (too many to hand over as a list).
+     *
+     * @return list<int>|null
+     */
+    private static function fileIdsMatching(int $agencyId, string $like): ?array
+    {
+        $ids = \Illuminate\Support\Facades\DB::table('tracked_properties as tp_s')->where('tp_s.agency_id', $agencyId)->whereNull('tp_s.deleted_at')
+            ->where('tp_s.search_text', 'like', $like)->limit(5001)->pluck('tp_s.id');
+
+        return $ids->count() > 5000 ? null : $ids->map(fn ($i) => (int) $i)->all();
+    }
+
+    /** True once the generated search_text columns exist (migration 2027_01_06_100000). Older databases keep the five-column search. */
+    public static function hasSearchText(): bool
+    {
+        static $has = null;
+
+        return $has ??= \Illuminate\Support\Facades\Schema::hasColumn('prospecting_listings', 'search_text') && \Illuminate\Support\Facades\Schema::hasColumn('tracked_properties', 'search_text');
+    }
+
     /** Exact inverse of scopeWithAddress(). */
     public function scopeWithoutAddress($query, string $table = 'prospecting_listings')
     {
@@ -269,6 +390,65 @@ class ProspectingListing extends Model
             ->whereNull('deleted_at')
             ->whereNotNull('street_name')->where('street_name', '<>', '')
             ->exists();
+    }
+
+    /**
+     * The address a row SHOWS, by the same rule scopeWithAddress() filters on: the listing's own text when it is real, else the address of the
+     * property file it sits on (street number + street name - a complex or estate name is a street name here). That file address may have come from
+     * a capture, a deeds link, a twin advert or Edit address. A matched own Property (same agency) outranks the file, as before. Display only -
+     * nothing is written. One batched read per source, never one per row.
+     *
+     * Keep this, scopeWithAddress(), hasAddressSql() and hasAddress() in step: a row the filter lets through always gets a line here, so the
+     * row never says "No address yet" under "With address only".
+     *
+     * @param  iterable<ProspectingListing>  $listings
+     * @return array<int, string>  listing id => address line, only for listings whose own text is not real
+     */
+    public static function resolveDisplayAddresses(iterable $listings, ?int $viewerAgencyId): array
+    {
+        $needs = [];
+        foreach ($listings as $l) {
+            $text = trim((string) $l->address);
+            if ($text === '' || $text === self::ADDRESS_PLACEHOLDER) {
+                $needs[] = $l;
+            }
+        }
+        if (! $needs) {
+            return [];
+        }
+
+        // AT-424 - only ever an address from the viewer's own agency, even if a matcher ever linked a listing across agencies.
+        $propIds = array_values(array_unique(array_filter(array_map(fn ($l) => (int) $l->matched_property_id, $needs))));
+        $propLine = $propIds ? \App\Models\Property::withoutGlobalScopes()->whereIn('id', $propIds)
+            ->when($viewerAgencyId, fn ($q) => $q->where('agency_id', $viewerAgencyId))->whereNull('deleted_at')
+            ->get(['id', 'address', 'street_number', 'street_name', 'suburb'])
+            ->mapWithKeys(function ($p) {
+                $line = trim((string) $p->address) !== '' ? $p->address : trim(implode(' ', array_filter([$p->street_number, $p->street_name])));
+                if ($line !== '' && filled($p->suburb) && ! str_contains($line, $p->suburb)) {
+                    $line .= ', ' . $p->suburb;
+                }
+
+                return [$p->id => $line];
+            })->filter(fn ($line) => $line !== '')->all() : [];
+
+        $tpIds = array_values(array_unique(array_filter(array_map(fn ($l) => (int) $l->tracked_property_id, $needs))));
+        $fileLine = $tpIds ? \Illuminate\Support\Facades\DB::table('tracked_properties')->whereIn('id', $tpIds)->whereNull('deleted_at')
+            ->when($viewerAgencyId, fn ($q) => $q->where('agency_id', $viewerAgencyId))
+            ->whereNotNull('street_name')->where('street_name', '<>', '')
+            ->get(['id', 'street_number', 'street_name'])
+            ->mapWithKeys(fn ($t) => [(int) $t->id => trim(implode(' ', array_filter([
+                in_array(trim((string) $t->street_number), ['', '0'], true) ? null : trim((string) $t->street_number), trim((string) $t->street_name),
+            ])))])->all() : [];
+
+        $out = [];
+        foreach ($needs as $l) {
+            $line = $propLine[(int) $l->matched_property_id] ?? ($fileLine[(int) $l->tracked_property_id] ?? '');
+            if ($line !== '') {
+                $out[(int) $l->id] = $line;
+            }
+        }
+
+        return $out;
     }
 
     private static function trackedStreetExists(string $table): \Closure

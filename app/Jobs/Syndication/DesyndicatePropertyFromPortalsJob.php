@@ -108,8 +108,15 @@ class DesyndicatePropertyFromPortalsJob implements ShouldQueue
 
         $failures = [];
 
-        $this->delistProperty24($property, $failures);
-        $this->delistPrivateProperty($property, $failures);
+        // AT-523 - Staging / QA copies carry the agency's real portal logins from the live database, so a non-production box would send "withdraw" calls with them:
+        // against P24's test endpoint that is a 401 on every attempt (44 failed rows), and against a real endpoint it would de-list real listings. A GUARD, not a retry:
+        // the portal steps do not run off production unless this environment is explicitly allowed (P24_ALLOW_NONPROD_DESYNDICATION=true); the agency-website step still does.
+        if (! app()->environment('production') && ! (bool) config('services.property24_syndication.allow_non_production_desyndication', false)) {
+            Log::info("DesyndicatePropertyFromPortalsJob: portal steps skipped for property #{$property->id} - this is not production (set P24_ALLOW_NONPROD_DESYNDICATION=true to allow)", ['property_id' => $property->id, 'environment' => app()->environment()]);
+        } else {
+            $this->delistProperty24($property, $failures);
+            $this->delistPrivateProperty($property, $failures);
+        }
         if ($this->removeFromWebsite) {
             $this->delistWebsites($property, $failures);
         }

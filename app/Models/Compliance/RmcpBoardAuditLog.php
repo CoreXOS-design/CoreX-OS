@@ -2,13 +2,14 @@
 
 namespace App\Models\Compliance;
 
+use App\Models\Concerns\StampsOnBehalfOf;
 use App\Models\Concerns\BelongsToAgency;
 use Illuminate\Database\Eloquent\Model;
 
 /** Append-only trail of the board approval: sent, resent, viewed, signed, completed, cancelled, approved. */
 class RmcpBoardAuditLog extends Model
 {
-    use BelongsToAgency;
+    use BelongsToAgency, StampsOnBehalfOf;
 
     public $timestamps = false;
 

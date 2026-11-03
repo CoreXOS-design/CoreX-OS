@@ -4,7 +4,7 @@
 
     Layout (top to bottom):
       tabs nav (Work | Opportunities | Analyse | Market Pulse)
-      "This Week" hero block (deterministic tiles per agent)
+      11-tile row + panels (MicWorkTiles)
       sticky header: top-bar + simplified 5-tile stats strip
       filter rail + listing list
       slide-over detail panel
@@ -24,7 +24,7 @@
 
 <x-mic-page-header
     title="Work"
-    subtitle="Your prospecting worklist — listings to action, ranked by suggested next step.">
+    :compact="true">
     <x-slot:actions>
         {{-- Slot: filter ticks. AJAX swap target (display:contents = no layout box),
              so a tick toggle refreshes this in place without a full reload. --}}
@@ -38,14 +38,33 @@
 @include('corex.market-intelligence.partials.tabs')
 </div>
 
-<div data-tour="mic-hero">
-@include('corex.market-intelligence.partials.this-week-hero', [
-    'tiles'            => $tiles ?? collect(),
-    'tilesGeneratedAt' => $tilesGeneratedAt ?? null,
-    'agent'            => auth()->user(),
-])
+{{-- 11-tile row + tile 10 / 11 panels (mic-work-tab.md 2.1). The old "Hi ..., here's your week" greeting block is gone. --}}
+<div data-tour="mic-tiles">
+@include('corex.market-intelligence.partials._work-tiles', ['workTiles' => $workTiles ?? [], 'workPanel' => $workPanel ?? [], 'tilesDeferred' => $tilesDeferred ?? false])
 </div>
+@if(!empty($tileNote))
+<div data-qa="tile-note" style="margin: -4px 0 8px 0; font-size: .75rem; color: var(--text-secondary);">
+    <strong>{{ $tileNote['title'] }}</strong>:
+    @if($tileNote['files'] !== null){{ number_format($tileNote['files']) }} properties →@endif
+    {{ number_format($tileNote['rows']) }} rows below
+    @if($tileNote['files'] !== null && $tileNote['rows'] > $tileNote['files'])<span style="color: var(--text-muted);">(a property whose P24 and PP adverts are not linked yet shows as more than one row)</span>
+    @elseif($tileNote['files'] !== null && $tileNote['rows'] < $tileNote['files'])<span style="color: var(--text-muted);">({{ number_format($tileNote['files'] - $tileNote['rows']) }} of them have no advert this list shows - taken down, or outside your scope)</span>@endif
+    @if($tileNote['tileCount'] !== null)<span style="color: var(--text-muted);"> · the tile's {{ number_format($tileNote['tileCount']) }} counts "{{ $tileNote['tileCounts'] }}", not this list</span>@endif
+    @if($tileNote['asOf'])<span style="color: var(--text-muted);"> · figures as of {{ $tileNote['asOf'] }}</span>@endif
+    · <a href="{{ route('market-intelligence.work', request()->except(['tile', 'page'])) }}" style="color: var(--brand-icon); text-decoration: none;">Clear this tile</a>
+</div>
+@endif
 
+@if(($micView ?? 'adverts') === 'properties')
+<div id="mic-slot-listings" data-tour="mic-listings">
+@include('corex.market-intelligence.partials._work-property-list')
+</div>
+@else
+{{-- Top filter bar (mic-work-tab.md 13.2), directly under the tiles. It replaces the left column: the quick filters, the chips, the sort and the
+     Adverts | List switch, and under "More filters" every old group, the buyer-match legend and the ticks. The swap target for a tick refresh. --}}
+<div id="mic-slot-filter-rail" data-tour="mic-filters">
+@include('corex.market-intelligence._filter-bar')
+</div>
 
 {{-- Sticky offset is the main area's own top padding (p-4 / lg:p-6), set in the
      <style> block below, so the strip pins flush to the top edge of the scroll
@@ -53,36 +72,28 @@
      through (Andre, 2026-10-14). --}}
 <header class="mi-header" id="mic-slot-stats"
         style="position: sticky; z-index: 10; background: var(--surface);">
-    @include('corex.market-intelligence._stats-strip')
+    @include('corex.market-intelligence._stats-strip', ['statsLine' => true])
 </header>
 
 {{-- F.8 — one-time dismissable intro banner. localStorage-gated. --}}
 @include('corex.market-intelligence._intro-banner')
 
-{{-- Buyer-tier legend + filter ticks (Johan 2026-08-19) — sits here, in the
-     empty band between the banner and the list, in normal flow. NOT inside
-     the scrolling list column (was overlaying the first property row when
-     it lived there) and NOT sticky. AJAX swap target like the other four
-     fragments below. --}}
-<div id="mic-slot-buyer-legend">
-@include('corex.market-intelligence._buyer-match-legend')
-</div>
-
-<div class="mi-split" data-tour="mic-list" style="display: grid; grid-template-columns: 200px 1fr; align-items: start;">
-    {{-- display:contents keeps the rail as grid column 1 while giving the swap a
-         stable target — a tick refresh replaces its contents in place. --}}
-    <div id="mic-slot-filter-rail" style="display:contents;">
-    @include('corex.market-intelligence._filter-rail')
-    </div>
+<div class="mi-split" data-tour="mic-list" style="display: grid; grid-template-columns: 1fr; align-items: start;">
 
     <main class="mi-main" id="mic-slot-listings" data-tour="mic-listings" style="min-width: 0; overflow-x: hidden; padding: 12px 16px;">
         @include('corex.market-intelligence._listings')
     </main>
 </div>
 
+@endif
 </div>{{-- /full-width container --}}
 
+@if(($micView ?? 'adverts') !== 'properties')
 @include('corex.market-intelligence._slideover')
+@endif
+@include('corex.market-intelligence._buyer-banner-script')
+@include('corex.market-intelligence._advert-fetch-script')
+@include('layouts.partials._pitch-popup')
 
 {{-- ─────────────────────────────────────────────────────────────────────────
      Tick refresh (cc6) — AJAX partial swap, no full-page reload.
@@ -254,6 +265,12 @@
     /* Buyer rows in the rail: layout lives here, not inline, because Alpine's
        x-show removes the inline display property when it re-shows an element. */
     .mi-rail-row { display: flex; justify-content: space-between; align-items: center; }
+    /* the old left-column groups, now laid out in a grid inside the top bar's "More filters" */
+    .mi-filter-bar-more .mi-filter-rail {
+        width: auto; border-right: 0; position: static; max-height: none; overflow: visible; background: transparent;
+        display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 0 14px; align-items: start;
+    }
+    .mi-filter-bar-more .mi-filter-rail > div { border: 1px solid var(--border); border-radius: 4px; margin-bottom: 8px; max-height: 300px; overflow-y: auto; }
     .mi-filter-rail {
         width: 200px;
         flex-shrink: 0;
@@ -283,63 +300,5 @@
     [x-cloak] { display: none !important; }
 </style>
 
-<script>
-    (function () {
-        var setHeaderHeight = function () {
-            var h = document.querySelector('.mi-header');
-            if (!h) return;
-            document.documentElement.style.setProperty('--mi-header-h', h.offsetHeight + 'px');
-        };
-        setHeaderHeight();
-        window.addEventListener('resize', setHeaderHeight);
-        requestAnimationFrame(setHeaderHeight);
-    })();
-
-    // Phase E3 — per-listing "why this matches" tooltip.
-    // Cache per-listing in-memory so repeated hovers don't refetch.
-    //
-    // 2026-08-14: `open` now gates visibility (set by mouseenter/focusin,
-    // cleared by mouseleave/focusout in the blade) — a true hover-reveal,
-    // transient tooltip instead of the old one-way latch that stayed stuck
-    // open forever after the first hover. The fetched text is still cached
-    // per-listing so re-hovering the same row never re-fetches.
-    window.__micMatchTooltipCache = window.__micMatchTooltipCache || {};
-    window.micMatchTooltip = function (listingId) {
-        return {
-            tooltip: '',
-            loading: false,
-            loaded: false,
-            inflight: false,
-            open: false,
-            show() {
-                this.open = true;
-                this.ensureLoaded();
-            },
-            hide() {
-                this.open = false;
-            },
-            ensureLoaded() {
-                if (this.loaded || this.inflight) return;
-                if (window.__micMatchTooltipCache[listingId]) {
-                    this.tooltip = window.__micMatchTooltipCache[listingId];
-                    this.loaded = true;
-                    return;
-                }
-                this.inflight = true;
-                this.loading = true;
-                fetch('/corex/market-intelligence/listing/' + listingId + '/match-tooltip', {
-                    headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' },
-                })
-                .then(r => r.ok ? r.json() : Promise.reject('HTTP ' + r.status))
-                .then(data => {
-                    this.tooltip = data.tooltip || '';
-                    window.__micMatchTooltipCache[listingId] = this.tooltip;
-                    this.loaded = true;
-                })
-                .catch(() => { this.tooltip = ''; })
-                .finally(() => { this.loading = false; this.inflight = false; });
-            },
-        };
-    };
-</script>
+@include('corex.market-intelligence._work-card-scripts')
 @endsection

@@ -184,15 +184,13 @@ final class SecondAgencyNeverSeesAnotherAgencyTest extends TestCase
     public function test_the_migration_neutralises_earlier_clones_and_leaves_agency_one_and_edits_alone(): void
     {
         $old = 'Hi {seller_name}, this is {agent_name} from {agency_name} — a registered estate agency on the KZN South Coast.' . "\n" . 'Own edit line. {opt_out_link}';
-        $make = fn (int $agencyId) => SellerOutreachTemplate::withoutGlobalScopes()->create([
+        // BelongsToAgency stamps a new row onto the signed-in user's agency, so the row is created with the stamping off to land in the agency asked for.
+        $make = fn (int $agencyId) => SellerOutreachTemplate::withoutAgencyStamping(fn () => SellerOutreachTemplate::withoutGlobalScopes()->create([
             'agency_id' => $agencyId, 'name' => 'General', 'channel' => 'whatsapp', 'is_active' => true, 'is_default_for_channel' => true,
             'include_tracking_link' => false, 'body' => $old,
-        ]);
-        // agency 1 is Home Finders Coastal's: its own row is never rewritten
-        if (! Agency::withoutGlobalScopes()->find(1)) {
-            Agency::forceCreate(['id' => 1, 'name' => 'Agency One', 'slug' => 'agency-one-' . uniqid()]);
-        }
-        $agencyOneRow = $make(1);
+        ]));
+        // Home Finders Coastal is found by its slug, not assumed to be agency id 1 (migration audit fix, 18 Oct 2026): its own row is never rewritten
+        $agencyOneRow = $make((int) $this->hfc->id);
         $capeRow = $make((int) $this->cape->id);
 
         (require base_path('database/migrations/2026_10_14_150000_neutralise_cloned_hfc_outreach_template.php'))->up();

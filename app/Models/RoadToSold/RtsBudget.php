@@ -65,6 +65,24 @@ class RtsBudget extends Model
 
     public const KEY_AGENCY = 'agency';
 
+    /**
+     * An agent row that exists only because the branch total was split to the agent (road-to-sold.md section 21.3): a share, no
+     * personal or business budget, no planning figures. The Budgets screen does not call it "their own budget".
+     */
+    public function isShareOnly(): bool
+    {
+        if ((float) $this->requirement <= 0 || (float) $this->personal_budget > 0 || (float) $this->business_budget > 0) {
+            return false;
+        }
+        foreach (self::PLANNING as $key) {
+            if ($this->{$key} !== null) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
     public function agent(): BelongsTo
     {
         return $this->belongsTo(User::class, 'user_id');

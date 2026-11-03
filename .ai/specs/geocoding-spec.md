@@ -322,6 +322,43 @@ African latitude is negative). A report that prints the pair as one "GPS: -25.9,
 (stated limit). Tests: `ReportSubjectCoordinatesCanonicalTest` (canonical read, learned layout, unknown layout ->
 property).
 
+## Reusing a stored coordinate: number + street + suburb (27 Oct 2026, NUMBER-MATCH-FIX)
+
+**What went wrong.** The resolver's "market_reports.subject_address" step (and the portal-capture step) matched a
+stored record on the street name alone — its needle list always included the address with the house number
+stripped. "14 Manikie St" was pinned exactly on the report subject "11 Manikie St" (report 438, presentation 231 on
+QA1, cached as `market_report` / `exact`), and the comparable pool then dropped it as the subject itself.
+
+**Rule (one place: `App\Support\Geocoding\StreetAddressMatch`, used by both steps; the property fallback in "Report
+coordinates" is the same rule).** Another record's coordinates are reused only when the street **number**, the street
+**name** and the **suburb** all match, as whole words: `11` is not `111` or `11A`; no number on the address being
+resolved, no number on the stored subject, or no suburb = no reuse. Anything else goes to Google (or stays unpinned),
+never to the neighbour's pin. No street-type canonicalisation (`St` vs `Street`): a miss costs one Google call, a false
+hit puts a house on its neighbour. The old number-stripping needle builder was deleted so it cannot be used again.
+
+**Clearing a bad stored pin.** A comp row or cache entry that already holds a neighbour's pin is cleared by nulling the
+row's latitude/longitude and deleting its `geocoding_cache` entry; the next presentation generate re-geocodes it.
+The clean-up is a command option, safe to run on live:
+
+```bash
+php artisan geocoding:backfill --clear-subject-borrowed-pins                  # DRY RUN: counts rows, reports, cached copies
+php artisan geocoding:backfill --clear-subject-borrowed-pins --agency=1       # dry run for one agency
+php artisan geocoding:backfill --clear-subject-borrowed-pins --apply          # clear
+```
+
+It selects comp rows (not `subject` rows) whose pin is exactly their own report's subject pin although both addresses
+carry a house number and the numbers differ (a row with no number is left alone: it cannot be told apart from the
+subject). It nulls the pin and deletes only the cached copy that is the borrowed answer (`source = market_report`, same
+coordinates); a genuine Google answer for the same address stays. It never geocodes, so it costs no Google calls and
+does not touch the daily cap — the rows re-pin on the next generate or backfill. Already-generated presentation
+versions keep the pin they were built with until regenerated. QA1, 27 Oct 2026: 39 rows.
+Tests: `ResolverNumberMatchTest` (same street + different number is not the subject's pin; it goes to Google and gets its
+own; same number still reuses; suburb leg; no-number both ways; 11 vs 111 / 11A).
+
+**Per-user daily Google cap.** `GeocodeRateLimiter::getUserCap()` reads `config('geo.geocoding.user_daily_cap')`, i.e. the
+`GEOCODING_USER_DAILY_CAP` environment value (code default 30), per environment — not a hard-coded constant, so there is
+nothing to turn into a setting. QA1 and Staging run it at 50.
+
 ## Failure is recorded (27 Oct 2026)
 
 `PropertyObserver` create/update hooks swallowed a thrown geocode with a log line, leaving `geo_source` NULL

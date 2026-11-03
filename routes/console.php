@@ -10,6 +10,8 @@ Artisan::command('inspire', function () {
 
 // P24 alert email import — runs hourly
 Schedule::command('p24:import')->hourly();
+Schedule::command('pp:import')->hourly();   // off until PP_IMPORT_ENABLED=true (property-identity.md section 15, C1)
+Schedule::command('property-identity:nightly')->dailyAt('02:30')->withoutOverlapping();   // AT-520 4.10: safety net for the automatic matching rules (also run after every import)
 
 // P24 location tree (provinces → cities → suburbs) — daily full refresh +
 // stamp-and-sweep at 11:00. Keeps p24_verified_at current on everything P24
@@ -239,6 +241,14 @@ Schedule::command('corex:queue-healthcheck')
     ->withoutOverlapping()
     ->onOneServer()
     ->name('queue-healthcheck');
+
+// A queue with jobs waiting and no worker process on this host naming it (the `thumbnails` lane sat idle on the demo box with
+// 780 jobs because nobody had installed its worker). Reads the process table, not supervisor, so it works on every box.
+Schedule::command('corex:queue-worker-coverage')
+    ->everyFiveMinutes()
+    ->withoutOverlapping()
+    ->onOneServer()
+    ->name('queue-worker-coverage');
 
 // Queue worker liveness alert — runs every minute so a FATAL/STOPPED
 // corex-worker-* process (e.g. one that lost its supervisor restart budget
@@ -477,7 +487,15 @@ Schedule::command('prospecting:flag-stale-listings')->dailyAt('03:50')->onOneSer
 Schedule::command('prospecting:recompute-matches')->dailyAt('04:00')->onOneServer()->withoutOverlapping();
 // AT-454 Road to Sold — close earlier days, then build each agent's list for today. After the
 // buyer-match recompute above (04:00) so "stock for my buyers" reads fresh matches.
+// 23.30.3: the midnight job - rows loaded and never started go back to the pool (or carry over, per the agency setting) before the 04:30 build deals the new day.
+Schedule::command('rts:close-day')->dailyAt('00:05')->onOneServer()->withoutOverlapping();
 Schedule::command('rts:build-lists')->dailyAt('04:30')->onOneServer()->withoutOverlapping();
+// AT-454 v2 phase 4 - put agents who have met their level for the required weeks forward for sign-off. After the build above; idempotent.
+Schedule::command('rts:check-levels')->dailyAt('05:00')->onOneServer()->withoutOverlapping();
+// Road to Sold v3 (22.6): an agent who has gone keeps no allocation - their open prospects go back to the pool.
+Schedule::command('rts:release-inactive')->dailyAt('05:15')->onOneServer()->withoutOverlapping();
+// Road to Sold v4 (23.5): warn about, then release, claims whose claim hold has ended (working days; an agency setting).
+Schedule::command('rts:release-held-claims')->dailyAt('05:20')->onOneServer()->withoutOverlapping();
 Schedule::command('corex:leave:send-reminders')->dailyAt('06:00')->onOneServer()->withoutOverlapping();
 
 // (P24 location tree now refreshes DAILY at 11:00 with stamp-and-sweep — see
@@ -658,6 +676,9 @@ Schedule::command('rollout:release')->everyFifteenMinutes()->onOneServer()->with
 
 // Attorney portal - the daily "new documents" note to attorneys (one per deal per day; each agency can switch it off).
 Schedule::command('attorney-portal:notify-new-documents')->dailyAt('07:30')->withoutOverlapping();
+
+// MIC 5.5 (AT-519): nightly stored per-file counts + pocket stats for the Work tab and hot-pocket tiles.
+Schedule::command('mic:refresh-stats')->dailyAt('03:30')->withoutOverlapping();
 
 // AT-534 — Campaigns (CoreX's own outbound email sequences): queue a send run per running campaign, and read each in-use
 // sending address's inbox for replies / STOP / bounces. Both idempotent. Spec: .ai/specs/campaigns.md §6.1, §6.6.

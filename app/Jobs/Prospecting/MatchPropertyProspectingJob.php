@@ -32,6 +32,10 @@ class MatchPropertyProspectingJob implements ShouldQueue
 
     public const QUEUE_NAME = 'matching';
 
+    // AT-523 - matching one property against the whole prospecting stock can run past the worker's default 60 s; 4 Staging rows (19-21 Oct) died as TimeoutExceededException.
+    public int $timeout = 300;
+    public int $tries = 2;
+
     public function __construct(public int $propertyId)
     {
         $this->onQueue(self::QUEUE_NAME);

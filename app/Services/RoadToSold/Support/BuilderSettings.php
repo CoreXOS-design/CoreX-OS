@@ -16,9 +16,10 @@ use App\Services\RoadToSold\SettingsService;
  */
 final class BuilderSettings
 {
+    /** 23.14: my buyers, colleagues' buyers, hot pockets, then the fill-ups (price cuts, long on market, expired - own and competitor -, new on market). The agency can reorder. */
     public const DEFAULT_SELECTION_ORDER = [
-        'my_buyers_sourcing', 'agency_buyers_sourcing', 'hot_pockets', 'price_drops', 'new_on_market',
-        'long_on_market', 'owner_known', 'my_expired_stock', 'my_stock_not_selling',
+        'my_buyers_sourcing', 'agency_buyers_sourcing', 'hot_pockets', 'price_drops', 'long_on_market',
+        'my_expired_stock', 'expired_competitor', 'new_on_market', 'owner_known', 'my_stock_not_selling',
     ];
 
     /** @param string[] $enabledSelectionKeys ordered */
@@ -36,7 +37,8 @@ final class BuilderSettings
         public readonly int $priceDropLookbackDays = RtsSetting::SCALAR_DEFAULTS['price_drop_lookback_days'],
         public readonly int $stuckStockLookbackDays = RtsSetting::SCALAR_DEFAULTS['stuck_stock_lookback_days'],
         public readonly int $addToDayMax = RtsSetting::SCALAR_DEFAULTS['add_to_day_max'],
-        public readonly int $scanPageSize = RtsSetting::SCALAR_DEFAULTS['scan_page_size'],
+        public readonly int $scanPageSize = RtsSetting::SCAN_PAGE_SIZE,
+        public readonly int $expiredCompetitorLookbackDays = RtsSetting::SCALAR_DEFAULTS['expired_competitor_lookback_days'],
         public readonly int $hotPocketWeightBuyers = RtsSetting::SCALAR_DEFAULTS['hot_pocket_weight_buyers'],
         public readonly int $hotPocketWeightLeads = RtsSetting::SCALAR_DEFAULTS['hot_pocket_weight_leads'],
         public readonly int $hotPocketWeightSales = RtsSetting::SCALAR_DEFAULTS['hot_pocket_weight_sales'],
@@ -46,6 +48,10 @@ final class BuilderSettings
         public readonly array $buyerActiveStates = RtsSetting::LIST_DEFAULTS['active_buyer_states'],
         /** @var string[] */
         public readonly array $onMarketStatuses = RtsSetting::LIST_DEFAULTS['on_market_statuses'],
+        /** 23.15: `off` | `branch` | `agency` - whose buyers feed the agent's stock after their own */
+        public readonly string $sourceForColleagues = 'agency',
+        /** 23.24: fill the day from the agent's own claims before any other source */
+        public readonly bool $fillFromClaimsFirst = true,
     ) {
     }
 
@@ -73,12 +79,15 @@ final class BuilderSettings
             stuckStockLookbackDays: $s->stuckStockLookbackDays(),
             addToDayMax: $s->addToDayMax(),
             scanPageSize: $s->scanPageSize(),
+            expiredCompetitorLookbackDays: $s->expiredCompetitorLookbackDays(),
             hotPocketWeightBuyers: $s->hotPocketWeightBuyers(),
             hotPocketWeightLeads: $s->hotPocketWeightLeads(),
             hotPocketWeightSales: $s->hotPocketWeightSales(),
             buyerMatchTiers: $s->buyerMatchTiers(),
             buyerActiveStates: $s->activeBuyerStates(),
             onMarketStatuses: $s->onMarketStatuses(),
+            sourceForColleagues: $s->sourceForColleagues(),
+            fillFromClaimsFirst: $s->fillFromClaimsFirst(),
         );
     }
 

@@ -67,8 +67,10 @@ final class PropertyTypeFamilyAndStructuredFeaturesTest extends TestCase
         );
     }
 
-    public function test_apartment_wishlist_still_shows_townhouse_same_family(): void
+    public function test_apartment_wishlist_no_longer_shows_a_townhouse(): void
     {
+        // Spec 13.15 (Johan, 2 Nov 2026) supersedes the 2026-08-04 family-level ruling: a Townhouse is not an Apartment / House.
+        // The family is now only the fallback for a type the MIC type map cannot read.
         [$agencyId, $agent] = $this->fixture();
         $buyer = $this->buyer($agencyId, $agent->id);
         $this->match($agencyId, $buyer->id, [
@@ -79,12 +81,19 @@ final class PropertyTypeFamilyAndStructuredFeaturesTest extends TestCase
         $townhouse = $this->listing($agencyId, $agent->id, [
             'price' => 1_020_000, 'bedrooms' => 2, 'bathrooms' => 2, 'property_type' => 'Townhouse',
         ]);
+        $flat = $this->listing($agencyId, $agent->id, [
+            'price' => 1_020_000, 'bedrooms' => 2, 'bathrooms' => 2, 'property_type' => 'Apartment',
+        ]);
 
         app(PropertyMatchScoringService::class)->recomputeProspectingMatchesForBuyer($buyer->id);
 
-        $row = DB::table('prospecting_buyer_matches')->where('contact_id', $buyer->id)->where('prospecting_listing_id', $townhouse)->first();
-        $this->assertNotNull($row, 'a same-family (built) property must still surface — the gate is family-level, not exact-type');
-        $this->assertGreaterThanOrEqual(80, (int) $row->score, 'strong fit on every soft criterion within the same family');
+        $this->assertFalse(
+            DB::table('prospecting_buyer_matches')->where('contact_id', $buyer->id)->where('prospecting_listing_id', $townhouse)->exists(),
+            'a Townhouse is not an Apartment: the wishlist type is a hard filter'
+        );
+        $row = DB::table('prospecting_buyer_matches')->where('contact_id', $buyer->id)->where('prospecting_listing_id', $flat)->first();
+        $this->assertNotNull($row, '"Apartment" on the portal is the wishlist\'s "Apartment / Flat"');
+        $this->assertGreaterThanOrEqual(80, (int) $row->score);
     }
 
     public function test_multiselect_wishlist_including_vacant_land_now_shows_vacant_land(): void

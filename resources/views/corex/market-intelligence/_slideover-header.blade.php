@@ -100,7 +100,7 @@
             @if($h['in_stock'])
                 @if(empty($h['matched_is_oas']))
                 <a href="{{ route('seller-outreach.entry.from-property', $h['matched_property_id']) }}"
-                   data-tour="mic-pitch"
+                   data-tour="mic-pitch" data-pitch-popup data-start="owner" data-listing="{{ $listing->id }}" data-label="Pitch"
                    style="{{ $actionPrimary }}">
                     Pitch
                 </a>
@@ -111,7 +111,7 @@
                      the resulting (clean) URL will not carry this param, so it won't
                      re-run and silently eject the agent mid-review. --}}
                 <a href="{{ route('seller-outreach.entry.from-prospecting', ['prospectingListingId' => $listing->id, 'fresh' => 1]) }}"
-                   data-tour="mic-pitch"
+                   data-tour="mic-pitch" data-pitch-popup data-start="owner" data-listing="{{ $listing->id }}" data-label="Pitch"
                    style="{{ $actionPrimary }}">
                     Pitch
                 </a>
@@ -195,8 +195,9 @@
              x-cloak
              @keydown.escape.window="noteOpen = false"
              @click.self="noteOpen = false"
-             style="position: fixed; inset: 0; z-index: 70; background: rgba(0,0,0,0.4); display: flex; align-items: center; justify-content: center;">
-            <div @click.stop style="background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 16px; width: 90%; max-width: 420px;">
+             style="position: fixed; inset: 0; z-index: 70; background: rgba(0,0,0,0.4);">
+            {{-- centred by position: x-show replaces the inline display value, so a display:flex on this element is lost when it shows --}}
+            <div @click.stop style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 16px; width: 90%; max-width: 420px;">
                 <h3 style="font-size: 0.875rem; font-weight: 600; margin-bottom: 8px; color: var(--text-primary);">Add note to claim</h3>
                 <form
                     x-data="{ submitting: false, error: null, value: '' }"

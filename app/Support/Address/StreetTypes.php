@@ -101,12 +101,36 @@ final class StreetTypes
             $type = self::canonical($words[count($words) - 1]);
             if ($type !== null) {
                 array_pop($words);
+                // AT-520: a doubled trailing type ("Newport Road Road", 31 files on QA1) is one type, not a street called "Newport Road"
+                while (count($words) > 1 && self::canonical($words[count($words) - 1]) === $type) {
+                    array_pop($words);
+                }
 
                 return [$words, $type];
             }
         }
 
         return [$words, null];
+    }
+
+    /**
+     * "13 Newport Road Road" -> "13 Newport Road": when the last two words of a street name are the SAME street-type word, one is dropped.
+     * Anything else (including two different type words, "Capri Crescent Drive") is returned unchanged.
+     */
+    public static function collapseDoubled(?string $name): ?string
+    {
+        if ($name === null || trim($name) === '') {
+            return $name;
+        }
+        $parts = preg_split('/\s+/u', trim($name)) ?: [];
+        $n = count($parts);
+        if ($n >= 3 && mb_strtolower($parts[$n - 1]) === mb_strtolower($parts[$n - 2]) && self::canonical($parts[$n - 1]) !== null) {
+            array_pop($parts);
+
+            return implode(' ', $parts);
+        }
+
+        return $name;
     }
 
     /** @return array<int, string> every canonical type (for a UI picker or a test). */

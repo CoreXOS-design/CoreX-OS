@@ -412,6 +412,12 @@ class PropertyObserver
         // the listing agent (set by creating() above). If no agent_id
         // resolves, actor = null and InstantPointService skips the
         // credit silently (covers system/import-created rows).
+        //
+        // KNOWN, DOCUMENTED (road-to-sold.md step 7 + build log P8): the Add Property wizard creates a real row with status
+        // 'draft' on its first step (PropertyWizardController::createDraft), so `property.captured` is credited at draft creation,
+        // not at publish. Left as is on purpose: Road to Sold does not use this event (step 7 is PropertyWentLiveOnPortal), and the
+        // instant-points engine this feeds is replaced at the Road to Sold cut-over, so moving the credit would change agents'
+        // points for a few weeks only.
         try {
             // AT-479 — a bulk take-on brings in stock that already existed: nothing was "captured", so no points.
             if (! $property->skipActivityPoints) {
@@ -482,6 +488,28 @@ class PropertyObserver
             Log::warning("Geocode-on-address-change failed for property #{$property->id}: {$e->getMessage()}");
             \App\Services\Geocoding\PropertyGeoBackfillService::recordFailure($property, $e->getMessage());
         }
+
+        // Road to Sold step 7: the listing went live on a portal - p24_/pp_activated_at stamped for the FIRST
+        // time (later refreshes re-stamp an existing value and raise nothing). One event per portal. Never
+        // breaks the save.
+        //
+        // Only a listing CoreX itself SUBMITTED counts (Johan, 20 Oct 2026): stock an import brings in
+        // (P24ListingNumberReconciler stamps p24_activated_at for a listing already live on P24) did not
+        // go live through the agent's work and must not inflate Road to Sold. The submit paths are the only
+        // writers of *_last_submitted_at, so "the portal's last-submitted stamp is set" means CoreX submitted it.
+        foreach ([
+            \App\Events\Property\PropertyWentLiveOnPortal::PORTAL_P24 => ['p24_activated_at', 'p24_last_submitted_at'],
+            \App\Events\Property\PropertyWentLiveOnPortal::PORTAL_PRIVATE_PROPERTY => ['pp_activated_at', 'pp_last_submitted_at'],
+        ] as $portal => [$column, $submittedColumn]) {
+            if ($property->wasChanged($column) && $property->{$column} !== null && $property->getOriginal($column) === null
+                && $property->{$submittedColumn} !== null) {
+                \App\Support\Events\SafeRaise::dispatch('PropertyWentLiveOnPortal', fn () => new \App\Events\Property\PropertyWentLiveOnPortal(
+                    property: $property,
+                    portal: $portal,
+                    actorUserId: $property->agent_id !== null ? (int) $property->agent_id : null,
+                ));
+            }
+        }
     }
 
     /**
@@ -511,6 +539,18 @@ class PropertyObserver
             Log::warning("MapPinService address-index cache bust failed on property save #{$property->id}: {$e->getMessage()}");
         }
 
+        // Lane B (property-identity.md section 12): the agency's own-stock flag on the tracked property promoted to this property follows its status.
+        if ($property->wasRecentlyCreated || $property->wasChanged(['status', 'p24_ref', 'pp_ref'])) {
+            try {
+                $workService = app(\App\Services\Prospecting\AgencyWorkService::class);
+                \App\Models\Prospecting\TrackedProperty::withoutGlobalScopes()
+                    ->where('agency_id', $property->agency_id)->where('promoted_to_property_id', $property->id)->pluck('id')
+                    ->each(fn ($tpId) => $workService->syncOwnStock((int) $property->agency_id, (int) $tpId));
+            } catch (\Throwable $e) {
+                Log::warning("Agency work own-stock sync failed on property save #{$property->id}: {$e->getMessage()}");
+            }
+        }
+
         // AT-321 — release the trigger suppression set in saving() now that the
         // Eloquent UPDATE/INSERT (and its trigger evaluation) has passed. Any
         // subsequent quiet/raw write on this connection is then caught by the trigger.
@@ -525,6 +565,12 @@ class PropertyObserver
         // MUST stay FIRST in saved(): later steps (AutoEventService::onPropertyUpdated saves last_activity_at)
         // reset Eloquent's changes, after which wasChanged('status') is false and the hook would silently do nothing.
         if ($property->wasChanged('status')) {
+            // MIC 5.4 (AT-524): the ONE place under_offer_at / sold_at are stamped. Runs BEFORE the sold-stock snapshot, which reads sold_at.
+            try {
+                app(\App\Services\Properties\PropertyOfferSoldDates::class)->recordTransition($property);
+            } catch (\Throwable $e) {
+                Log::warning("Offer/sold date stamp failed for property #{$property->id}: {$e->getMessage()}");
+            }
             try {
                 app(\App\Services\SoldStock\SoldStockService::class)->onStatusChanged($property);
             } catch (\Throwable $e) {
@@ -605,6 +651,10 @@ class PropertyObserver
                 }
                 if (isset($changes['status']) && array_key_exists('status', $pre)) {
                     $auditSvc->logStatusChange($property, $pre['status'], $changes['status']);
+                    // Road to Sold v4 (23.4, station 9): the property became a Draft (the won result, or "Moved to Draft") - the agent's belt record follows. Never breaks the save.
+                    if ($changes['status'] === 'draft') {
+                        app(\App\Services\RoadToSold\BeltLinks::class)->syncPropertyStage($property);
+                    }
                 }
                 if (isset($changes['agent_id']) && array_key_exists('agent_id', $pre)) {
                     $newAgent = User::find($changes['agent_id']);

@@ -95,6 +95,14 @@
     <div class="grid grid-cols-3 gap-4">
     <div class="col-span-3 lg:col-span-2 space-y-4">
 
+    {{-- .ai/specs/rental-inventory.md section 29 - every photo of this inspection at once: tick, select all, move to the inventory or another room, delete, restore. --}}
+    @include('corex.partials.photo-bulk-manager', [
+        'kind' => 'inspection', 'title' => 'All photos of this inspection',
+        'listUrl' => route('corex.rental-inspections.photo-manager.index', $inspection),
+        'targetsUrl' => route('corex.rental-inspections.photo-manager.targets', $inspection),
+        'actUrl' => route('corex.rental-inspections.photo-manager.act', $inspection),
+    ])
+
     {{-- Johan's ruling, 2026-09-23 — "Next inspection" records the chain:
          In -> Routine -> Routine -> Out, any length. Hidden once a
          successor already exists (the migration's own unique index

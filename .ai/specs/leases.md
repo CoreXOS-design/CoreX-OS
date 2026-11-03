@@ -2180,6 +2180,10 @@ On the screens (this file's section 18): the Notice terms block (new lease, rene
 
 What the testers hit on QA1 on 21 Oct (for the record): nine "create lease" posts from approved applications came straight back to the form (nginx: POST `/corex/leases` 302 of 654 bytes then GET `/corex/leases/create?...`; successes are 454 bytes). Replaying the request read-only against QA1 data shows the refusals were the earliest-notice rules and, for the property's default rent above the approved amount, *"This tenant was approved for R13,000.00 a month; the lease rent is R15,610.00. Give a reason to confirm it."* (a separate rule).
 
+## CDS builder - Document Signing Roles must round-trip (23 Oct 2026)
+
+Template Settings > DOCUMENT SIGNING ROLES (`templates.signing_parties`) saved correctly but the builder came back showing its default (Lessor + Agent) on reload, so a ticked Lessee / Tenant looked lost (QA1 template 82 "Mega Lease Agreement 2026"). Cause: reopening the builder builds a fresh draft from the template (`TemplateController::resolveCdsEditingDraft`), and that seed did not carry `signing_parties`. Rule: **the seed carries every setting the builder saves** (is_esign, party_mode, allowed_delivery_modes, security_tier, signing_parties, category, document_type_id); a reused draft that predates the key is backfilled from the template. Pinned by `tests/Feature/Docuperfect/SigningView/CdsBuilderSigningRolesRoundTripTest.php` (owner/agent, lease set, acquiring alone, every role incl. witness).
+
 ## Lease agreement seeds are dressed by type, in one place (23 Oct 2026, QA1 - Mega lease, e-sign doc 51 / template 82)
 
 "Create lease & prepare for signing" filled the agreement with raw values: "2026-11-01" / "2027-10-31", "5500.00", "10". **Rule: `LeaseAgreementDocumentValues::forLease()` works every key out RAW and dresses it once, at the end, by its registry type (`present()`); the stored lease and its terms stay raw.** Formats are the ones CoreX documents already use:
@@ -2212,9 +2216,9 @@ The deposit on Mega's lease printed raw ("5500.00", no R, no comma) after the fo
 
 **No lease fee in CoreX.** Nothing on `leases`, `lease_agreement_terms`, the agency's rental settings or the property holds a lease (letting/placement) fee; the template's `lease_fee` box is only ever filled by hand. Closest existing things: the calculated `agent_service_fee` (rent x letting commission %, VAT only if the agency is VAT-registered) and an agency-specific text key typed on the capture screen (kept in `lease_agreement_terms.extra`). Whether a lease fee becomes a real term was Johan's call - **ruled 26 Oct 2026: yes, see "Lease fee" below.**
 
-Not changed (reported): `ESignWizardController::deriveBladeName()` is missing `deposit_amount`, `erf` and `unit_number` that the other two copies carry; it is a gated e-sign pipeline file, so it needs its own prompt and SigningView tests.
+**The printed page needed the name fixed too (same day).** The resolver puts the seed in the right wizard box, but the value then travels to the page under the wizard's name for that box - `property_deposit_amount` - while the document prints `deposit_amount` from the merged data (raw, from the deal details). So `ESignWizardController::deriveBladeName()` now carries the three entries the other two copies already had (`deposit_amount`, `erf`, `unit_number`), and `BladeNameParityTest` pins all three copies to the same answer for property, contact, computed and deal boxes. Nothing in the repo used `property_deposit_amount` as a name. Effect beyond leases: any e-sign template whose deposit / erf / unit box is bound to a property column now lands the typed or seeded value on the printed box (before, it was silently ignored there).
 
-Tests: `LeaseWizardFieldResolverTest` (new); `LeaseSigningLauncherTest` (deposit seeded through the alias, a dropped seed is logged, the set-up check warns without blocking).
+Tests: `LeaseWizardFieldResolverTest` (new); `BladeNameParityTest` (new); `LeaseSigningLauncherTest` (deposit seeded through the alias, a dropped seed is logged, the set-up check warns without blocking).
 
 ## Lease fee - a real lease term that prints on the lease (26 Oct 2026, Johan's ruling; QA1 only)
 

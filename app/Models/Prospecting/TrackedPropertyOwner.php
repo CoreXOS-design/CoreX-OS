@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Models\Prospecting;
 
+use App\Models\Concerns\BelongsToAgency;
 use App\Models\Contact;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -16,7 +17,21 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  */
 final class TrackedPropertyOwner extends Model
 {
+    use BelongsToAgency;
+
+    protected static function booted(): void
+    {
+        // An owner row belongs to the agency of its tracked property, whoever (or whatever job) is writing it.
+        static::creating(function (self $owner) {
+            $agencyId = TrackedProperty::withoutGlobalScopes()->whereKey($owner->tracked_property_id)->value('agency_id');
+            if ($agencyId) {
+                $owner->agency_id = $agencyId;
+            }
+        });
+    }
+
     protected $fillable = [
+        'agency_id',
         'tracked_property_id',
         'contact_id',
         'matched_contact_at',

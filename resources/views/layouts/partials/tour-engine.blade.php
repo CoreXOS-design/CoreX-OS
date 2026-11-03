@@ -174,6 +174,10 @@
         // even if the user has seen/dismissed it before. Otherwise honour progress.
         $__tourForced    = request()->query('tour') === $__tour['key'];
         $__tourAutoStart = $__tourForced || ! ($__tourProgress && $__tourProgress->suppressesAutoStart());
+        // a page may hold the first-visit tour back until there is something to tour (Road to Sold: the Start card is not a screen to tour); a tour asked for by hand still opens
+        if (! $__tourForced && ($tourHoldAutoStart ?? false)) {
+            $__tourAutoStart = false;
+        }
 
         // Explicit Advanced/Spot request for THIS page (?guide=<key>&mode=…&section=…).
         $__guideRequest = null;

@@ -49,6 +49,27 @@ use Illuminate\Support\Facades\Storage;
  */
 class MarketIntelligenceController extends Controller
 {
+    /** @var array{buyer_id:int,first_name:string,count:int,viewing:bool,by_file:array<int,int>,by_listing:array<int,int>}|null the selected buyer's hidden properties (spec 13.17), set while building the page */
+    private ?array $buyerHiddenCtx = null;
+
+    /** the wishlist the selected buyer's list is scored against (spec 13.20): the primary unless ?wishlist_id= names another of his */
+    private ?int $buyerWishlistId = null;
+
+    /** @var list<array{id:int,label:string,primary:bool,selected:bool,count:int}> the selected buyer's wishlists with their match counts (banner selector) */
+    private array $buyerWishlistsOut = [];
+
+    /**
+     * Spec 13.15 (Johan, 2 Nov 05:21): the default floor for a buyer's list is the engine's STRONG tier (buyer_match_tiers.strong_min_score,
+     * default 80) - his complaint is "it shows everything else". The banner count, the %-slider's default and the headline counts all
+     * start here so they cannot disagree; the agent widens the slider to the mid tier when strong is thin.
+     */
+    private function buyerMatchFloor(int $agencyId): int
+    {
+        $tiers = app(\App\Services\Prospecting\ProspectingConfigurationService::class)->buyerMatchTiers($agencyId);
+
+        return max(1, min(100, (int) ($tiers['strong_min_score'] ?? 80)));
+    }
+
     /**
      * Work tab — the daily working surface. Builds the canvass-pool listing
      * list with filters, action presets, and the "This Week" hero block
@@ -70,6 +91,21 @@ class MarketIntelligenceController extends Controller
         abort_unless($agencyId !== null, 403);
         $isProspectingManager = $user?->hasPermission('prospecting_setup.manage') ?? false;
 
+        // The pitch popup's Property step and the clickable header (road-to-sold.md 23.23): ONE property's Adverts card, chrome-less. It runs the
+        // list's own pipeline for that one advert, so the card is the card MIC shows, but with the saved filters, the canvass-pool rules and the pitch
+        // lock out of the way (the property is the one the agent is working) and with nothing remembered about the viewer's filters.
+        $pitchCardId = null;
+        $pitchFullAd = false;
+        if ($request->hasAny(['_pitch_card', '_pitch_property', '_pitch_tracked'])) {
+            $pitchCardId = app(\App\Services\Prospecting\MicWork\PitchCardResolver::class)->listingId($request, (int) $agencyId);
+            abort_if($pitchCardId === null, 404);
+            // The card's own helper fetches (Full card, Show full ad) are sent from the popup's URL, so they carry _pitch_card too: they keep their _card / _ad
+            // (the list's query would otherwise be rebuilt without them and they would get the compact card back instead of the full advert)
+            $pitchHelper = $request->ajax() && $request->filled('_card') ? array_filter(['_card' => $request->query('_card'), '_ad' => $request->query('_ad')], fn ($v) => $v !== null) : [];
+            $request->query->replace(['view' => 'adverts', 'clear' => '1', 'is_active' => 'all', '_fragments' => '1', 'embed' => '1'] + ($request->boolean('peek') ? ['peek' => '1'] : []) + $pitchHelper);
+            $pitchFullAd = $pitchHelper !== [] && ! isset($pitchHelper['_ad']);
+        }
+
         // Tick refresh (cc6): an AJAX filter toggle requests ?_fragments=1 and is
         // answered with ONLY the listings + stats-strip + filter-rail + header-actions
         // fragments (JSON), not a full-page render — so a tick never reloads the page.
@@ -84,6 +120,12 @@ class MarketIntelligenceController extends Controller
         // AFTER the paginator was built, so page links carried _fragments=1 and a
         // full-navigation "next page" click hit the JSON branch → raw JSON dump.
         $request->query->remove('_fragments');
+        // The page's own helper fetches (_tiles / _card) are the only requests that may carry these. A person who lands on a URL that has them (a link the
+        // fragment once built, a bookmark) gets the full page, and no link on it carries them forward.
+        if (! $request->ajax()) {
+            $request->query->remove('_tiles');
+            $request->query->remove('_card');
+        }
 
         // F.3 — the legacy ->with('activeClaim.user') eager-load is gone.
         // All claim state for the row is now read from $listingStates['claims']
@@ -91,6 +133,15 @@ class MarketIntelligenceController extends Controller
         // batched query). The N+1 it caused — one users-table query per
         // listing per page — is eliminated.
         $query = ProspectingListing::where('agency_id', $agencyId);
+
+        // AT-528 (mic-work-tab.md 13.2): the Adverts view's filters. The URL is the source of truth; a bare request falls back to this user's last set.
+        $micPrefs = app(\App\Services\Prospecting\MicWork\MicUserPreferences::class);
+        $micFilters = $micPrefs->filters($request->query(), $user, (int) $agencyId);
+        if ($pitchCardId === null) {
+            $micPrefs->remember($request->query(), $user, (int) $agencyId);
+        }
+        $micViewChoice = $micPrefs->view($request->query(), $user, (int) $agencyId);
+        view()->share(['micFilters' => $micFilters, 'micViewChoice' => $micViewChoice]);
 
         // AT-380 — canvassing-pool visibility scope (own/branch/all), configured
         // per role in Role Manager (market_intelligence.view). Was previously
@@ -128,6 +179,9 @@ class MarketIntelligenceController extends Controller
             ? 'all'
             : $configuredMicScope;
         $query = $query->visibleTo($user, $micScope);
+        if ($pitchCardId !== null) {
+            $query->where('prospecting_listings.id', $pitchCardId);
+        }
 
         // F.2: action preset URL param. Distinct from the legacy ?preset= (Smart
         // Filter Preset) — that one still works for stale_claims / new_today etc.
@@ -149,7 +203,14 @@ class MarketIntelligenceController extends Controller
             $actionPreset,
             ['log_outcomes', 'my_claims', 'expiring'],
             true,
-        ) || $claimFilter === 'my_claims';
+        ) || $claimFilter === 'my_claims'
+            // the tiles that describe the offer / sold / gone adverts and OUR OWN stock show those adverts: the canvass defaults (active only, own stock and
+            // pitch-locked hidden) would empty exactly the list the tile counted
+            || in_array((string) $request->query('tile'), \App\Services\Prospecting\MicWork\MicWorkTiles::SHOW_EVERYTHING, true)
+            // "Claimed: mine / others" is about claimed adverts, which the canvass list otherwise hides
+            || in_array((string) ($micFilters['claimed'] ?? ''), ['mine', 'others'], true)
+            // the pitch popup's card is the one property the agent is working, whatever its claim, stock or pitch state
+            || $pitchCardId !== null;
 
         // F.1: default to canvassing pool only (exclude already-mandated stock).
         // Manager toggle ?include_in_stock=1 bypasses for audit purposes.
@@ -165,7 +226,10 @@ class MarketIntelligenceController extends Controller
         // manager-only in-stock (stock) toggle above. Suspended for the
         // claim-centric action presets (my_claims / expiring / log_outcomes),
         // which exist precisely to surface claimed rows.
-        if (! $request->boolean('show_pitched') && ! $presetSuspendsCanvassFilter) {
+        // AT-520 (conductor walk 1 Nov, "Emtunzi" search): the Adverts view shows a property whatever its claim state - the row carries "Unclaimed / Mine / name" (13.9) and
+        // "Claimed: any" means any. Only "Claimed: unclaimed" keeps the claimed properties out. (The List view keeps the canvass-pool rule.)
+        $advertsShowClaimed = (($micViewChoice ?? 'list') === 'adverts' || $request->query('view') === 'properties') && ($micFilters['claimed'] ?? 'any') !== 'unclaimed';
+        if (! $request->boolean('show_pitched') && ! $presetSuspendsCanvassFilter && ! $advertsShowClaimed) {
             // INSTANT LOCK (Johan 2026-08-13, MIC funnel phase 1) — the moment an agent clicks
             // "Pitch now", a temp lock is written (EntryPointController::fromProspecting →
             // ProspectingClaimService::createTempLock) BEFORE the composer opens. Hide any listing
@@ -261,6 +325,7 @@ class MarketIntelligenceController extends Controller
         // honour every OTHER active filter while still listing the sibling options
         // within the facet the user is currently narrowing by. List results are
         // unchanged — AND-composed WHEREs are order-independent.
+        app(\App\Services\Prospecting\MicWork\MicAdvertFilters::class)->apply($query, $micFilters, (int) $agencyId, $user);
         if ($request->filled('price_min')) {
             $query->where('price', '>=', (int) $request->price_min);
         }
@@ -297,11 +362,20 @@ class MarketIntelligenceController extends Controller
             if ($request->is_active !== 'all') {
                 $query->where('is_active', $request->is_active === '1');
             }
+        } elseif (($micFilters['show_status'] ?? 'active') === 'all') {
+            // 13.2 "Show under offer / sold": the live adverts PLUS the under offer / sold ones (withdrawn adverts stay out)
+            app(\App\Services\Prospecting\MicWork\MicAdvertFilters::class)->liftOnMarketDefault($query);
         } elseif (! $presetSuspendsCanvassFilter) {
             $query->where('is_active', true);
         }
         if ($request->filled('captured_by')) {
             $query->where('captured_by_user_id', $request->captured_by);
+        }
+        if ($request->filled('tile') && ($tileIds = \App\Services\Prospecting\MicWork\MicWorkTiles::fromContainer()->propertyIds((string) $request->tile, (int) $agencyId, $user))) {
+            $query->whereIn('prospecting_listings.tracked_property_id', $tileIds);
+        }
+        if ($request->filled('source') && isset(\App\Services\Prospecting\PropertySourceFacts::FILTERS[$request->source])) {
+            app(\App\Services\Prospecting\PropertySourceFacts::class)->applyFilter($query, (string) $request->source, (int) $agencyId);
         }
         if ($request->filled('date_from')) {
             $query->where('first_seen_at', '>=', $request->date_from);
@@ -310,13 +384,8 @@ class MarketIntelligenceController extends Controller
             $query->where('first_seen_at', '<=', Carbon::parse($request->date_to)->endOfDay());
         }
         if ($request->filled('search')) {
-            $search = $request->search;
-            $query->where(function ($q) use ($search) {
-                $q->where('address', 'like', "%{$search}%")
-                  ->orWhere('suburb', 'like', "%{$search}%")
-                  ->orWhere('agent_name', 'like', "%{$search}%")
-                  ->orWhere('agency_name', 'like', "%{$search}%");
-            });
+            // One search box: listing text, ref, agent/agency AND the property file's resolved address (ProspectingListing::scopeSearchResolved).
+            $query->searchResolved((string) $request->search, (int) $agencyId);
         }
 
         // Address presence toggle (pull-all). Default (absent / 'all') shows every
@@ -457,20 +526,67 @@ class MarketIntelligenceController extends Controller
         // scored by the canonical Core Matches engine (MatchingService::score),
         // whose output is already cached per (listing, buyer) in
         // prospecting_buyer_matches. One truth — we filter the cache, never
-        // re-score, never fork the matching logic. Floor = the agency's MIC
-        // match threshold (agency-configurable, sensible default).
+        // re-score, never fork the matching logic. Floor = the engine's STRONG tier
+        // (buyer_match_tiers.strong_min_score, spec 13.15); the slider widens it to mid.
         $selectedBuyerId = null;
         if ($request->filled('buyer_id')) {
             $selectedBuyerId = (int) $request->query('buyer_id');
-            $buyerFloor = (int) AgencyContactSettings::forAgency($agencyId)->micMatchThreshold();
-            $query->whereIn('id', function ($sub) use ($selectedBuyerId, $agencyId, $buyerFloor) {
-                $sub->from('prospecting_buyer_matches')
-                    ->select('prospecting_listing_id')
-                    ->where('contact_id', $selectedBuyerId)
-                    ->where('agency_id', $agencyId)
-                    ->whereNull('dismissed_at')
-                    ->where('score', '>=', $buyerFloor);
-            });
+            // the slider widens it: an agent who moves it down to the mid tier sees that buyer's mid matches too
+            $buyerFloor = $request->filled('score_min')
+                ? max(1, min(100, (int) $request->query('score_min')))
+                : $this->buyerMatchFloor((int) $agencyId);
+            // 13.17 "Not for <buyer>": the ones hidden for him (a hidden property is not a match: the cache rows are dismissed, so the normal list never has them)
+            $hiddenFor = app(\App\Services\Matching\BuyerPropertyExclusions::class)->activeFor((int) $agencyId, $selectedBuyerId);
+            $hiddenCtx = [
+                'buyer_id' => $selectedBuyerId,
+                'first_name' => trim((string) \DB::table('contacts')->where('id', $selectedBuyerId)->where('agency_id', $agencyId)->value('first_name')),
+                'count' => $hiddenFor->count(),
+                'viewing' => (string) $request->query('hidden') === '1',
+                'by_file' => $hiddenFor->whereNotNull('tracked_property_id')->pluck('id', 'tracked_property_id')->all(),
+                'by_listing' => $hiddenFor->whereNotNull('prospecting_listing_id')->pluck('id', 'prospecting_listing_id')->all(),
+            ];
+            $this->buyerHiddenCtx = $hiddenCtx;
+            view()->share('buyerHidden', $hiddenCtx);
+
+            // 13.20: ONE wishlist at a time. The list, the count, the "wants" line and the Fits chip are all this wishlist's (primary by default); the per-wishlist counts feed the banner's selector.
+            $wishlists = \App\Services\Prospecting\MicWork\BuyerWishlists::ordered((int) $agencyId, $selectedBuyerId);
+            $pickedWishlist = \App\Services\Prospecting\MicWork\BuyerWishlists::pick($wishlists, $request->filled('wishlist_id') ? (int) $request->query('wishlist_id') : null);
+            $this->buyerWishlistId = $pickedWishlist?->id ? (int) $pickedWishlist->id : null;
+            $wishlistScore = fn (int $id) => "CAST(JSON_UNQUOTE(JSON_EXTRACT(matched_features, '\$.wishlists.\"{$id}\"')) AS UNSIGNED)";
+            $this->buyerWishlistsOut = $wishlists->map(fn ($w) => [
+                'id' => (int) $w->id, 'label' => \App\Services\Prospecting\MicWork\BuyerWishlists::label($w), 'primary' => (bool) $w->is_primary, 'selected' => (int) $w->id === $this->buyerWishlistId,
+                // the same population the list shows (the canvass pool as filtered so far: in-stock, pitched and claim rules applied), so a tab's count matches the banner when it is selected
+                'count' => (clone $query)->whereIn('id', function ($sub) use ($selectedBuyerId, $agencyId, $buyerFloor, $w, $wishlistScore) {
+                    $sub->from('prospecting_buyer_matches')->select('prospecting_listing_id')->where('contact_id', $selectedBuyerId)->where('agency_id', $agencyId)->whereNull('dismissed_at')
+                        ->whereRaw($wishlistScore((int) $w->id) . ' >= ?', [$buyerFloor]);
+                })->count(),
+            ])->values()->all();
+            view()->share('buyerWishlists', $this->buyerWishlistsOut);
+
+            // 13.15 addendum: his cache rows were built before the rules last changed -> rebuild HIM once before the list (the banner says so and the page reloads)
+            $buyerUpdating = ! $hiddenCtx['viewing'] && app(\App\Services\Matching\BuyerMatchFreshness::class)->isStale((int) $agencyId, $selectedBuyerId);
+            view()->share('buyerUpdating', $buyerUpdating ? ['buyer_id' => $selectedBuyerId, 'first_name' => $hiddenCtx['first_name'], 'url' => route('market-intelligence.buyer-refresh')] : null);
+
+            if ($buyerUpdating) {
+                $query->whereRaw('1 = 0');
+            } elseif ($hiddenCtx['viewing']) {
+                $query->where(fn ($q) => $q->whereIn('tracked_property_id', array_keys($hiddenCtx['by_file']) ?: [0])->orWhereIn('id', array_keys($hiddenCtx['by_listing']) ?: [0]));
+            } else {
+                $wid = $this->buyerWishlistId;
+                // where this condition sits (and its bindings), so the tab counts can run the list's FINAL query with only this one swapped (one counting path)
+                $wlWhereIdx = count($query->getQuery()->wheres);
+                $wlBindFrom = count($query->getQuery()->bindings['where']);
+                $query->whereIn('id', function ($sub) use ($selectedBuyerId, $agencyId, $buyerFloor, $wid, $wishlistScore) {
+                    $sub->from('prospecting_buyer_matches')
+                        ->select('prospecting_listing_id')
+                        ->where('contact_id', $selectedBuyerId)
+                        ->where('agency_id', $agencyId)
+                        ->whereNull('dismissed_at');
+                    // that wishlist's own score for the advert (the cache holds one per wishlist); a buyer with none countable falls back to the best score
+                    $wid ? $sub->whereRaw($wishlistScore($wid) . ' >= ?', [$buyerFloor]) : $sub->where('score', '>=', $buyerFloor);
+                });
+                $wlWhere = ['idx' => $wlWhereIdx, 'bind_from' => $wlBindFrom, 'bind_n' => count($query->getQuery()->bindings['where']) - $wlBindFrom];
+            }
         }
 
         if ($request->filled('bedroom_segment_id')) {
@@ -568,12 +684,87 @@ class MarketIntelligenceController extends Controller
             $query->where('bedrooms', '=', (int) $request->bedrooms_exact);
         }
         $kpiCountBase = clone $query;
+        // 13.16b: "N with full details" on the stats line - the files in the current (fully filtered) list that have an advert whose own page was read
+        view()->share('micFullDetailsCount', (clone $kpiCountBase)->whereNotNull('prospecting_listings.details_read_at')->distinct()->count(\DB::raw('COALESCE(prospecting_listings.tracked_property_id, -prospecting_listings.id)')));
+
+        // The classic per-advert list (grouped by property group) is THE Work screen. The property-per-row view (mic-work-tab.md 2.1 D) stays reachable
+        // at ?view=properties, unlinked, until Johan decides what to do with it. The new parts are additive on the classic list.
+        $micView = $request->query('view') === 'properties' ? 'properties' : 'adverts';
+
+        // Record card (2.1 E): one file's card, fetched on first expand under a row. Same filters as the page (the JS passes the page's query string), so a
+        // file is only served when this viewer's scoped list can reach it; another agency's file is a 404.
+        if ($request->filled('_card') && $request->ajax()) {
+            $fid = (int) $request->query('_card');
+            // a negative key is an advert that is not linked to a property file yet: it is its own file (the same key MicWorkList uses)
+            abort_unless($fid > 0
+                ? (clone $query)->where('tracked_property_id', $fid)->exists()
+                : ($fid < 0 && (clone $query)->whereKey(-$fid)->whereNull('tracked_property_id')->exists()), 404);
+            $rec = app(\App\Services\Prospecting\MicWork\MicWorkList::class)->forFiles([$fid], (int) $agencyId, $request->filled('buyer_id') ? (int) $request->query('buyer_id') : null, $this->buyerWishlistId)[0] ?? abort(404);
+
+            // "Show full ad" (13.16b item 5): the ad (left), our intelligence (right) and the window's title, as JSON
+            if ($request->boolean('_ad')) {
+                $title = trim(($rec['address'] ?? '') . (! empty($rec['address']) && ! empty($rec['suburb']) ? ', ' : '') . ($rec['suburb'] ?? ''));
+
+                return response()->json([
+                    'title' => $title !== '' ? $title : ((string) ($rec['card_heading'] ?? 'The advert')),
+                    'left' => view('corex.market-intelligence.partials._full-ad', ['r' => $rec])->render(),
+                    'right' => view('corex.market-intelligence.partials._full-ad-ours', ['r' => $rec])->render(),
+                ]);
+            }
+
+            // inside the pitch popup "Full card" unfolds the ad itself (description, features, every photo), the same partial as MIC's Show full ad
+            if ($pitchFullAd) {
+                return response('<div data-qa="pitch-full-ad" style="padding: 12px 14px;">' . view('corex.market-intelligence.partials._full-ad', ['r' => $rec])->render() . '</div>');
+            }
+
+            return response(view('corex.market-intelligence.partials._work-record-card', ['r' => $rec])->render());
+        }
+
+        // The tile row is the slow part when it is not cached (cc5/cc4 queries): the page does not wait for it. A cold page gets placeholders and the
+        // browser fetches the row from this same URL with _tiles=1 (HTML of the tile row + any open panel). Never deferred in tests unless asked.
+        // The tile fragment is for the page's own fetch (it sends X-Requested-With). Someone who navigates to ?_tiles=1 - by a link the fragment once wrongly
+        // carried, a bookmark, a pasted URL - gets the full page, never the bare tile row.
+        if ($request->boolean('_tiles') && $request->ajax()) {
+            [$workTiles, $workPanel] = $this->workTilesData($request, (int) $agencyId, $user, $isProspectingManager);
+
+            return response(view('corex.market-intelligence.partials._work-tiles', ['workTiles' => $workTiles, 'workPanel' => $workPanel, 'tilesDeferred' => false])->render());
+        }
+        $tilesDeferred = (! app()->runningUnitTests() || $request->boolean('_defer_tiles'))
+            && \App\Services\Prospecting\MicWork\MicWorkTiles::fromContainer()->cachedRow((int) $agencyId, $user) === null;
+
+        if ($micView === 'properties') {
+            $defaultSort = \App\Services\Prospecting\MicWork\MicWorkList::defaultSort();
+            $sortKey = match ((string) $request->query('sort', $defaultSort)) { 'last_seen_at' => 'last_seen', 'first_seen_at' => 'time', default => (string) $request->query('sort', $defaultSort) };
+            $sortKey = in_array($sortKey, \App\Services\Prospecting\MicWork\MicWorkList::sortKeys(), true) ? $sortKey : $defaultSort;
+            $listings = app(\App\Services\Prospecting\MicWork\MicWorkList::class)->page(
+                $kpiCountBase, (int) $agencyId, $sortKey, (string) $request->query('dir', 'desc'), max(1, (int) $request->query('page', 1)), $request->boolean('include_in_stock') && $isProspectingManager,
+            );
+            $defaultSortKey = $defaultSort;
+            [$workTiles, $workPanel] = $tilesDeferred ? [[], ['ready' => false, 'rows' => [], 'around' => []]] : $this->workTilesData($request, (int) $agencyId, $user, $isProspectingManager);
+            $isManager = $isProspectingManager;
+            if ($isFragment) {
+                return response()->json([
+                    'listings' => view('corex.market-intelligence.partials._work-property-list', compact('listings', 'defaultSortKey'))->render(),
+                    'headerActions' => view('corex.market-intelligence.partials._header-actions', ['showTicks' => false, 'isManager' => $isManager])->render(),
+                    'statsStrip' => '', 'filterRail' => '', 'buyerLegend' => '',
+                ]);
+            }
+
+            return view('corex.market-intelligence.work', compact('listings', 'workTiles', 'workPanel', 'micView', 'isProspectingManager', 'isManager', 'defaultSortKey', 'tilesDeferred'));
+        }
 
         // Sorting
-        $sortBy = $request->get('sort', 'last_seen_at');
+        // Score (mic-work-tab.md 3) is the default sort once cc5 has computed it; the old sorts all still work. It orders by the file's stored score, so it
+        // has its own expression in the SQL-paginated fast path (ProspectingListingPageResolver::SCORE_EXPR); the slow path (buyer sorts, bands) orders by the same expression.
+        $hasScores = \App\Services\Prospecting\MicWork\MicWorkList::hasScores();
+        $sortBy = $request->get('sort', $hasScores ? 'score' : 'last_seen_at');
         $sortDir = $request->get('dir', 'desc');
         $allowedSorts = ['last_seen_at', 'first_seen_at', 'price', 'suburb'];
-        if (in_array($sortBy, $allowedSorts)) {
+        $exprSort = \App\Services\Prospecting\ProspectingListingPageResolver::EXPR_SORTS;
+        if (isset($exprSort[$sortBy]) && ($sortBy !== 'score' || $hasScores) && \App\Services\Prospecting\MicWork\MicWorkList::hasFileStats()) {
+            $query->orderByRaw($exprSort[$sortBy][1] . ' ' . ($sortDir === 'asc' ? 'asc' : 'desc'))
+                ->orderBy('last_seen_at', 'desc');
+        } elseif (in_array($sortBy, $allowedSorts)) {
             $query->orderBy($sortBy, $sortDir === 'asc' ? 'asc' : 'desc');
         } else {
             $query->orderBy('last_seen_at', 'desc');
@@ -595,16 +786,22 @@ class MarketIntelligenceController extends Controller
         // pre-filtered INPUT change, not a second implementation that could
         // drift from the first.
         $page = (int) $request->get('page', 1);
-        $perPage = 50;
+        // The Adverts view pages by the agency's own setting (mic-work-tab.md 13.2); the List keeps its 50.
+        $perPage = ($micViewChoice ?? 'list') === 'adverts' ? \App\Models\MicAgencySetting::rowsPerPageFor((int) $agencyId) : 50;
         $pageResolver = app(\App\Services\Prospecting\ProspectingListingPageResolver::class);
+        // 13.20: each wishlist tab's count is the number the banner shows when that tab is selected - the list's final query (every filter on it), only the wishlist swapped, counted the way the list counts (one row per property group)
+        if ($selectedBuyerId && ! empty($wlWhere) && $this->buyerWishlistsOut && ! $request->filled('score_min') && ! $request->filled('score_max')) {
+            $this->buyerWishlistsOut = $this->wishlistTabCounts($query, $wlWhere, $this->buyerWishlistsOut, (int) $agencyId, $selectedBuyerId, $buyerFloor);
+            view()->share('buyerWishlists', $this->buyerWishlistsOut);
+        }
         $useFastPath = $pageResolver->canUseFastPath($request, $isProspectingManager, $selectedBuyerId);
         $injectedStockCountBySuburb = [];
 
         if ($useFastPath) {
-            $effectiveSortBy = in_array($sortBy, $allowedSorts) ? $sortBy : 'last_seen_at';
+            $effectiveSortBy = (isset($exprSort[$sortBy]) && ($sortBy !== 'score' || $hasScores)) || in_array($sortBy, $allowedSorts) ? $sortBy : 'last_seen_at';
             $effectiveSortDir = $sortDir === 'asc' ? 'asc' : 'desc';
 
-            $resolved = $pageResolver->resolvePage(clone $query, $effectiveSortBy, $effectiveSortDir, $page, $perPage);
+            $resolved = $pageResolver->resolvePage(clone $query, $effectiveSortBy, $effectiveSortDir, $page, $perPage, (int) $agencyId);
             $pageGroups = $pageResolver->hydrateGroups(clone $query, $resolved['ids'], $effectiveSortBy, $effectiveSortDir);
 
             $this->applyP24EmailCrossReference($pageGroups);
@@ -641,7 +838,7 @@ class MarketIntelligenceController extends Controller
         // AT-75 — %-match band from the slider/tile (default: agency threshold → 100).
         // The band lower bound also lowers the per-listing count floor so the
         // badges + counts agree with the slider.
-        $agencyThreshold = AgencyContactSettings::forAgency($agencyId)->micMatchThreshold();
+        $agencyThreshold = $this->buyerMatchFloor((int) $agencyId);
         $bandActive = $request->filled('score_min') || $request->filled('score_max');
         $scoreMin = (int) $request->get('score_min', $bandActive ? 0 : 0);
         $scoreMax = (int) $request->get('score_max', 100);
@@ -866,38 +1063,9 @@ class MarketIntelligenceController extends Controller
         // view as its own value and read ONLY by the address line
         // (_listing-row.blade.php's "No address" fallback is otherwise untouched).
         // Zero shared mutable state between the two concerns.
-        $displayAddressByListingId = [];
-        $blankAddressPropertyIds = collect($listings->items())
-            ->filter(fn ($it) => blank($it->address) && ! empty($it->matched_property_id))
-            ->pluck('matched_property_id')
-            ->unique()
-            ->values();
-        if ($blankAddressPropertyIds->isNotEmpty()) {
-            // AT-424 — only ever show an address from the viewer's own agency,
-            // even if a matcher ever linked a listing across agencies.
-            $viewerAgencyId = auth()->user()?->effectiveAgencyId();
-            $matchedPropAddresses = \App\Models\Property::withoutGlobalScopes()
-                ->whereIn('id', $blankAddressPropertyIds)
-                ->when($viewerAgencyId, fn ($q) => $q->where('agency_id', $viewerAgencyId))
-                ->whereNull('deleted_at')
-                ->get(['id', 'address', 'street_number', 'street_name', 'suburb'])
-                ->mapWithKeys(function ($p) {
-                    $line = trim((string) $p->address) !== ''
-                        ? $p->address
-                        : trim(implode(' ', array_filter([$p->street_number, $p->street_name])));
-                    if ($line !== '' && filled($p->suburb) && ! str_contains($line, $p->suburb)) {
-                        $line .= ', ' . $p->suburb;
-                    }
-                    return [$p->id => $line];
-                })
-                ->filter(fn ($line) => $line !== '');
-            foreach ($listings->items() as $__it2) {
-                $__pid2 = $__it2->matched_property_id ?? null;
-                if ($__pid2 && blank($__it2->address) && filled($matchedPropAddresses[$__pid2] ?? null)) {
-                    $displayAddressByListingId[(int) $__it2->id] = $matchedPropAddresses[$__pid2];
-                }
-            }
-        }
+        // One rule, ProspectingListing::resolveDisplayAddresses() (beside scopeWithAddress): own text, else the matched own Property, else the
+        // property file's address. Batched; the same rule the With-address-only filter uses, so a row it lets through never says "No address yet".
+        $displayAddressByListingId = ProspectingListing::resolveDisplayAddresses($listings->items(), auth()->user()?->effectiveAgencyId());
 
         // MIC property row comments (.ai/specs/mic-property-row-comments.md) —
         // one batched count query for the whole visible page, mirroring the
@@ -952,22 +1120,30 @@ class MarketIntelligenceController extends Controller
         // $users feeds the filter rail "captured by" list — needed on both paths.
         // Scoped the same as the main table: a branch/own-scoped user should not
         // see OTHER agents' names populate the "captured by" filter dropdown.
-        $users = User::whereIn('id',
-            ProspectingListing::where('agency_id', $agencyId)
-                ->visibleTo($user, $micScope)
-                ->distinct()->pluck('captured_by_user_id')
-        )->orderBy('name')->get(['id', 'name']);
+        // (cached 5 minutes per viewer + scope: the distinct scan over the agency's adverts is slow and the list of capturers hardly moves)
+        $users = User::hydrate(\App\Services\Prospecting\MicWork\MicWorkList::remember(
+            'capturers:' . $agencyId . ':' . $user->id . ':' . md5(json_encode($micScope)), 300,
+            fn () => User::whereIn('id',
+                ProspectingListing::where('agency_id', $agencyId)
+                    ->visibleTo($user, $micScope)
+                    ->distinct()->pluck('captured_by_user_id')
+            )->orderBy('name')->get(['id', 'name'])->map(fn ($u) => $u->getAttributes())->all(),
+        ));
 
         // AT-242 — buyers that already have at least one cached prospecting match
         // (active, countable buyers per Buyer Pillar doctrine — the same set the
         // "buyer matched" KPI counts). These are the selectable buyers for
         // buyer-led prospecting; a buyer with no matched canvass stock has
         // nothing to prospect on and is omitted.
-        $micBuyerIds = DB::table('prospecting_buyer_matches')
+        $micBuyerIds = collect(\App\Services\Prospecting\MicWork\MicWorkList::remember('buyer-ids:' . $agencyId, 120, fn () => DB::table('prospecting_buyer_matches')
             ->where('agency_id', $agencyId)
             ->whereNull('dismissed_at')
             ->distinct()
-            ->pluck('contact_id');
+            ->pluck('contact_id')->all()));
+        // 13.17: a buyer whose every match has been hidden still has to be selectable (the "N hidden" list and Restore live under his banner)
+        if ($this->buyerHiddenCtx && $this->buyerHiddenCtx['count'] > 0) {
+            $micBuyerIds = $micBuyerIds->push($this->buyerHiddenCtx['buyer_id'])->unique()->values();
+        }
 
         // AT-242 buyer-selector SCOPE (Johan): My buyers (own) / My branch / Whole
         // company. Role-sensible default — admins agency-wide, everyone else their
@@ -1003,7 +1179,13 @@ class MarketIntelligenceController extends Controller
             ->get(['id', 'first_name', 'last_name', 'email']);
         $activeBuyerId = $selectedBuyerId;
         $selectedBuyer = $activeBuyerId ? $micBuyers->firstWhere('id', $activeBuyerId) : null;
-
+        // 13.14: the "Prospecting for" banner is built here (wishlist chips, pop-up links); the view only prints it.
+        $buyerBanner = $selectedBuyer
+            ? app(\App\Services\Prospecting\MicWork\MicBuyerBanner::class)->forBuyer((int) $selectedBuyer->id, (int) $agencyId, $user->hasPermission('access_core_matches'), $this->buyerWishlistId)
+            : null;
+        if ($buyerBanner !== null) {
+            $buyerBanner['wishlists'] = $this->buyerWishlistsOut; // 13.20: [{id, label, primary, selected, count}] for the selector
+        }
         // AT-239 region model (Johan-final) — the filter's value is the canonical
         // MDB municipality (towns.region); its LABEL is the agency alias where set
         // (Ray Nkonyeni → "Hibiscus Coast"), else the municipal name. One region
@@ -1097,12 +1279,19 @@ class MarketIntelligenceController extends Controller
         $listingStates = app(\App\Services\Prospecting\ProspectingListingStateEnricher::class)
             ->enrich($listings->items(), $agencyId);
 
+        $sourceByListingId = app(\App\Services\Prospecting\PropertySourceFacts::class)->forListings((int) $agencyId, $listings->items());
+        $rowExtras = $this->classicRowExtras($listings->items(), (int) $agencyId);
+        // 13.3 / 13.4: the full file read (MicWorkList::forFiles, one batched read per source) for this page's rows, keyed by listing id. The Adverts cards are built from it.
+        $fileRows = $this->fileRowsFor($listings->items(), (int) $agencyId);
+        $tileNote = $this->tileNote($request, $listings->total(), (int) $agencyId, $user);
+        $suburbOptions = $pitchCardId !== null ? [] : app(\App\Services\Prospecting\MicWork\MicAdvertFilters::class)->suburbOptions((int) $agencyId);
+
         $listingIdsForTiers = collect($listings->items())->pluck('id')->all();
         $buyerTiers = app(\App\Services\Prospecting\BuyerMatchTierService::class)
             ->tiersForListings($listingIdsForTiers, $agencyId);
         $tierConfig = $config->buyerMatchTiers($agencyId);
 
-        $presets = app(\App\Services\Prospecting\SmartFilterPresetService::class)
+        $presets = $pitchCardId !== null ? [] : app(\App\Services\Prospecting\SmartFilterPresetService::class)
             ->presetsFor($agencyId, (int) $user->id);
         $activePreset = $request->query('preset');
 
@@ -1154,13 +1343,14 @@ class MarketIntelligenceController extends Controller
         // filter-rail counts move with the same filters as the list.
         // Pass the active LITERAL suburb filter so the in-stock KPI reflects that
         // suburb's real on-market owned-property count (canonical OnMarketStockService).
-        $snapshotKpis = $this->computeSnapshotKpis(
+        // The one-card page (the pitch popup, road-to-sold.md 23.23) shows none of the list's tiles, counts or rail: it skips these four agency-wide counts.
+        $snapshotKpis = $pitchCardId !== null ? [] : $this->computeSnapshotKpis(
             $agencyId,
             $includeInStock,
             $kpiCountBase,
             $request->filled('suburb') ? (string) $request->get('suburb') : null,
         );
-        $actionPresetCounts = $this->computeActionPresetCounts(
+        $actionPresetCounts = $pitchCardId !== null ? [] : $this->computeActionPresetCounts(
             $agencyId,
             $user?->id !== null ? (int) $user->id : null,
             $thresholdsForPreset,
@@ -1169,7 +1359,7 @@ class MarketIntelligenceController extends Controller
             // instead of leaking agency-wide counts (e.g. Pitch now·high 2,537).
             $request->filled('suburb') ? (string) $request->get('suburb') : null,
         );
-        $filterRailAggregates = $this->computeFilterRailAggregates(
+        $filterRailAggregates = $pitchCardId !== null ? [] : $this->computeFilterRailAggregates(
             $agencyId,
             $includeInStock,
             $railCountBase,
@@ -1178,13 +1368,26 @@ class MarketIntelligenceController extends Controller
             $request->filled('suburb') ? (string) $request->get('suburb') : null,
             $injectedStockCountBySuburb,
         );
-        $demandPockets = $this->computeDemandPockets($agencyId, $thresholdsForPreset);
+        $demandPockets = $pitchCardId !== null ? [] : $this->computeDemandPockets($agencyId, $thresholdsForPreset);
 
         // ── Tick refresh (cc6): AJAX fragment response ──────────────────────────
         // Everything the four swapped partials read is now built. Return just those
         // fragments as JSON — no full-page shell, no reload. Strip the _fragments
         // flag first so the links the partials render (and the pushState URL) carry
         // only real filter params.
+        if ($pitchCardId !== null) {
+            return response()->view('corex.market-intelligence.pitch-card', [
+                'listings' => $listings, 'listingStates' => $listingStates, 'sourceByListingId' => $sourceByListingId, 'micViewChoice' => 'adverts',
+                'suburbOptions' => $suburbOptions, 'rowExtras' => $rowExtras, 'fileRows' => $fileRows, 'buyerTiers' => $buyerTiers, 'tierConfig' => $tierConfig,
+                'suggestedActions' => $suggestedActions, 'selectedBuyer' => $selectedBuyer, 'buyerBanner' => $buyerBanner,
+                'isProspectingManager' => $isProspectingManager, 'companyStockMap' => $companyStockMap, 'agencyLogoUrl' => $agencyLogoUrl,
+                'commentCounts' => $commentCounts, 'canViewComments' => $canViewComments, 'users' => $users, 'includeInStock' => $includeInStock,
+                'activeBuyerId' => $activeBuyerId, 'micBuyers' => $micBuyers, 'micRegions' => $micRegions, 'buyerScope' => $buyerScope, 'buyerScopeOptions' => $buyerScopeOptions,
+                'actionPreset' => $actionPreset, 'snapshotKpis' => $snapshotKpis, 'actionPresetCounts' => $actionPresetCounts,
+                'filterRailAggregates' => $filterRailAggregates, 'demandPockets' => $demandPockets, 'prospectingSetupPriceBandsSale' => $prospectingSetupPriceBandsSale,
+            ]);
+        }
+
         if ($isFragment) {
             // _fragments was already stripped from the query bag right after capture
             // (see top of work()), so the partial links are clean. Build the canonical
@@ -1197,10 +1400,16 @@ class MarketIntelligenceController extends Controller
             $fragmentData = [
                 'listings'                       => $listings,
                 'listingStates'                  => $listingStates,
+                'sourceByListingId'              => $sourceByListingId,
+                'micViewChoice'                  => $micViewChoice,
+                'suburbOptions'                  => $suburbOptions,
+                'rowExtras'                      => $rowExtras,
+                'fileRows'                       => $fileRows,
                 'buyerTiers'                     => $buyerTiers,
                 'tierConfig'                     => $tierConfig,
                 'suggestedActions'               => $suggestedActions,
                 'selectedBuyer'                  => $selectedBuyer,
+                'buyerBanner'                    => $buyerBanner,
                 'isProspectingManager'           => $isProspectingManager,
                 'companyStockMap'                => $companyStockMap,
                 'agencyLogoUrl'                  => $agencyLogoUrl,
@@ -1223,8 +1432,8 @@ class MarketIntelligenceController extends Controller
 
             return response()->json([
                 'listings'      => view('corex.market-intelligence._listings', $fragmentData)->render(),
-                'statsStrip'    => view('corex.market-intelligence._stats-strip', $fragmentData)->render(),
-                'filterRail'    => view('corex.market-intelligence._filter-rail', $fragmentData)->render(),
+                'statsStrip'    => view('corex.market-intelligence._stats-strip', $fragmentData + ['statsLine' => true])->render(),
+                'filterRail'    => view('corex.market-intelligence._filter-bar', $fragmentData)->render(),
                 'headerActions' => view('corex.market-intelligence.partials._header-actions', $fragmentData + ['showTicks' => false])->render(),
                 'buyerLegend'   => view('corex.market-intelligence._buyer-match-legend', $fragmentData)->render(),
                 'url'           => $canonicalUrl,
@@ -1244,23 +1453,7 @@ class MarketIntelligenceController extends Controller
                 ->count(),
         );
 
-        // Phase D2 — "This Week" hero block tiles. Deterministic for now;
-        // AI narration plugs into TileDTO->sentence at Phase E1.
-        $tiles = collect();
-        $tilesGeneratedAt = null;
-        try {
-            $tiles = app(\App\Services\MarketIntelligence\ThisWeekTileBuilder::class)->buildFor($user);
-            // Read generated_at from the cache row we just wrote — same query
-            // pattern the builder uses internally; lets the hero block show
-            // "Generated X ago".
-            $cacheKey = 'tiles:user:' . $user->id . ':date:' . now()->toDateString();
-            $tilesGeneratedAt = \App\Models\AI\AINarrativeCache::query()
-                ->where('cache_key', $cacheKey)
-                ->whereNull('deleted_at')
-                ->value('generated_at');
-        } catch (\Throwable $e) {
-            \Illuminate\Support\Facades\Log::warning('Work tab tile build failed', ['error' => $e->getMessage()]);
-        }
+        [$workTiles, $workPanel] = $tilesDeferred ? [[], ['ready' => false, 'rows' => [], 'around' => []]] : $this->workTilesData($request, (int) $agencyId, $user, $isProspectingManager);
 
         return view('corex.market-intelligence.work', compact(
             'listings', 'users', 'claimStats', 'regenerating',
@@ -1276,10 +1469,10 @@ class MarketIntelligenceController extends Controller
             'demandPockets', 'actionPreset', 'includeInStock',
             'marketIntelligenceSidebarCount',
             // AT-242 buyer-led prospecting + AT-239 region filter
-            'micBuyers', 'activeBuyerId', 'selectedBuyer', 'micRegions',
+            'micBuyers', 'activeBuyerId', 'selectedBuyer', 'buyerBanner', 'micRegions',
             'buyerScope', 'buyerScopeOptions',
-            // Phase D2 — This Week hero
-            'tiles', 'tilesGeneratedAt',
+            // 11-tile row + panels
+            'workTiles', 'workPanel', 'micView',
             // Company stock (exact portal_ref) — IN STOCK badge + company logo tile
             'companyStockMap', 'agencyLogoUrl',
             // MIC property row comments — .ai/specs/mic-property-row-comments.md
@@ -1291,6 +1484,8 @@ class MarketIntelligenceController extends Controller
             // property when the listing's own address is blank. Read-only array,
             // never touches $listing itself.
             'displayAddressByListingId',
+            'sourceByListingId',
+            'rowExtras', 'fileRows', 'tilesDeferred', 'tileNote', 'suburbOptions',
         ));
     }
 
@@ -1329,6 +1524,127 @@ class MarketIntelligenceController extends Controller
     }
 
     /**
+     * The one line under the tile row when a tile filter is on: how many PROPERTIES the tile put in the list, how many ROWS that is (a property whose P24 and
+     * PP adverts are not linked yet shows as more than one row), what the tile's own number counted when that is something else (our stock on the market,
+     * portal leads, pockets), and how fresh the stored figures are.
+     *
+     * @return array{title:string, rows:int, files:?int, tileCount:?int, tileCounts:?string, asOf:?string}|null
+     */
+    private function tileNote(Request $request, int $rows, int $agencyId, $user): ?array
+    {
+        $key = (string) $request->query('tile');
+        $n = \App\Services\Prospecting\MicWork\MicWorkTiles::numberForKey($key);
+        if ($key === '' || $n === null) {
+            return null;
+        }
+        $svc = \App\Services\Prospecting\MicWork\MicWorkTiles::fromContainer();
+        $ids = $svc->propertyIds($key, $agencyId, $user);
+        $files = $ids ? (int) \DB::query()->fromSub($ids, 'tile_files')->distinct()->count() : null;
+        $tile = collect($svc->cachedRow($agencyId, $user) ?? [])->firstWhere('key', $key);
+        $stamp = $svc->statsStamp($agencyId);
+        $differs = $tile && $tile['count'] !== null && $files !== null && (int) $tile['count'] !== $files;
+
+        return [
+            'title' => \App\Services\Prospecting\MicWork\MicWorkTiles::titleFor($n, (int) $agencyId), 'rows' => $rows, 'files' => $files,
+            'tileCount' => $differs ? (int) $tile['count'] : null,
+            'tileCounts' => $differs ? trim(explode(' · ', (string) $tile['reason'])[0]) : null,
+            'asOf' => $stamp !== '' ? \Carbon\Carbon::parse($stamp)->timezone(config('app.timezone'))->format('j M H:i') : null,
+        ];
+    }
+
+    /**
+     * The file record (MicWorkList::forFiles) of each row on the page, keyed by the row's advert id. A row that is not linked to a property file is its own file.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    private function fileRowsFor(iterable $items, int $agencyId): array
+    {
+        $keyOf = [];
+        foreach ($items as $l) {
+            $keyOf[(int) $l->id] = $l->tracked_property_id ? (int) $l->tracked_property_id : -(int) $l->id;
+        }
+        if (! $keyOf) {
+            return [];
+        }
+        $byKey = [];
+        foreach (app(\App\Services\Prospecting\MicWork\MicWorkList::class)->forFiles(array_values(array_unique($keyOf)), $agencyId, $this->buyerHiddenCtx['buyer_id'] ?? null, $this->buyerWishlistId) as $row) {
+            $byKey[$row['key']] = $row;
+        }
+        $out = [];
+        $hc = $this->buyerHiddenCtx;
+        foreach ($keyOf as $id => $key) {
+            if (isset($byKey[$key])) {
+                $out[$id] = $byKey[$key];
+                if ($hc) { // 13.17: the card's "Not for <buyer>" button reads these
+                    $exclusionId = $key > 0 ? ($hc['by_file'][$key] ?? null) : ($hc['by_listing'][-$key] ?? null);
+                    $out[$id]['buyer_id'] = $hc['buyer_id'];
+                    $out[$id]['buyer_first_name'] = $hc['first_name'];
+                    $out[$id]['buyer_hidden'] = $exclusionId !== null;
+                    $out[$id]['buyer_exclusion_id'] = $exclusionId;
+                    $out[$id]['buyer_wishlist_id'] = $this->buyerWishlistId;
+                }
+            }
+        }
+
+        return $out;
+    }
+
+    /**
+     * The additive Work-tab bits on the classic rows (spec 2.1 B, C, D): per listing id the file's score + reason codes (mic_file_stats), the file id the
+     * record card opens, and the "Possible match" pairs. One batched read each, bound to the agency.
+     *
+     * @param  iterable<ProspectingListing>  $items
+     * @return array<int, array{tp:?int, score:?float, reasons:list<string>, pairs:list<int>}>
+     */
+    private function classicRowExtras(iterable $items, int $agencyId): array
+    {
+        $tpIds = [];
+        foreach ($items as $l) {
+            if ($l->tracked_property_id) {
+                $tpIds[(int) $l->tracked_property_id] = true;
+            }
+        }
+        $ids = array_keys($tpIds);
+        $stats = ($ids && \App\Services\Prospecting\MicWork\MicWorkList::hasFileStats())
+            ? \DB::table('mic_file_stats')->where('agency_id', $agencyId)->whereIn('tracked_property_id', $ids)->get(['tracked_property_id', 'score', 'reason_1', 'reason_2'])->keyBy('tracked_property_id') : collect();
+        $pairs = $ids ? app(\App\Services\Prospecting\MicWork\MicWorkList::class)->possiblePairs($agencyId, $ids) : [];
+        $out = [];
+        foreach ($items as $l) {
+            $tp = $l->tracked_property_id ? (int) $l->tracked_property_id : null;
+            $st = $tp ? $stats->get($tp) : null;
+            $out[(int) $l->id] = [
+                'tp' => $tp, 'score' => $st && $st->score !== null ? (float) $st->score : null,
+                'reasons' => $st ? array_values(array_filter([$st->reason_1, $st->reason_2])) : [], 'pairs' => $tp ? ($pairs[$tp] ?? []) : [],
+            ];
+        }
+
+        return $out;
+    }
+
+    /**
+     * mic-work-tab.md 2.1 A+B: the 11-tile row and the tile 10 / 11 panels. A tile whose service has not landed says "Coming".
+     *
+     * @return array{0: list<array<string, mixed>>, 1: array<string, mixed>}
+     */
+    private function workTilesData(Request $request, int $agencyId, $user, bool $isProspectingManager): array
+    {
+        $micTiles = \App\Services\Prospecting\MicWork\MicWorkTiles::fromContainer();
+        $workTiles = $micTiles->row($agencyId, $user);
+        $workPanel = ['ready' => false, 'rows' => [], 'around' => []];
+        $panelNo = (int) $request->query('panel');
+        if (in_array($panelNo, [10, 11], true) && ($pp = $micTiles->panel($panelNo))) {
+            $rows = $pp->rows($agencyId, $user, $panelNo === 10
+                ? ['months' => (int) $request->query('months', 0), 'type' => $request->query('type'), 'suburb' => $request->query('suburb')]
+                : ['scope' => $isProspectingManager ? 'all' : 'mine', 'show_all' => $request->boolean('show_all')]);
+            $workPanel = ['ready' => true, 'rows' => $rows, 'around' => $panelNo === 10
+                ? ($request->filled('trigger') ? [(string) $request->query('trigger') => $pp->around($agencyId, $user, (string) $request->query('trigger'))] : []) : []];
+        }
+
+        return [$workTiles, $workPanel];
+    }
+
+
+    /**
      * MIC speed round 4 — extracted verbatim from work(). Collapses rows
      * sharing property_group_id (rotating-ref re-scrapes of the same real
      * property across portals) into one row, siblings attached as
@@ -1338,6 +1654,44 @@ class MarketIntelligenceController extends Controller
      * hydrateGroups(), so this is the SAME code running on a ~50-150 row
      * input instead of the full matching set, not a second implementation.
      */
+    /**
+     * The count on each wishlist tab (13.20). Same query the list runs, with ONLY the selected wishlist's condition swapped for that wishlist's, and the rows counted the way the list
+     * counts them: adverts of one property group are ONE row (buildGroupedRows). So a tab shows exactly what the banner says once it is selected. Falls back to the counts it was
+     * given if the query is not the shape it expects.
+     *
+     * @param  array{idx:int, bind_from:int, bind_n:int}  $where  where the selected wishlist's condition sits in the query
+     * @param  list<array<string,mixed>>  $tabs
+     * @return list<array<string,mixed>>
+     */
+    private function wishlistTabCounts($query, array $where, array $tabs, int $agencyId, int $buyerId, int $floor): array
+    {
+        $base = clone $query;
+        $qb = $base->getQuery();
+        // a whereIn(id, <subquery>) is stored as an "In" clause whose one value is the subquery's SQL
+        $w = $qb->wheres[$where['idx']] ?? null;
+        if (! $w || ($w['type'] ?? null) !== 'In' || ($w['column'] ?? null) !== 'id' || count($w['values'] ?? []) !== 1 || ! ($w['values'][0] instanceof \Illuminate\Contracts\Database\Query\Expression)) {
+            return $tabs;
+        }
+        $wheres = $qb->wheres;
+        unset($wheres[$where['idx']]);
+        $qb->wheres = array_values($wheres);
+        $bind = $qb->bindings['where'];
+        array_splice($bind, $where['bind_from'], $where['bind_n']);
+        $qb->bindings['where'] = $bind;
+        $table = $base->getModel()->getTable();
+
+        foreach ($tabs as &$t) {
+            $rows = (clone $base)->whereIn("{$table}.id", function ($sub) use ($buyerId, $agencyId, $floor, $t) {
+                $sub->from('prospecting_buyer_matches')->select('prospecting_listing_id')->where('contact_id', $buyerId)->where('agency_id', $agencyId)->whereNull('dismissed_at')
+                    ->whereRaw("CAST(JSON_UNQUOTE(JSON_EXTRACT(matched_features, '\$.wishlists.\"" . (int) $t['id'] . "\"')) AS UNSIGNED) >= ?", [$floor]);
+            })->toBase()->reorder()->select(["{$table}.id", "{$table}.property_group_id"])->get();
+            $t['count'] = $rows->map(fn ($r) => $r->property_group_id ?? 'single_' . $r->id)->unique()->count();
+        }
+        unset($t);
+
+        return $tabs;
+    }
+
     private function buildGroupedRows(\Illuminate\Support\Collection $listings): \Illuminate\Support\Collection
     {
         $grouped = $listings->groupBy(function ($item) {
@@ -1408,12 +1762,15 @@ class MarketIntelligenceController extends Controller
         if (empty($listingIds)) {
             return;
         }
+        // 13.20: the score is the SELECTED wishlist's (the cache keeps one per wishlist); the best score only when the row pre-dates that
+        $wid = $this->buyerWishlistId;
         $selectedBuyerScores = DB::table('prospecting_buyer_matches')
             ->whereIn('prospecting_listing_id', $listingIds)
             ->where('contact_id', $selectedBuyerId)
             ->where('agency_id', $agencyId)
             ->whereNull('dismissed_at')
-            ->pluck('score', 'prospecting_listing_id');
+            ->selectRaw('prospecting_listing_id, ' . ($wid ? "COALESCE(CAST(JSON_UNQUOTE(JSON_EXTRACT(matched_features, '\$.wishlists.\"{$wid}\"')) AS UNSIGNED), score)" : 'score') . ' as s')
+            ->pluck('s', 'prospecting_listing_id');
         foreach ($rows as $row) {
             $row->selected_buyer_score = isset($selectedBuyerScores[$row->id])
                 ? (int) $selectedBuyerScores[$row->id]
@@ -1521,6 +1878,9 @@ class MarketIntelligenceController extends Controller
             ->withoutGlobalScopes()
             ->where('agency_id', $agencyId)
             ->whereNull('deleted_at')
+            // A file folded into another by the property-identity merges (spec property-identity.md §16) is flagged
+            // duplicate and kept for the audit trail — it must not be counted or listed twice.
+            ->where('status', '<>', TrackedProperty::STATUS_DUPLICATE)
             // Deeds captures live on their own "Deeds Capture" screen and must never
             // mix into Opportunities (Johan's directive). Exclude them here.
             ->where(function ($q) {
@@ -1546,8 +1906,8 @@ class MarketIntelligenceController extends Controller
 
         // Filter chip — primary filter from §5.4.3.
         match ($filter) {
-            'with_address'      => $query->whereHas('primaryAddress', fn ($q) => $q->whereNotNull('street_name')),
-            'without_address'   => $query->whereDoesntHave('primaryAddress', fn ($q) => $q->whereNotNull('street_name')),
+            'with_address'      => $query->hasStreet(),
+            'without_address'   => $query->lacksStreet(),
             'company_stock'     => $query->where(function ($q) {
                                        $q->where('status', TrackedProperty::STATUS_PROMOTED)
                                          ->orWhereNotNull('promoted_to_property_id');
@@ -1606,7 +1966,7 @@ class MarketIntelligenceController extends Controller
                 ->whereDoesntHave('prospectingListings.activeClaim')
                 ->count(),
             'with_address'      => (clone $base)
-                ->whereHas('primaryAddress', fn ($q) => $q->whereNotNull('street_name'))
+                ->hasStreet()
                 ->count(),
             'promoted_to_stock' => (clone $base)
                 ->where(function ($q) {
@@ -1693,7 +2053,19 @@ class MarketIntelligenceController extends Controller
         $externalRefsBySource = $tp->externalRefs->groupBy('source_type');
         $chain = $tp->source_chain ?? [];
 
+        // This agency's own record (Lane B). Own stock is re-read here so the flag is never stale; nothing is written unless it changed.
+        $workService = app(\App\Services\Prospecting\AgencyWorkService::class);
+        $work = $workService->syncOwnStock((int) $agencyId, (int) $tp->id);
+        $work->load(['statusSetBy:id,name', 'claimedBy:id,name']);
+
+        $alertFacts = app(\App\Services\Prospecting\PropertyAlertFacts::class)->for((int) $agencyId, $tp);
+
         return view('corex.market-intelligence.opportunity-detail', [
+            'sourceFacts'          => app(\App\Services\Prospecting\PropertySourceFacts::class)->forProperty($alertFacts, $linkedListings, $tp->externalRefs),
+            'work'                 => $work,
+            'workHistory'          => $workService->history((int) $agencyId, (int) $tp->id, 15)->load('user:id,name'),
+            'canSetStatus'         => $user->hasPermission('mic.comments.add'),
+            'alerts'               => $alertFacts,
             'tp'                   => $tp,
             'linkedListings'       => $linkedListings,
             'externalRefsBySource' => $externalRefsBySource,
@@ -1834,17 +2206,24 @@ class MarketIntelligenceController extends Controller
         $page = max(1, (int) $request->query('page', 1));
         $perPage = 50;
 
+        // S3 — an alert that is linked to a property file opens that file's page. The file must be this agency's own (never another's).
+        $ownTpIds = \DB::table('tracked_properties')->where('agency_id', $agencyId)->whereNull('deleted_at')
+            ->whereIn('id', P24Listing::query()->where('agency_id', $agencyId)->whereNotNull('tracked_property_id')->select('tracked_property_id'))
+            ->pluck('id')->flip();
+        $linkedTp = fn ($id) => $id && isset($ownTpIds[(int) $id]) ? route('market-intelligence.opportunities.show', ['tp' => $id]) : null;
+
         $p24Rows = P24Listing::query()
             ->where('agency_id', $agencyId)
             ->whereNull('deleted_at')
             ->orderByDesc('first_seen_date')
             ->get(['id', 'p24_listing_number', 'asking_price', 'suburb', 'area',
                    'property_type', 'bedrooms', 'bathrooms', 'p24_url',
-                   'first_seen_date', 'last_seen_date', 'listing_status'])
+                   'first_seen_date', 'last_seen_date', 'listing_status', 'tracked_property_id'])
             ->map(fn ($r) => [
                 'id'              => 'p24:' . $r->id,
                 'source_label'    => 'P24 email alert',
                 'source_class'    => 'p24_alert',
+                'property_url'    => $linkedTp($r->tracked_property_id),
                 'reference'       => $r->p24_listing_number,
                 'suburb'          => $r->suburb,
                 'area'            => $r->area,
@@ -2938,7 +3317,7 @@ class MarketIntelligenceController extends Controller
         //   properties_matched = distinct canvass listings matched ≥ threshold.
         // Only countable buyers are ever cached (AT-71), so distinct contact_id
         // here is the distinct-countable-buyer truth.
-        $threshold = AgencyContactSettings::forAgency($agencyId)->micMatchThreshold();
+        $threshold = $this->buyerMatchFloor((int) $agencyId);
         // Perf (cc6): both distinct-counts come from ONE pass over the same match
         // set rather than two identical scans. Same COUNT(DISTINCT …) semantics.
         $matchAgg = DB::table('prospecting_buyer_matches')
@@ -3731,13 +4110,20 @@ class MarketIntelligenceController extends Controller
             ->active()->first();
 
         if ($existing) {
-            if ($existing->isExpired()) {
-                $existing->update([
-                    'is_active'   => false,
-                    'released_at' => now(),
-                ]);
-            } else {
+            // v4 (road-to-sold.md 23.5): a claim on the belt runs out by the claim hold (working days), any other by the old 48 hours.
+            if (! app(\App\Services\RoadToSold\ClaimHoldService::class)->releaseIfExpired($existing)) {
                 return back()->with('error', 'Already claimed by ' . $existing->user->name);
+            }
+        }
+
+        // v4 (23.5): one record per property file. Another agent's claim or belt record on ANY advert of this property file holds it.
+        $fileId = $listing->tracked_property_id ? (int) $listing->tracked_property_id : null;
+        if ($fileId !== null) {
+            $holderId = app(\App\Services\RoadToSold\ClaimBeltService::class)->holderOfFile((int) $agencyId, $fileId, (int) $user->id, (int) $user->ownershipUserId());
+            if ($holderId !== null) {
+                $holderName = \App\Models\User::withoutGlobalScopes()->whereKey($holderId)->value('name') ?: 'another agent';
+
+                return back()->with('error', 'Already held by ' . $holderName . ' - this property is on their Road to Sold.');
             }
         }
 
@@ -3807,6 +4193,7 @@ class MarketIntelligenceController extends Controller
         $request->validate([
             'status' => 'required|in:' . implode(',', ProspectingClaim::FEEDBACK_STATUSES),
             'notes'  => 'nullable|string|max:1000',
+            'reason' => 'nullable|string|max:40',
         ]);
 
         $newStatus = $request->status;
@@ -3817,6 +4204,62 @@ class MarketIntelligenceController extends Controller
         // ProspectingClaim::isPromoted().
         if (in_array($newStatus, ProspectingClaim::CLOSING_STATUSES, true) && $claim->isPromoted()) {
             return back()->with('error', 'This property has already been promoted onto your books — it can no longer be closed out or released.');
+        }
+
+        // v4 gate (road-to-sold.md 23.6): a claim on the belt cannot be logged as contacted / meeting / listing until the owner is found. A 'lost'
+        // (dead end, wrong contact) is how an agent reports the owner problem, so it passes.
+        if ($claim->rts_prospect_id && $newStatus !== ProspectingClaim::STATUS_LOST && $listing->tracked_property_id) {
+            $refusal = app(\App\Services\RoadToSold\OwnerStationService::class)->refusal($user, (int) $listing->tracked_property_id);
+            if ($refusal !== null) {
+                return back()->with('error', $refusal);
+            }
+        }
+
+        // v4 (road-to-sold.md 23.11): there is no reason-less loss. A "lost" closes the claim and gives the property back, so it asks WHY first, from the agency's own
+        // reasons for the station the record is at (Contacted when it is not on the belt). On the belt the one result service does the closing; off it the claim closes
+        // as before and the reason is written into its notes.
+        if ($newStatus === ProspectingClaim::STATUS_LOST) {
+            $belt = $claim->rts_prospect_id ? \App\Models\RoadToSold\RtsProspect::withoutGlobalScopes()->find($claim->rts_prospect_id) : null;
+            // a "lost" is something learned in the conversation: the Contact step's reasons (the agency's own list, "Other" last)
+            $station = $belt ? \App\Services\RoadToSold\ParkReasonService::stationOfStage((string) $belt->stage) : 'contacted';
+            $reasonSvc = app(\App\Services\RoadToSold\ParkReasonService::class);
+            $reasons = \App\Models\RoadToSold\RtsParkReason::hasStepColumns() ? $reasonSvc->forStep((int) $claim->agency_id, 'sales', 4) : $reasonSvc->choices((int) $claim->agency_id, 'sales', $station);
+            $picked = $reasons->firstWhere('key', (string) $request->input('reason'));
+            if (! $picked) {
+                return back()->with('error', 'Say why you are closing this property: pick a reason (' . $reasons->pluck('label')->take(4)->implode(', ') . ' ...).')
+                    ->with('mic_lost_reasons', $reasons->map(fn ($r) => ['key' => $r->key, 'label' => $r->label])->values()->all());
+            }
+            if ($belt && $belt->closed_at === null && $belt->released_at === null) {
+                $r = app(\App\Services\RoadToSold\ResultService::class)->offRamp($belt, $picked->key, $request->notes, $user, 'mic_feedback', \App\Models\RoadToSold\RtsParkReason::hasStepColumns() ? 4 : null);
+                if (! $r['ok']) {
+                    return back()->with('error', $r['message']);
+                }
+                $firstFeedback = $claim->feedback_at === null;
+                $claim->refresh()->forceFill(['notes' => $request->notes ?? $claim->notes, 'feedback_at' => $claim->feedback_at ?? now(), 'last_updated_at' => now()])->saveQuietly();
+                if ($firstFeedback) {
+                    event(new \App\Events\Prospecting\ClaimFeedbackRecorded($claim->fresh(), $newStatus, $request->notes));
+                }
+
+                return back()->with('success', $r['message']);
+            }
+            $request->merge(['notes' => trim('[' . $picked->label . '] ' . (string) $request->notes)]);
+        }
+
+        // v4 (road-to-sold.md 23.7.3): MIC feedback is the station-4 outcome. On a claim that is on the belt it is written through the one outcome
+        // service (channel phone), the claim's status follows the station, and nothing is stored in a second place. 'lost' keeps its old close below.
+        $adapter = app(\App\Services\RoadToSold\MicFeedbackAdapter::class);
+        if ($adapter->handles($claim, $newStatus)) {
+            $done = $adapter->apply($user, $claim, $listing, $newStatus, $request->notes);
+            if (! $done['ok']) {
+                return back()->with('error', $done['message']);
+            }
+            $claim->refresh()->update([
+                'notes'           => $request->notes ?? $claim->notes,
+                'feedback_at'     => $claim->feedback_at ?? now(),
+                'last_updated_at' => now(),
+            ]);
+
+            return back()->with('success', $done['message']);
         }
 
         // First-feedback detection — the activity-points credit (mic.claim_feedback)
@@ -3849,6 +4292,49 @@ class MarketIntelligenceController extends Controller
         return back()->with('success', 'Feedback saved');
     }
 
+    /**
+     * mic-work-tab.md 13.12 - "Not the same property": split one advert off its property file onto a new file of its own (JSON; the Listed-by popover posts here).
+     * 403 another agency's advert, 404 unknown, 409 the advert is already alone on its file.
+     */
+    public function splitAdvert(int $listing, \App\Services\Prospecting\Matching\AdvertSplitService $splitter)
+    {
+        $user = auth()->user();
+        $agencyId = $user->effectiveAgencyId();
+        $row = ProspectingListing::withoutGlobalScopes()->find($listing);
+        if (! $row) {
+            return response()->json(['ok' => false, 'message' => 'That advert was not found.'], 404);
+        }
+        if ($agencyId === null || (int) $row->agency_id !== (int) $agencyId) {
+            return response()->json(['ok' => false, 'message' => 'That advert belongs to another agency.'], 403);
+        }
+        try {
+            return response()->json(['ok' => true] + $splitter->split($row, $user));
+        } catch (\App\Services\Prospecting\Matching\AdvertSplitException $e) {
+            return response()->json(['ok' => false, 'message' => $e->getMessage()], $e->status);
+        }
+    }
+
+    /** Undo of the above (the "Undo" in the popover note). 403 / 404 / 409 as above. */
+    public function undoSplitAdvert(int $split, \App\Services\Prospecting\Matching\AdvertSplitService $splitter)
+    {
+        $user = auth()->user();
+        $agencyId = $user->effectiveAgencyId();
+        $rec = DB::table('mic_match_exclusions')->where('id', $split)->first();
+        if (! $rec) {
+            return response()->json(['ok' => false, 'message' => 'That split was not found.'], 404);
+        }
+        if ($agencyId === null || (int) $rec->agency_id !== (int) $agencyId) {
+            return response()->json(['ok' => false, 'message' => 'That split belongs to another agency.'], 403);
+        }
+        try {
+            $r = $splitter->undo((int) $agencyId, $split, $user);
+
+            return response()->json(['ok' => true, 'file_id' => $r['file_id']]);
+        } catch (\App\Services\Prospecting\Matching\AdvertSplitException $e) {
+            return response()->json(['ok' => false, 'message' => $e->getMessage()], $e->status);
+        }
+    }
+
     public function release(ProspectingListing $listing)
     {
         $user = auth()->user();
@@ -3878,6 +4364,26 @@ class MarketIntelligenceController extends Controller
         ]);
 
         return back()->with('success', 'Claim released');
+    }
+
+    /** Road to Sold v4 (road-to-sold.md 23.5): extend the hold on a claim. The agent once; a manager with road_to_sold.release_prospects may grant more. */
+    public function extendHold(Request $request, int $claimId)
+    {
+        $claim = ProspectingClaim::findOrFail($claimId);
+        $user = $request->user();
+        $agencyId = $user->effectiveAgencyId() ?? $user->agency_id;
+        if ($agencyId === null || (int) $claim->agency_id !== (int) $agencyId) {
+            abort(404);
+        }
+        $isOwner = (int) $claim->user_id === (int) $user->id || (int) $claim->user_id === (int) $user->ownershipUserId();
+        $isManager = method_exists($user, 'hasPermission') && $user->hasPermission('road_to_sold.release_prospects');
+        if (! $isOwner && ! $isManager) {
+            abort(403, 'Only the claim owner or a manager can extend this hold.');
+        }
+
+        $r = app(\App\Services\RoadToSold\ClaimHoldService::class)->extend($claim, $user, ! $isOwner && $isManager, $request->input('note'));
+
+        return back()->with($r['ok'] ? 'success' : 'error', $r['message']);
     }
 
     public function releaseAsManager(Request $request, int $claimId)

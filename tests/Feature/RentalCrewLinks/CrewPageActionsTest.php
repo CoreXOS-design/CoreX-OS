@@ -242,8 +242,7 @@ final class CrewPageActionsTest extends TestCase
     {
         $this->post($this->url('/complete'), ['full_name' => '', 'confirm' => '1'])->assertSessionHasErrors('full_name');
         $this->post($this->url('/complete'), ['full_name' => 'S', 'confirm' => '1'])->assertSessionHasErrors('full_name');
-        $this->post($this->url('/complete'), ['full_name' => 'Sipho Dlamini'])->assertSessionHasErrors('confirm');
-        $this->post($this->url('/complete'), ['full_name' => 'Sipho Dlamini', 'confirm' => '0'])->assertSessionHasErrors('confirm');
+        // section 31.5: no separate tick - the press is the confirmation
         $this->post($this->url('/complete'), ['full_name' => str_repeat('x', 200), 'confirm' => '1'])->assertSessionHasErrors('full_name');
 
         $this->assertNull($this->card->fresh()->worker_signed_off_at);

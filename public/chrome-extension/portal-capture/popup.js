@@ -164,6 +164,7 @@
   let currentState   = null;
   let previousState  = null;
   let statusPoller   = null;
+  let myRunId        = null;   // 3.16.1: the id of the run THIS popup started; null = follow whatever runs (see run-status.js)
   let pageInfo       = null;
   let propertyData   = null;
   let tabId          = null;
@@ -455,6 +456,7 @@
   async function startCapture() {
     hideError();
     els.duplicateWarning.style.display = 'none';
+    myRunId = (self.crypto && self.crypto.randomUUID) ? self.crypto.randomUUID() : String(Date.now()) + Math.random();
     showState('capturing');
     startStatusPolling();
 
@@ -476,6 +478,7 @@
       apiUrl:       settings.apiUrl,
       apiToken:     settings.apiToken,
       tabId:        tabId,
+      runId:        myRunId,
     });
   }
 
@@ -494,15 +497,16 @@
   async function pollStatus() {
     try {
       const status = await chrome.runtime.sendMessage({ action: 'getCaptureStatus' });
-      if (!status) return;
-
-      if (status.active) {
+      // 3.16.1: only a status that belongs to the run this popup started counts. The background still holds the LAST run's finished
+      // record until it takes the new one; reading that as "complete" showed the previous search's numbers on the next portal's tab.
+      const verdict = self.CorexRunStatus.decide(status, myRunId);
+      if (verdict === 'capturing') {
         showState('capturing');
         updateProgress(status);
-      } else if (status.complete) {
+      } else if (verdict === 'complete') {
         stopStatusPolling();
         showCaptureComplete(status);
-      } else if (status.error && !status.active) {
+      } else if (verdict === 'error') {
         stopStatusPolling();
         showError(status.error);
         // If CoreX rejected our token/agency, reflect it honestly on the dot.
@@ -1593,6 +1597,7 @@
   // ══════════════════════════════════════════════════════════
 
   async function init() {
+    myRunId = null;   // a fresh popup follows whatever run is going; it only filters once it starts one itself
     await loadSettings();
     await showLastCapture();
 
@@ -1795,12 +1800,14 @@
 
   // Resume
   els.resumeBtn.addEventListener('click', () => {
+    myRunId = (self.crypto && self.crypto.randomUUID) ? self.crypto.randomUUID() : String(Date.now()) + Math.random();
     showState('capturing');
     startStatusPolling();
     chrome.runtime.sendMessage({
       action:   'resumeCapture',
       apiUrl:   settings.apiUrl,
       apiToken: settings.apiToken,
+      runId:    myRunId,
     });
   });
 

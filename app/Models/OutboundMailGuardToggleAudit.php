@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Models;
 
+use App\Models\Concerns\StampsOnBehalfOf;
 use Illuminate\Database\Eloquent\Model;
 
 /**
@@ -14,6 +15,8 @@ use Illuminate\Database\Eloquent\Model;
  */
 class OutboundMailGuardToggleAudit extends Model
 {
+    use StampsOnBehalfOf;
+
     public const DIRECTION_INTERCEPT_ON = 'intercept_on';
     public const DIRECTION_INTERCEPT_OFF = 'intercept_off';
 

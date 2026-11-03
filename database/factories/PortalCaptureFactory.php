@@ -2,6 +2,7 @@
 
 namespace Database\Factories;
 
+use App\Models\Agency;
 use App\Models\PortalCapture;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Factories\Factory;
@@ -16,7 +17,9 @@ class PortalCaptureFactory extends Factory
     public function definition(): array
     {
         return [
-            'user_id'               => User::factory(),
+            // a capture belongs to its user's agency (portal_captures.agency_id is NOT NULL): a default user gets the first agency, made if none exists
+            'user_id'               => fn () => User::withoutAgencyStamping(fn () => User::factory()->create(['agency_id' => Agency::withoutGlobalScopes()->orderBy('id')->value('id')
+                ?? \Illuminate\Database\Eloquent\Model::withoutEvents(fn () => Agency::create(['name' => 'Factory Agency', 'slug' => 'factory-' . uniqid()]))->id]))->id,
             'presentation_id'       => null,
             'source_site'           => 'www.property24.com',
             'page_type'             => 'search',

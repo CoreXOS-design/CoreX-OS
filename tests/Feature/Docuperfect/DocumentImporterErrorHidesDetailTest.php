@@ -23,7 +23,7 @@ use Tests\TestCase;
  */
 final class DocumentImporterErrorHidesDetailTest extends TestCase
 {
-    use RefreshDatabase;
+    use RefreshDatabase, \Tests\Concerns\CleansGeneratedTemplateViews;
 
     public function test_a_parse_failure_returns_a_plain_message_and_reference_never_a_trace(): void
     {

@@ -182,7 +182,9 @@ final class MicPoolRulesTest extends TestCase
         $ids = $this->listingIds($this->pick());
         $this->assertNotContains($claimed, $ids);
         $this->assertNotContains($pitched, $ids);
-        $this->assertEqualsCanonicalizing([$expiredLock, $myClaim, $released, $free], $ids);
+        // 23.14 "unclaimed": a claim of MINE is already on my belt at station 2, so it is not new stock either
+        $this->assertNotContains($myClaim, $ids);
+        $this->assertEqualsCanonicalizing([$expiredLock, $released, $free], $ids);
     }
 
     public function test_the_suggestion_guard_removes_held_do_not_contact_and_own_held_properties(): void

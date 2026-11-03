@@ -249,70 +249,7 @@
                             <div>
                                 <button class="btn btn-primary" x-show="!faultWizard.open" @click="startFaultReport()">Report a fault</button>
 
-                                <template x-if="faultWizard.open">
-                                    <div class="card" data-fault-wizard>
-                                        {{-- Done: a clear success state, nothing left to press twice. --}}
-                                        <template x-if="faultWizard.step === 'done'">
-                                            <div class="done-card" data-fault-done>
-                                                <div class="tick">&#10003;</div>
-                                                <h2 style="margin-bottom:4px;" x-text="faultWizard.doneTitle"></h2>
-                                                <p class="muted" style="margin:0 0 4px;" x-text="faultWizard.doneText"></p>
-                                                <button class="btn btn-primary" @click="closeFaultWizard()">Done</button>
-                                            </div>
-                                        </template>
-
-                                        <template x-if="faultWizard.step !== 'done'">
-                                            <div>
-                                                <label style="margin-top:0;">What's the problem?</label>
-                                                <select x-model="faultWizard.faultTypeId" :disabled="!!(faultWizard.sending)" @change="selectFaultType()">
-                                                    <option value="">Choose…</option>
-                                                    <template x-for="ft in (faultTypesByProperty[faultWizard.property] || [])" :key="ft.id">
-                                                        <option :value="ft.id" x-text="ft.name"></option>
-                                                    </template>
-                                                    {{-- AT-452 - always the last choice, on top of the agency's own list --}}
-                                                    <option value="other" data-fault-type-other>{{ \App\Models\RentalFaultReport::OTHER_TYPE_OPTION }}</option>
-                                                </select>
-
-                                                {{-- Before you report: the steps, photos and documents for the chosen fault type. --}}
-                                                <template x-if="faultWizard.faultTypeId && faultWizard.step === 'aid'">
-                                                    <div style="margin-top:12px;" data-fault-aid-step>
-                                                        @include('rentals.portal._fault-aid', ['w' => 'faultWizard', 'tenant' => true])
-                                                        <div class="btn-pair" data-fault-aid-buttons>
-                                                            <button class="btn btn-ok" :disabled="!!(faultWizard.sending)" @click="submitFault('first_aid_resolved')" x-text="faultWizard.sending ? 'Sending…' : 'That fixed it'"></button>
-                                                            <button class="btn btn-brand" :disabled="!!(faultWizard.sending)" @click="faultWizard.step = 'form'">Still a problem</button>
-                                                        </div>
-                                                    </div>
-                                                </template>
-
-                                                <template x-if="faultWizard.faultTypeId && faultWizard.step === 'form'">
-                                                    <div data-fault-form>
-                                                        <template x-if="faultWizard.faultTypeId === 'other'">
-                                                            <div data-fault-other>
-                                                                <label>What needs attention?</label>
-                                                                <textarea rows="3" required x-model="faultWizard.description" :disabled="!!(faultWizard.sending)" placeholder="Tell us in a few words"></textarea>
-                                                            </div>
-                                                        </template>
-                                                        <template x-if="faultWizard.faultTypeId !== 'other'">
-                                                            <div>
-                                                                <label>Title</label>
-                                                                <input type="text" x-model="faultWizard.title" :disabled="!!(faultWizard.sending)">
-                                                                <label>Describe the problem</label>
-                                                                <textarea rows="3" x-model="faultWizard.description" :disabled="!!(faultWizard.sending)"></textarea>
-                                                            </div>
-                                                        </template>
-                                                        <label>Photos</label>
-                                                        @include('rentals.portal._photo-picker', ['bind' => 'faultWizard'])
-                                                        <button class="btn btn-danger" data-fault-submit :disabled="!!(faultWizard.sending || faultWizard.photoBusy)" @click="submitFault('still_a_problem')"
-                                                                x-text="faultWizard.sending ? ('Sending…' + (faultWizard.progress ? ' ' + faultWizard.progress + '%' : '')) : (faultWizard.photoBusy ? 'Preparing photos…' : 'Submit report')"></button>
-                                                        <div class="progress" x-show="faultWizard.sending"><span :style="'width:' + (faultWizard.progress || 5) + '%'"></span></div>
-                                                    </div>
-                                                </template>
-                                                <p class="error" x-show="faultWizard.error" x-text="faultWizard.error"></p>
-                                                <button class="btn btn-outline" :disabled="!!(faultWizard.sending)" @click="closeFaultWizard()">Cancel</button>
-                                            </div>
-                                        </template>
-                                    </div>
-                                </template>
+                                @include('rentals.portal._fault-wizard')
 
                                 {{-- Johan, 8 Oct 2026: the tenant sees where EACH fault is, step by step, fault and work order in one line.
                                      AT-452 round 2 (G): ONE list - open faults first (newest first) and expanded, then every closed one (newest first) as a single line
@@ -892,7 +829,7 @@ function rentalsPortal() {
         noticePanel: { loaded: false, error: null, done: null, leases: [], notices: [], fromOther: [], form: { open: false, lease_id: '', notice_date: '', intended_end_date: '', reason: '', file: null, key: '', sending: false, error: null } },
         photoSeq: 0,
         photoLimits: { max_photos: 6, max_photo_mb: 8 },
-        faultWizard: { open: false, step: 'pick', property: null, faultTypeId: '', ftype: null, title: '', description: '', photos: [], photoError: null, photoBusy: false, photoPending: 0, sending: false, progress: 0, error: null, key: null, doneTitle: '', doneText: '' },
+        faultWizard: { open: false, step: 'form', hasAid: false, reported: null, property: null, faultTypeId: '', ftype: null, title: '', description: '', photos: [], photoError: null, photoBusy: false, photoPending: 0, sending: false, progress: 0, error: null, key: null, doneTitle: '', doneText: '' },
         faultTypesByProperty: {},
         decisions: { fault_reports: [], work_orders: [], variations: [] },
         landlordProperties: [], propertyDetail: null,
@@ -1327,6 +1264,7 @@ function rentalsPortal() {
             this.overview.homes = r.data.homes;
             this.overview.decisions_waiting = r.data.decisions_waiting || 0;
             this.overview.loaded = true;
+            if (this.activeRole === 'tenant') { this.loadFaultReports(); }   // section 31.2 - Home shows each open fault's progress line
         },
         // South African format everywhere a person reads a date: "13 Oct 2026" / "13 Oct 2026 05:37" (24-hour) - one pair of helpers (server twin: App\Support\AppDate)
         fmtDay(d) {
@@ -1472,7 +1410,7 @@ function rentalsPortal() {
 
         // ── tenant: report a fault ──
         blankFaultWizard(propertyId) {
-            return { open: !!propertyId, step: 'pick', property: propertyId || null, faultTypeId: '', ftype: null, lastTypeName: '', title: '', description: '', photos: [], photoError: null, photoBusy: false, photoPending: 0, sending: false, progress: 0, error: null, key: this.uuid(), doneTitle: '', doneText: '' };
+            return { open: !!propertyId, step: 'form', hasAid: false, reported: null, property: propertyId || null, faultTypeId: '', ftype: null, lastTypeName: '', title: '', description: '', photos: [], photoError: null, photoBusy: false, photoPending: 0, sending: false, progress: 0, error: null, key: this.uuid(), doneTitle: '', doneText: '' };
         },
         async startFaultReport() {
             const propertyId = this.tenantLeases[0]?.property_id || null;
@@ -1564,7 +1502,6 @@ function rentalsPortal() {
             w.faultTypeId = String(f.fault_type_id);
             w.followsFaultId = f.id;   // the new report links back to the one the tenant fixed themselves
             this.selectFaultType();
-            if (w.ftype) w.step = 'form';
             this.$nextTick(() => { const el = document.querySelector('[data-fault-wizard]'); if (el && el.scrollIntoView) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); });
         },
         // The moment a type is chosen the person sees what to try first (steps, photos, documents); a type with nothing to show goes straight to the form.
@@ -1575,19 +1512,10 @@ function rentalsPortal() {
             w.ftype = t || null;
             w.error = null;
             w.checks = {};   // the ticks belong to THIS type's steps
-            // AT-452 - "Other - not on the list": straight to the form, no suggested self-checks, no "That fixed it"
-            if (String(w.faultTypeId) === 'other') {
-                w.ftype = { id: 'other', name: 'Other', steps: [] };
-                w.step = 'form';
-                w.title = '';
-                w.lastTypeName = '';
-                return;
-            }
-            if (!t) { w.step = 'pick'; return; }
-            const hasAid = !!(String(t.first_aid_steps || '').trim() || (t.photos || []).length || (t.documents || []).length);
-            w.step = hasAid ? 'aid' : 'form';
-            if (!w.title || w.title === w.lastTypeName) w.title = t.name;
-            w.lastTypeName = t.name;
+            // section 31.2 - no type is fine (the agent classifies it); a type with advice shows it beside the form, never in front of it
+            w.hasAid = !!(t && (String(t.first_aid_steps || '').trim() || (t.steps || []).length || (t.photos || []).length || (t.documents || []).length));
+            if (t) w.title = t.name; else w.title = '';
+            w.lastTypeName = t ? t.name : '';
         },
         closeFaultWizard() {
             this.freeWizardPhotos(this.faultWizard);
@@ -1598,11 +1526,12 @@ function rentalsPortal() {
             if (w.sending || w.photoBusy) return; // one press, one report
             w.error = null;
             const form = new FormData();
-            const isOther = String(w.faultTypeId) === 'other';
-            if (isOther && !(w.description || '').trim()) { w.error = 'Please tell us what needs attention.'; return; }
-            if (isOther) form.append('other_type', '1'); else form.append('rental_fault_type_id', w.faultTypeId);
+            const typed = !!w.faultTypeId && String(w.faultTypeId) !== 'other';
+            const isOther = !typed;
+            if (isOther && !(w.description || '').trim()) { w.error = 'Please tell us what is wrong, or pick the kind of problem.'; return; }
+            if (typed) form.append('rental_fault_type_id', w.faultTypeId);
             form.append('resolution', resolution);
-            if (!isOther) form.append('title', w.title || 'Fault reported');
+            if (typed) form.append('title', w.title || 'Fault reported');
             form.append('description', w.description || '');
             form.append('submission_key', w.key);
             // section 22.3 - what the tenant ticked: every step they were shown, ticked or not (the agent reads it as "what the tenant says they checked")
@@ -1622,8 +1551,9 @@ function rentalsPortal() {
             }
             this.freeWizardPhotos(w);
             w.step = 'done';
+            w.reported = r.data?.fault_report || null;
             w.doneTitle = resolution === 'first_aid_resolved' ? 'Glad that fixed it' : 'Fault reported';
-            w.doneText = resolution === 'first_aid_resolved' ? 'We have noted it on your file.' : 'Your agent has been notified.';
+            w.doneText = resolution === 'first_aid_resolved' ? 'We have noted it on your file.' : 'Your agent has been told and we have emailed you a confirmation.';
             this.loadFaultReports();
         },
 

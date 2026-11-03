@@ -520,9 +520,11 @@ final class SupplierCalloutFeeTest extends TestCase
         $this->assertStringContainsString('@click="inspect()"', $wired);
 
         // every screen uses that one partial - no second copy of the block
-        foreach (['corex/rental-fault-reports/_raise-work-order-form', 'corex/rental-work-orders/show'] as $view) {
+        foreach (['corex/rental-fault-reports/_decision-one', 'corex/rental-work-orders/show'] as $view) {
             $this->assertStringContainsString("partials.contractor-inspect-choice", file_get_contents(resource_path("views/{$view}.blade.php")));
         }
+        // section 31.4: the appoint picker has a Send to button per row, so the call-out notice sits on the row itself (not in a second block after a radio is ticked)
+        $this->assertStringContainsString('data-callout-notice', file_get_contents(resource_path('views/corex/rental-fault-reports/_raise-work-order-form.blade.php')));
         $this->assertFileDoesNotExist(resource_path('views/partials/callout-notice.blade.php'));
     }
 }

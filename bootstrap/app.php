@@ -67,6 +67,8 @@ return Application::configure(basePath: dirname(__DIR__))
             // per-group `feature:` middleware only covers groups someone remembered to decorate,
             // and a toggle that hides the sidebar link while the URL still opens is a silent no-op.
             \App\Http\Middleware\EnforceFeatureRoutes::class,
+            // Road to Sold pop-up (22.22) — a screen opened in the pop-up stays in it across redirects (adds embed=1 to a same-site redirect).
+            \App\Http\Middleware\KeepEmbedOnRedirect::class,
             // AT-478 — first time a person opens a feature their agency's gradual rollout switched on
             // (usage for the admin + CoreX team). Inert (one cached lookup) for an agency not on a rollout.
             \App\Http\Middleware\RecordRolloutFeatureUse::class,
@@ -149,6 +151,7 @@ return Application::configure(basePath: dirname(__DIR__))
                 'onboarding.portal' => \App\Http\Middleware\ResolveOnboardingPortal::class,
                 'agency.setup.portal' => \App\Http\Middleware\ResolveAgencySetupPortal::class,
                 'agency.required' => \App\Http\Middleware\RequireAgencyContext::class,
+                'daily.moved' => \App\Http\Middleware\DailyActivityMovedToRoadToSold::class,
                 'branch.required' => \App\Http\Middleware\RequiresBranchAssignment::class,
                 'client.auth' => \App\Http\Middleware\AuthenticateClientPortal::class, // portal auth that a staff session in the same browser cannot answer for
                 'client.ability' => \App\Http\Middleware\EnsureClientAbility::class,

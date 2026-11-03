@@ -461,6 +461,20 @@ class ComposeSellerService
     }
 
     /**
+     * The deed link itself - which deed this advert (and so the record whose file the advert is on) was linked to, by whom, when. The one write behind both
+     * "Link a deed" (selectDeed, which then resyncs the sellers and the address) and "+ Link as seller" on a deed card (which does not).
+     */
+    public function recordDeedLink(object $listing, int $deedTpId, int $userId): void
+    {
+        DB::table('prospecting_listings')->where('id', $listing->id)->update([
+            'linked_deed_tracked_property_id' => $deedTpId,
+            'linked_deed_by_user_id'          => $userId,
+            'linked_deed_at'                  => now(),
+            'updated_at'                      => now(),
+        ]);
+    }
+
+    /**
      * Select a deed (R1): replace the listing's linked deed, sync the deed's owners as sellers
      * (skipping ones the agent explicitly removed), and populate the property address from the
      * deeds-office record. Deed-sourced sellers of the PREVIOUS deed that aren't in the new deed are
@@ -481,12 +495,7 @@ class ComposeSellerService
         }
 
         DB::transaction(function () use ($agencyId, $listing, $propertyId, $deedTp, $deedTpId, $branchId, $userId) {
-            DB::table('prospecting_listings')->where('id', $listing->id)->update([
-                'linked_deed_tracked_property_id' => $deedTpId,
-                'linked_deed_by_user_id'          => $userId,
-                'linked_deed_at'                  => now(),
-                'updated_at'                      => now(),
-            ]);
+            $this->recordDeedLink($listing, $deedTpId, $userId);
 
             $owners = $this->deedOwners($deedTpId);
             $newIds = array_values(array_filter(array_map(fn ($o) => $o['id_number'], $owners)));

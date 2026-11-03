@@ -59,13 +59,45 @@
          // "rows shown" (which dedupes). The "(raw)" suffix on the tile makes that
          // visible at a glance, not just on hover.
          'tip'=>'Canvass listings matched to a buyer at '.$micThreshold.'%+ (the headline number) · and the distinct buyers behind those matches. Counted per listing row, RAW (pre-dedupe) — a property scraped under two rotating refs can count twice, so this can be higher than "rows shown". Click to filter the worklist to this band.'],
-        ['type'=>'preset',   'key'=>'pitch_now_high',   'label'=>'Pitch now · high',            'value'=>$presets['pitch_now_high'], 'accent'=>'var(--ds-green, #10b981)','tip'=>'Listings with 3+ strong-tier buyers and no recent pitch — your highest-conversion opportunities. Click to filter.'],
+        ['type'=>'preset',   'key'=>'pitch_now_high',   'label'=>'Claim · high',            'value'=>$presets['pitch_now_high'], 'accent'=>'var(--ds-green, #10b981)','tip'=>'Listings with 3+ strong-tier buyers and no recent pitch — your highest-conversion opportunities. Click to filter.'],
         ['type'=>'preset',   'key'=>'my_claims',        'label'=>'My claims',                    'value'=>$presets['my_claims'],      'accent'=>'var(--brand-icon, #0ea5e9)','tip'=>'Listings you have claimed and are working. Click to filter.'],
         ['type'=>'preset',   'key'=>'expiring',         'label'=>'Expiring',                     'value'=>$presets['expiring'],       'accent'=>'var(--ds-amber, #f59e0b)','tip'=>'Your claims that auto-release in under 6 hours unless you log feedback. Click to filter.'],
         ['type'=>'snapshot', 'label'=>'New today',      'value'=>$kpis['new_today'],            'accent'=>'var(--text-primary)',     'tip'=>'New listings captured today.'],
     ];
 @endphp
 
+@if($statsLine ?? false)
+{{-- Compact top (mic-work-tab.md 13.2b): the five cards are ONE line - names muted, numbers bold, the same links the cards had - and the row count joins it. --}}
+@php
+    $rowsTotal = isset($listings) && method_exists($listings, 'total') ? $listings->total() : null;
+    $nm = 'color: var(--text-muted, #9ca3af);';
+    $nb = 'font-weight: 700; color: var(--text-primary, #111827); font-variant-numeric: tabular-nums;';
+    $bandNow = $micBandActive ? 'color: var(--brand-icon);' : '';
+    // With a buyer selected the list IS that buyer's wishlist, and its count is the banner's ("N properties matching", the same figure as the active wishlist tab).
+    // The all-buyers "Properties matched" figure and a second "rows" count would be two more numbers for the same screen, so they are not shown (mic-work-tab.md 13.14).
+    $buyerMode = request()->filled('buyer_id') && is_numeric(request('buyer_id'));
+    $lineTiles = $buyerMode ? array_values(array_filter($tiles, fn ($t) => ($t['type'] ?? '') !== 'buyer_matched')) : $tiles;
+@endphp
+<div class="mi-stats-line" data-qa="stats-line" style="padding: 4px 0; background: var(--surface, #ffffff); border-bottom: 1px solid var(--border, rgba(0,0,0,0.07)); font-size: .8125rem; display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px;">
+    @foreach($lineTiles as $tile)
+        @php
+            $isActive = ($tile['type'] ?? '') === 'preset' && $activeActionPreset === ($tile['key'] ?? null);
+            $href = match ($tile['type']) { 'buyer_matched' => $tile['href'], 'preset' => ($isActive ? $urlClearPreset : $urlWithPreset($tile['key'])), default => null };
+            $tipText = $tile['tip'] ?? '';
+        @endphp
+        @if(!$loop->first)<span style="{{ $nm }}">·</span>@endif
+        @if($tile['type'] === 'buyer_matched')
+            <a href="{{ $href }}" title="{{ $tipText }}" style="text-decoration: none; {{ $bandNow }}"><span style="{{ $nm }} {{ $bandNow }}">{{ $tile['label'] }}</span> <span style="{{ $nb }}">{{ number_format($tile['properties']) }}</span> <span style="{{ $nm }}">· {{ number_format($tile['buyers']) }} {{ \Illuminate\Support\Str::plural('buyer', $tile['buyers']) }}</span></a>
+        @elseif($href)
+            <a href="{{ $href }}" title="{{ $tipText }}" style="text-decoration: none;"><span style="{{ $nm }} {{ $isActive ? 'color: var(--brand-icon);' : '' }}" title="{{ $tile['label'] }}">{{ ($tile['key'] ?? '') === 'pitch_now_high' ? 'To claim' : str_replace(' · high', '', $tile['label']) }}</span> <span style="{{ $nb }}">{{ number_format($tile['value']) }}</span></a>
+        @else
+            <span title="{{ $tipText }}"><span style="{{ $nm }}">{{ $tile['label'] }}</span> <span style="{{ $nb }}">{{ number_format($tile['value']) }}</span></span>
+        @endif
+    @endforeach
+    @if($rowsTotal !== null && ! $buyerMode)<span style="{{ $nm }}">·</span><span data-qa="rows-total" title="Rows in the list below: the actual list, grouped by matched development"><span style="{{ $nb }}">{{ number_format($rowsTotal) }}</span> <span style="{{ $nm }}">rows</span></span>@endif
+    @if(($micFullDetailsCount ?? null) !== null)<span style="{{ $nm }}">·</span><span data-qa="full-details-count" title="Adverts in this list whose own page was read with Get full details"><span style="{{ $nb }}">{{ number_format($micFullDetailsCount) }}</span> <span style="{{ $nm }}">with full details</span></span>@endif
+</div>
+@else
 <div class="mi-stats-strip"
      style="padding: 6px 0; background: var(--surface, #ffffff); border-bottom: 1px solid var(--border, rgba(0,0,0,0.07));
             display: grid; grid-template-columns: minmax(230px, 1.6fr) repeat(4, minmax(110px, 1fr)); gap: 0;">
@@ -108,46 +140,8 @@
     @endforeach
 </div>
 
-{{-- AT-75 — buyer-match %-band slider. Dual native ranges (presentations
-     review.blade.php pattern): crossing handles via Math.min/Math.max, live
-     tabular-nums label on drag, navigate on release (full-page GET, consistent
-     with every other MIC filter). Filters the worklist to the band + sorts %-desc. --}}
-<div class="mi-match-band" data-work-url="{{ route('market-intelligence.work', request()->except(['page','score_min','score_max','sort','action_preset'])) }}"
-     style="padding: 6px 12px; background: var(--surface, #ffffff); border-bottom: 1px solid var(--border, rgba(0,0,0,0.07));
-            display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 11px; color: var(--text-muted, #9ca3af);">
-    <span style="font-weight:600;">Buyer match %</span>
-    <input type="range" id="mic-score-min" min="0" max="100" step="5" value="{{ max(0, min(100, $micScoreMin)) }}" style="flex:1; min-width:120px;">
-    <input type="range" id="mic-score-max" min="0" max="100" step="5" value="{{ max(0, min(100, $micScoreMax)) }}" style="flex:1; min-width:120px;">
-    <span id="mic-score-label" style="min-width:96px; text-align:right; font-variant-numeric:tabular-nums; font-weight:600; color: var(--text-primary, #111827);"></span>
-    @if($micBandActive)
-        <a href="{{ route('market-intelligence.work', request()->except(['page','score_min','score_max','sort'])) }}"
-           style="color: var(--brand-icon, #0ea5e9); text-decoration:none; font-weight:600;">clear</a>
-    @endif
-</div>
-<script>
-(function () {
-    var root  = document.querySelector('.mi-match-band');
-    if (!root) return;
-    var smin  = document.getElementById('mic-score-min'),
-        smax  = document.getElementById('mic-score-max'),
-        label = document.getElementById('mic-score-label'),
-        base  = root.getAttribute('data-work-url');
-    function bounds() {
-        var lo = Math.min(+smin.value, +smax.value), hi = Math.max(+smin.value, +smax.value);
-        if (label) label.textContent = lo + '% – ' + hi + '%';
-        return [lo, hi];
-    }
-    function navigate() {
-        var b = bounds(), sep = base.indexOf('?') === -1 ? '?' : '&';
-        window.location = base + sep + 'score_min=' + b[0] + '&score_max=' + b[1] + '&sort=match_score';
-    }
-    if (smin && smax) {
-        // Live label on drag; commit (navigate) on release — debounced via 'change'.
-        smin.addEventListener('input', bounds);
-        smax.addEventListener('input', bounds);
-        smin.addEventListener('change', navigate);
-        smax.addEventListener('change', navigate);
-        bounds();
-    }
-})();
-</script>
+@endif
+
+@unless($statsLine ?? false)
+@include('corex.market-intelligence._match-band')
+@endunless

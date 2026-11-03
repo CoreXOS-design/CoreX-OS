@@ -181,6 +181,7 @@ class DemoTvaCapturesSeeder
         }
 
         DB::table('tracked_property_owners')->insert(array_merge([
+            'agency_id'           => DB::table('tracked_properties')->where('id', $trackedPropertyId)->value('agency_id'),
             'tracked_property_id' => $trackedPropertyId,
             'created_at'          => now(),
             'updated_at'          => now(),

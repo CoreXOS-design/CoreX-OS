@@ -114,7 +114,7 @@ final class AuctionLotFeedTest extends TestCase
 
         $response = $this->getJson(route('api.v1.auctions.lots.feed', $lot))->assertOk();
 
-        $response->assertJsonPath('current_bid.amount', 100000.0);
+        $response->assertJsonPath('current_bid.amount', 100000);
         $response->assertJsonPath('current_bid.channel', 'online');
         $response->assertJsonPath('current_bid.bidder_paddle_number', '042');
         $response->assertJsonPath('bid_count', 1);
@@ -138,6 +138,9 @@ final class AuctionLotFeedTest extends TestCase
 
     public function test_a_lot_from_another_agency_404s_via_route_model_binding_scoping(): void
     {
+        // BelongsToAgency stamps every row a signed-in user creates onto THAT user's agency, so build the other agency's rows with nobody signed in (as an import job would).
+        $acting = auth()->user();
+        auth()->logout();
         $otherAgency = Agency::create(['name' => 'Other Agency', 'slug' => 'other-'.uniqid()]);
         $otherBranch = Branch::create(['agency_id' => $otherAgency->id, 'name' => 'Main']);
         $otherAgent = User::factory()->create(['agency_id' => $otherAgency->id, 'branch_id' => $otherBranch->id]);
@@ -154,7 +157,9 @@ final class AuctionLotFeedTest extends TestCase
             'agency_id' => $otherAgency->id, 'auction_id' => $otherAuction->id, 'property_id' => $otherProperty->id,
             'lot_number' => 1,
         ]);
+        $this->actingAs($acting);
 
+        $this->assertSame($otherAgency->id, (int) AuctionLot::withoutGlobalScopes()->find($otherLot->id)->agency_id, 'the lot really belongs to the other agency');
         $this->getJson(route('api.v1.auctions.lots.feed', $otherLot))->assertNotFound();
     }
 }

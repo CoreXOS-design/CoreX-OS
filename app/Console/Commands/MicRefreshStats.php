@@ -1,0 +1,41 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\Console\Commands;
+
+use App\Services\MarketIntelligence\Pockets\MicStatsBuilder;
+use Illuminate\Console\Command;
+use Illuminate\Support\Facades\DB;
+
+/**
+ * MIC 5.5 (AT-519): rebuild the stored per-file counts and today's pocket stats. Nightly; safe to repeat (only caches are written).
+ *   php artisan mic:refresh-stats [--agency=1]
+ */
+final class MicRefreshStats extends Command
+{
+    protected $signature = 'mic:refresh-stats {--agency= : Limit to one agency_id}';
+
+    protected $description = 'MIC 5.5: rebuild mic_file_stats (per-file counts) and mic_pocket_stats (today) for every agency with MIC data.';
+
+    public function handle(MicStatsBuilder $builder): int
+    {
+        $agencies = $this->option('agency') !== null && $this->option('agency') !== ''
+            ? [(int) $this->option('agency')]
+            : DB::table('prospecting_listings')->distinct()->pluck('agency_id')->map(fn ($v) => (int) $v)->all();
+
+        foreach ($agencies as $agencyId) {
+            // 5.3 safety net first: place any CMA comp rows the save-time hook missed, so every price figure reads canonical sales.
+            if ($this->call('mic:flag-comp-duplicates', ['--apply' => true, '--agency' => $agencyId]) !== self::SUCCESS) {
+                $this->warn("comp duplicate flagging did not run for agency {$agencyId} (not allowed in this environment?) - continuing");
+            }
+            $t = microtime(true);
+            $r = $builder->refreshAgency($agencyId);
+            app(\App\Services\Prospecting\MicWork\NeighboursPanelProvider::class)->refreshSummary($agencyId);   // AT-520 4.10: tile 10's and 11's stored face numbers
+            app(\App\Services\Prospecting\MicWork\RefreshStatusPanelProvider::class)->refreshSummary($agencyId);
+            $this->line(sprintf('agency %d: %d file rows, %d stale removed, %d pocket rows, %d scored, %d context rows (%.1fs)', $agencyId, $r['files'], $r['stale_removed'], $r['pockets'], $r['scored'], $r['context'], microtime(true) - $t));
+        }
+
+        return self::SUCCESS;
+    }
+}

@@ -231,6 +231,11 @@ class PropertyMarketingController extends Controller
                     ->with('error', 'Meta OAuth session mismatch. Please try connecting again.');
             }
 
+            // AT-527: a System Owner connecting the CoreX page (not an agency's) comes back through this same registered callback with context=platform.
+            if (($pagesData['context'] ?? null) === 'platform') {
+                return app(\App\Http\Controllers\Admin\VideoAdFacebookController::class)->afterLogin($pagesData);
+            }
+
             if (count($pagesData['pages']) === 1) {
                 $account = $this->oauthService->connectPage(
                     auth()->id(),

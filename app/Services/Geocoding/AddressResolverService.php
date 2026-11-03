@@ -9,6 +9,7 @@ use App\Models\MarketReports\MarketReport;
 use App\Models\PortalCapture;
 use App\Support\Geocoding\AddressNormaliser;
 use App\Support\Geocoding\GeocodingArea;
+use App\Support\Geocoding\StreetAddressMatch;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
@@ -186,36 +187,36 @@ final class AddressResolverService
      * now: an address-needle match is REQUIRED; suburb may only CONFIRM /
      * disambiguate an address match (same street name in two suburbs), never
      * stand alone. No needles → no borrow (fall through to the real geocoder).
+     *
+     * NUMBER-MATCH-FIX (27 Oct 2026) — the street name alone is not enough either: "14 Manikie St" was
+     * pinned exactly on the subject "11 Manikie St" (the needle list included the number-stripped street),
+     * and the comparable pool then dropped it as the subject itself. A report's coordinates are reused only
+     * when the street NUMBER, street NAME and SUBURB all match (StreetAddressMatch). Anything else — a
+     * different number, no number, no suburb — returns null and goes to Google.
      */
     private function resolveFromMarketReports(string $address, ?string $suburbNorm): ?GeocodingResult
     {
-        $needles = $this->addressNeedles($address);
-        if (empty($needles)) return null; // suburb alone is never enough to borrow a pin
+        $parsed = StreetAddressMatch::parse($address);
+        if ($parsed === null) return null; // no house number = no reuse of another record's pin
+        if ($suburbNorm === null || $suburbNorm === '') return null; // the suburb leg cannot be confirmed
 
-        $query = MarketReport::query()
+        $candidates = MarketReport::query()
             ->withoutGlobalScopes()
             ->whereNotNull('subject_latitude')
-            ->whereNotNull('subject_longitude');
+            ->whereNotNull('subject_longitude')
+            // Cheap pre-filter only; StreetAddressMatch below is the rule.
+            ->whereRaw('LOWER(subject_address) LIKE ?', ['%' . $parsed['street'] . '%'])
+            ->orderByDesc('id')
+            ->limit(200)
+            ->get();
 
-        // REQUIRED: the subject_address must contain one of our street needles.
-        $query->where(function ($q) use ($needles) {
-            foreach ($needles as $n) {
-                $q->orWhereRaw('LOWER(subject_address) LIKE ?', ['%' . $n . '%']);
+        $report = null;
+        foreach ($candidates as $candidate) {
+            if (StreetAddressMatch::matches((string) $candidate->subject_address, $parsed, $suburbNorm, (string) $candidate->source_suburb)) {
+                $report = $candidate;
+                break;
             }
-        });
-
-        // OPTIONAL CONFIRM: when we know the suburb, require the report's
-        // suburb to match it (or be blank) so a same-street-name report from
-        // a different suburb can't be borrowed. This narrows, never widens.
-        if ($suburbNorm !== null && $suburbNorm !== '') {
-            $query->where(function ($q) use ($suburbNorm) {
-                $q->whereRaw('LOWER(source_suburb) = ?', [$suburbNorm])
-                  ->orWhereNull('source_suburb')
-                  ->orWhere('source_suburb', '');
-            });
         }
-
-        $report = $query->orderByDesc('id')->first();
         if (!$report) return null;
 
         return new GeocodingResult(
@@ -237,8 +238,9 @@ final class AddressResolverService
      */
     private function resolveFromPortalCaptures(string $address, ?string $suburbNorm): ?GeocodingResult
     {
-        $needles = $this->addressNeedles($address);
-        if (empty($needles)) return null;
+        // Same rule as the report branch: number + street + suburb, never the street alone.
+        $parsed = StreetAddressMatch::parse($address);
+        if ($parsed === null || $suburbNorm === null || $suburbNorm === '') return null;
 
         $captures = PortalCapture::query()
             ->withoutGlobalScopes()
@@ -260,15 +262,7 @@ final class AddressResolverService
 
             if ($lat === null || $lng === null) continue;
 
-            $haystack = $title . ' ' . $location;
-            $hit = false;
-            foreach ($needles as $n) {
-                if (str_contains($haystack, $n)) {
-                    $hit = true;
-                    break;
-                }
-            }
-            if (!$hit) continue;
+            if (!StreetAddressMatch::matches($title, $parsed, $suburbNorm, $location)) continue;
 
             return new GeocodingResult(
                 latitude:        (float) $lat,
@@ -506,25 +500,5 @@ final class AddressResolverService
             Log::warning('GeocodingCache write failed', ['err' => $e->getMessage(), 'addr' => $normalised]);
         }
         return $result;
-    }
-
-    /**
-     * Same fragmenting logic as MicSnapshotHydrator: lowercased fragments
-     * with leading numbers stripped, length ≥ 8.
-     */
-    private function addressNeedles(string $address): array
-    {
-        $address = trim($address);
-        if ($address === '') return [];
-        $needles = [];
-        foreach (explode(',', $address) as $piece) {
-            $piece = mb_strtolower(trim($piece));
-            if (mb_strlen($piece) >= 8) $needles[] = $piece;
-            $stripped = preg_replace('/^\d+\s+/', '', $piece);
-            if ($stripped !== null && $stripped !== $piece && mb_strlen($stripped) >= 8) {
-                $needles[] = $stripped;
-            }
-        }
-        return array_values(array_unique($needles));
     }
 }

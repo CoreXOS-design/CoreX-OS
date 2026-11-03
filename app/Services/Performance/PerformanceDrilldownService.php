@@ -41,14 +41,18 @@ class PerformanceDrilldownService
     /**
      * @return array{count:int, rows:array}
      */
-    public function rows(string $metric, array $cohort, Period $period, int $agencyId, ?string $status = null): array
+    /**
+     * @param  ?DealStatusSelection  $statuses  the report's deal-status ticks: the deal list and the
+     *   commission list then hold exactly the deals the clicked card counted. null = no tick filter.
+     */
+    public function rows(string $metric, array $cohort, Period $period, int $agencyId, ?string $status = null, ?DealStatusSelection $statuses = null): array
     {
         if (empty($cohort)) return ['count' => 0, 'rows' => []];
         $s = $period->start->toDateTimeString();
         $e = $period->end->toDateTimeString();
 
         return match ($metric) {
-            'deals'              => $this->deals($cohort, $period, $agencyId, $status),
+            'deals'              => $this->deals($cohort, $period, $agencyId, $status, $statuses),
             'contacts_created'   => $this->contacts($cohort, $s, $e, $agencyId),
             'properties_created' => $this->properties($cohort, $s, $e, $agencyId),
             'fica_submissions'   => $this->fica($cohort, $s, $e, $agencyId),
@@ -59,7 +63,7 @@ class PerformanceDrilldownService
             'portal_views'       => $this->portalViews($cohort, $period, $agencyId),
             'appointments'       => $this->appointments($cohort, $s, $e, $agencyId),
             'outreach_messages'  => $this->outreach($cohort, $s, $e, $agencyId),
-            'commission'         => $this->commission($cohort, $period, $agencyId),
+            'commission'         => $this->commission($cohort, $period, $agencyId, $statuses),
             default              => ['count' => 0, 'rows' => []],
         };
     }
@@ -71,7 +75,7 @@ class PerformanceDrilldownService
         return ['count' => $count, 'rows' => $rows];
     }
 
-    private function deals(array $cohort, Period $period, int $agencyId, ?string $status): array
+    private function deals(array $cohort, Period $period, int $agencyId, ?string $status, ?DealStatusSelection $statuses = null): array
     {
         $start = $period->start->toDateString(); $end = $period->end->toDateString();
         $out = [];
@@ -84,6 +88,7 @@ class PerformanceDrilldownService
                      ->get(['id', 'deal_no', 'property_address', 'property_value', 'total_commission', 'accepted_status', 'registration_date', 'granted_at', 'deal_date']) as $d) {
             $bucket = DealStatusBreakdownService::dr1Bucket($d);
             if ($status && $status !== 'all' && $bucket !== $status) continue;
+            if ($statuses !== null && !$statuses->has($bucket)) continue;
             $out[] = ['id' => (int) $d->id, 'register' => 'DR1', 'ref' => $d->deal_no,
                 'address' => $d->property_address, 'price' => (float) $d->property_value,
                 'commission' => (float) $d->total_commission, 'status' => $bucket,
@@ -98,6 +103,7 @@ class PerformanceDrilldownService
                      ->get(['id', 'reference', 'purchase_price', 'commission_amount', 'status', 'actual_registration', 'offer_date']) as $d) {
             $bucket = DealStatusBreakdownService::dr2Bucket($d);
             if ($status && $status !== 'all' && $bucket !== $status) continue;
+            if ($statuses !== null && !$statuses->has($bucket)) continue;
             $out[] = ['id' => (int) $d->id, 'register' => 'DR2', 'ref' => $d->reference,
                 'address' => null, 'price' => (float) $d->purchase_price,
                 'commission' => (float) $d->commission_amount, 'status' => $bucket,
@@ -234,7 +240,7 @@ class PerformanceDrilldownService
      * company_gross_ex_vat share alongside their agent_gross_ex_vat, so a 2-agent deal's two
      * rows are visibly two different people's cuts, not "the same entry twice".
      */
-    private function commission(array $cohort, Period $period, int $agencyId): array
+    private function commission(array $cohort, Period $period, int $agencyId, ?DealStatusSelection $statuses = null): array
     {
         $q = DB::table('deal_money_lines as ml')->join('deals as d', 'd.id', '=', 'ml.deal_id')
             ->leftJoin('users as u', 'u.id', '=', 'ml.user_id')
@@ -246,12 +252,19 @@ class PerformanceDrilldownService
                 'd.id', 'd.property_address', 'd.deal_no', 'u.name as agent_name',
                 DB::raw('ml.agent_gross_ex_vat as commission'),
                 DB::raw('ml.company_gross_ex_vat as company_commission'),
+                'd.accepted_status', 'd.registration_date', 'd.granted_at',
             );
-        return $this->pack($q, fn ($r) => ['id' => (int) $r->id,
+        $map = fn ($r) => ['id' => (int) $r->id,
             'address' => $r->property_address ?: ('Deal ' . ($r->deal_no ?: $r->id)),
             'agent' => $r->agent_name ?: 'Unknown agent',
             'commission' => (float) $r->commission,
             'company_commission' => (float) $r->company_commission,
-            'url' => route('deals-dr2.edit', $r->id, false)]);
+            'url' => route('deals-dr2.edit', $r->id, false)];
+        if ($statuses !== null && !$statuses->isEverything()) {
+            // Same bucket rule as the report's commission figure, applied per line.
+            $kept = $q->get()->filter(fn ($r) => $statuses->has(DealStatusBreakdownService::dr1Bucket($r)))->values();
+            return ['count' => $kept->count(), 'rows' => $kept->take(self::LIMIT)->map($map)->all()];
+        }
+        return $this->pack($q, $map);
     }
 }

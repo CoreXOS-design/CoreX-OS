@@ -102,6 +102,8 @@ final class AgentWeekScenarioTest extends TestCase
         SettingsService::forget();
         OutcomeDefinitionService::forgetMemo();
         Cache::flush();
+        // v4 belt (23.13): this scenario predates "Start my Road to Sold", the owner gate and the channel question; it exercises the list and the outcomes, not those.
+        config(['road-to-sold-belt.enforce_start' => false, 'road-to-sold-belt.enforce_owner_gate' => false, 'road-to-sold-belt.require_channel' => false]);
 
         Carbon::setTestNow(self::FRI_BEFORE . ' 08:00:00');
         $this->agency = Agency::create(['name' => 'Scenario Realty ' . uniqid(), 'slug' => 'scn-' . uniqid()]);
@@ -161,7 +163,7 @@ final class AgentWeekScenarioTest extends TestCase
 
         // Own area first: Uvongo is Anna's and Ben's. The Ramsgate stock is OLDER, so without "areas come first" it would lead.
         $this->assertSame($this->ids('U01', 'U02', 'U03', 'U04', 'U05', 'U06', 'U07', 'U08'), $anna->pluck('tracked_property_id')->map(fn ($v) => (int) $v)->all(), 'Anna: her own suburb, longest on the market first');
-        $this->assertSame($this->ids('U01', 'U02', 'U03', 'U04'), $ben->pluck('tracked_property_id')->map(fn ($v) => (int) $v)->all(), 'Ben shares the suburb and the order');
+        $this->assertSame($this->ids('B01', 'B02', 'B03', 'B04'), $ben->pluck('tracked_property_id')->map(fn ($v) => (int) $v)->all(), 'Ben: his own suburb, in the agency order');
         // Cara has only two properties in Manaba: the day carries on into the agency's other suburbs.
         $this->assertSame($this->ids('M01', 'M02', 'R01'), $cara->pluck('tracked_property_id')->map(fn ($v) => (int) $v)->all(), 'Cara: Manaba first, then the rest of the agency');
 
@@ -204,7 +206,7 @@ final class AgentWeekScenarioTest extends TestCase
             $res->assertDontSee($s);
         }
         $res->assertSee('0 of 8');
-        $this->assertSame(8, substr_count($res->getContent(), 'data-tp='));
+        $this->assertSame(0, substr_count($res->getContent(), 'data-qa="log-contact"'), 'Belt v2: no Log contact button on a Today\'s work row');
 
         // The assistant sees the AGENT's list - the same eight - and can work it.
         $asst = $this->actingAs($this->asha)->get(route('road-to-sold.index'))->assertOk();
@@ -212,7 +214,7 @@ final class AgentWeekScenarioTest extends TestCase
             $asst->assertSee($s);
         }
         $asst->assertSee('0 of 8');
-        $this->assertSame(8, substr_count($asst->getContent(), 'data-tp='));
+        $this->assertSame(0, substr_count($asst->getContent(), 'data-qa="log-contact"'), 'Belt v2: the assistant sees the list without Log contact buttons');
 
         // The branch manager opens Anna's list read-only (no "Contacted client" buttons), and the other agents' lists.
         $bm = $this->actingAs($this->mo)->get(route('road-to-sold.index', ['agent' => $this->anna->id]))->assertOk();
@@ -225,9 +227,9 @@ final class AgentWeekScenarioTest extends TestCase
         // The manager's own page is empty: no target, no list.
         $this->actingAs($this->mo)->get(route('road-to-sold.index'))->assertOk()->assertSee('No list for today.');
 
-        // An agent cannot open a colleague's list by id; the admin can open anyone's.
-        $this->actingAs($this->anna)->get(route('road-to-sold.index', ['agent' => $this->ben->id]))->assertNotFound();
-        $this->actingAs($this->adi)->get(route('road-to-sold.index', ['agent' => $this->ben->id]))->assertOk()->assertSee('Uvongo Ave 01');
+        // An agent who types a colleague's id gets their own page (never a dead page, never the colleague's list); the admin can open anyone's.
+        $this->actingAs($this->anna)->get(route('road-to-sold.index', ['agent' => $this->ben->id]))->assertOk()->assertDontSee('Central Ave 01');
+        $this->actingAs($this->adi)->get(route('road-to-sold.index', ['agent' => $this->ben->id]))->assertOk()->assertSee('Central Ave 01');
     }
 
     // ═════════════════════════════════════════════════════════════════════════
@@ -251,8 +253,8 @@ final class AgentWeekScenarioTest extends TestCase
         $this->assertSame('2026-10-19', $m1->next_action_at->toDateString());
         $this->assertNull($this->owner['M01']->fresh()?->last_contacted_at);
 
-        // 2. Spoke - evaluation booked: a calendar appointment is created and the property leaves the list.
-        $val = $row($this->tpid('U02'), 'spoke_evaluation_booked');
+        // 2. Spoke - appointment booked: a calendar appointment is created and the property leaves the list.
+        $val = $row($this->tpid('B02'), 'spoke_evaluation_booked');
         $this->assertTrue((bool) $val->valuation_booked);
         $this->assertSame('calendar_appointment', $val->next_action);
         $event = DB::table('calendar_events')->where('id', $val->calendar_event_id)->first();
@@ -260,15 +262,15 @@ final class AgentWeekScenarioTest extends TestCase
         $this->assertSame('property_evaluation', $event->category);
         $this->assertSame('2026-10-20 10:00:00', (string) $event->event_date);
         $this->assertStringStartsWith('Evaluation: ', $event->title, 'the appointment title says evaluation');
-        $this->assertSame('Spoke - evaluation booked', $val->outcome_label);
+        $this->assertSame('Spoke - appointment booked', $val->outcome_label);
         $this->assertSame($this->ben->id, (int) $event->user_id);
 
         // 3-6. The conversation outcomes that come back: their dates, and the owner's "last contacted" moved.
-        $this->assertSame('2026-10-13', $row($this->tpid('U03'), 'spoke_call_back')->next_action_at->toDateString());
-        $this->assertSame('2026-10-20', $row($this->tpid('U04'), 'spoke_not_interested')->next_action_at->toDateString());
-        $this->assertSame('2026-10-15', $row($this->tpid('U05'), 'listed_other_agency_open')->next_action_at->toDateString());
+        $this->assertSame('2026-10-13', $row($this->tpid('B03'), 'spoke_call_back')->next_action_at->toDateString());
+        $this->assertSame('2027-04-12', $row($this->tpid('B04'), 'spoke_not_interested')->next_action_at->toDateString(), '"Not now, maybe later" follows up in 6 months by default (road-to-sold.md 22.7)');
+        $this->assertSame('2027-01-10', $row($this->tpid('U05'), 'listed_other_agency_open')->next_action_at->toDateString(), 'no mandate end date is known, so the standard 90 days (road-to-sold.md 22.7)');
         $this->assertSame('2026-10-30', $row($this->tpid('U06'), 'mandated_other_agency_sole')->next_action_at->toDateString(), 'no expiry is known for another agency\'s mandate, so the agent\'s date is used');
-        foreach (['U03', 'U04', 'U05', 'U06'] as $k) {
+        foreach (['B03', 'B04', 'U05', 'U06'] as $k) {
             $this->assertNotNull($this->owner[$k]->fresh()->last_contacted_at, "a conversation moves {$k}'s owner's last contacted");
         }
 
@@ -288,22 +290,22 @@ final class AgentWeekScenarioTest extends TestCase
         $this->assertTrue((bool) $this->owner['D']->fresh()->opt_out_call, 'Cara\'s Friday do-not-contact did the same');
 
         // HOLD: every other captured outcome gave that agent the property for 30 days (an agency setting).
-        $hold = RtsHold::withoutGlobalScopes()->where('tracked_property_id', $this->tpid('U03'))->firstOrFail();
+        $hold = RtsHold::withoutGlobalScopes()->where('tracked_property_id', $this->tpid('B03'))->firstOrFail();
         $this->assertSame($this->ben->id, (int) $hold->user_id);
         $this->assertSame('2026-11-11', $hold->expires_at->toDateString());
 
         // 3 no-answers in a row: dropped, and the capture said so; it is on the manager's report.
-        $u01 = RtsContactOutcome::withoutGlobalScopes()->where('tracked_property_id', $this->tpid('U01'))->orderBy('id')->get();
-        $this->assertSame([1, 2, 3], $u01->pluck('no_answer_streak')->map(fn ($v) => (int) $v)->all());
-        $this->assertSame([false, false, true], $u01->pluck('dropped')->map(fn ($v) => (bool) $v)->all());
+        $b01 = RtsContactOutcome::withoutGlobalScopes()->where('tracked_property_id', $this->tpid('B01'))->orderBy('id')->get();
+        $this->assertSame([1, 2, 3], $b01->pluck('no_answer_streak')->map(fn ($v) => (int) $v)->all());
+        $this->assertSame([false, false, true], $b01->pluck('dropped')->map(fn ($v) => (bool) $v)->all());
         $drops = $this->actingAs($this->mo)->getJson(route('road-to-sold.drilldown', ['metric' => 'dropped', 'period' => 'today']))->assertOk();
         $this->assertSame(1, $drops->json('total'));
-        $this->assertStringContainsString('Uvongo Ave 01', $drops->json('rows.0.property'));
+        $this->assertStringContainsString('Central Ave 01', $drops->json('rows.0.property'));
         $this->assertSame('Ben Agent', $drops->json('rows.0.agent'));
         $this->actingAs($this->mo)->get(route('road-to-sold.report', ['period' => 'today']))->assertOk()->assertSee('Dropped after no-answers');
 
         // The "No answer" list finds it again for when the owner phones back; the wrong-number list holds the tagged one.
-        $this->actingAs($this->ben)->get(route('road-to-sold.index', ['view' => 'no_answer']))->assertOk()->assertSee('Uvongo Ave 01')->assertDontSee('Uvongo Ave 03');
+        $this->actingAs($this->ben)->get(route('road-to-sold.index', ['view' => 'no_answer']))->assertOk()->assertSee('Central Ave 01')->assertDontSee('Central Ave 03');
         $this->actingAs($this->anna)->get(route('road-to-sold.index', ['view' => 'wrong_number']))->assertOk()->assertSee('Uvongo Ave 07')->assertSee('Find the right contact')->assertDontSee('Uvongo Ave 05');
         $this->actingAs($this->asha)->get(route('road-to-sold.index', ['view' => 'wrong_number']))->assertOk()->assertSee('Uvongo Ave 07');
     }
@@ -313,18 +315,18 @@ final class AgentWeekScenarioTest extends TestCase
         $this->mondayWork();
         $this->at(self::MON . ' 15:00:00');
 
-        // Ben holds U01-U04 (until 11 Nov); Cara holds H (until 8 Nov). Anna is refused, in plain words, and nothing is saved.
+        // Ben holds B01-B04 (until 11 Nov); Cara holds H (until 8 Nov). Anna is refused, in plain words, and nothing is saved.
         $before = RtsContactOutcome::withoutGlobalScopes()->count();
-        $this->actingAs($this->anna)->post(route('road-to-sold.outcomes.record'), ['tracked_property_id' => $this->tpid('U01'), 'outcome_definition_id' => $this->def('no_answer')->id])
+        $this->actingAs($this->anna)->post(route('road-to-sold.outcomes.record'), ['tracked_property_id' => $this->tpid('B01'), 'outcome_definition_id' => $this->def('no_answer')->id])
             ->assertSessionHas('rts_error', fn ($m) => str_contains($m, 'Ben Agent is working this property until 11 Nov 2026'));
         $this->actingAs($this->anna)->post(route('road-to-sold.outcomes.record'), ['tracked_property_id' => $this->tpid('H'), 'outcome_definition_id' => $this->def('no_answer')->id])
             ->assertSessionHas('rts_error', fn ($m) => str_contains($m, 'Cara Agent is working this property until 8 Nov 2026'));
         $this->assertSame($before, RtsContactOutcome::withoutGlobalScopes()->count());
 
         // Another agent's hold does not stop a do-not-contact request: the owner must never be called again.
-        $this->actingAs($this->anna)->post(route('road-to-sold.outcomes.record'), ['tracked_property_id' => $this->tpid('U03'), 'outcome_definition_id' => $this->def('do_not_contact')->id])
+        $this->actingAs($this->anna)->post(route('road-to-sold.outcomes.record'), ['tracked_property_id' => $this->tpid('B03'), 'outcome_definition_id' => $this->def('do_not_contact')->id])
             ->assertSessionHasNoErrors()->assertSessionHas('status');
-        $this->assertTrue((bool) $this->owner['U03']->fresh()->opt_out_call);
+        $this->assertTrue((bool) $this->owner['B03']->fresh()->opt_out_call);
     }
 
     public function test_day_one_add_to_my_day_is_extra_and_reported_apart(): void
@@ -356,30 +358,33 @@ final class AgentWeekScenarioTest extends TestCase
         $anna = $this->listOf($this->anna, self::TUE);
         $cara = $this->listOf($this->cara, self::TUE);
 
-        // Ben: U03 was "call back on 13 Oct" - it leads, it counts toward his 4, and three new properties fill the rest.
-        $this->assertCount(4, $ben);
+        // Ben: B03 was "call back on 13 Oct" - it leads, is counted apart (road-to-sold.md 22.3), and his four NEW properties follow.
+        $this->assertCount(5, $ben);
         $first = $ben->first();
-        $this->assertSame($this->tpid('U03'), (int) $first->tracked_property_id);
+        $this->assertSame($this->tpid('B03'), (int) $first->tracked_property_id);
         $this->assertSame('follow_up', $first->origin);
         $this->assertStringContainsString('Follow-up: Spoke - call back, due 13 Oct', $first->reason);
-        $this->assertSame(['follow_up', 'auto', 'auto', 'auto'], $ben->pluck('origin')->all());
-        // ...and nothing Ben has parked, dropped or booked comes back as "new": U01 dropped, U02 evaluation, U04 back on 20 Oct.
-        $this->assertSame([], array_values(array_intersect($this->ids('U01', 'U02', 'U04'), $ben->pluck('tracked_property_id')->map(fn ($v) => (int) $v)->all())));
+        $this->assertSame(['follow_up', 'auto', 'auto', 'auto', 'auto'], $ben->pluck('origin')->all());
+        // ...and nothing Ben has parked, dropped or booked comes back as "new": B01 dropped, B02 evaluation, B04 back on 20 Oct.
+        $this->assertSame([], array_values(array_intersect($this->ids('B01', 'B02', 'B04'), $ben->pluck('tracked_property_id')->map(fn ($v) => (int) $v)->all())));
 
-        // Anna: 6 on Tuesday, every one free: not held by Ben, not hers-and-parked, not do-not-contact, not another agent's stock.
+        // Anna: 6 on Tuesday - v4 allocation (road-to-sold.md 23.14): nothing she was already shown on an earlier day comes back as NEW stock (U01-U10 were on
+        // Monday's list or added to it; the unreached ones carry over by the roll-over setting, tested below), so the next six of her area, U11-U16;
+        // never Ben's, never hers-and-parked, never do-not-contact, never another agent's stock.
         $this->assertCount(6, $anna);
-        $this->assertSame($this->ids('U10', 'U11', 'U12', 'U13', 'U14', 'U15'), $anna->pluck('tracked_property_id')->map(fn ($v) => (int) $v)->all());
+        $this->assertSame($this->ids('U11', 'U12', 'U13', 'U14', 'U15', 'U16'), $anna->pluck('tracked_property_id')->map(fn ($v) => (int) $v)->all());
         $this->assertSame(['auto'], $anna->pluck('origin')->unique()->values()->all());
 
-        // Cara: M01 was "no answer, try again in 7 days" - parked until 19 Oct, so the day is M02, R01, R02.
-        $this->assertSame($this->ids('M02', 'R01', 'R02'), $cara->pluck('tracked_property_id')->map(fn ($v) => (int) $v)->all());
+        // Cara: M01 was "no answer, try again in 7 days" - parked until 19 Oct; M02 and R01 were shown on Monday and not reached (nothing shown on an earlier day comes
+        // back as new stock, 23.14), so the day is the next three of hers: R02, R03, R04.
+        $this->assertSame($this->ids('R02', 'R03', 'R04'), $cara->pluck('tracked_property_id')->map(fn ($v) => (int) $v)->all());
 
         // The held, do-not-contact and other-agent properties are on nobody's list.
         $all = collect([$ben, $anna, $cara])->flatten(1)->pluck('tracked_property_id')->map(fn ($v) => (int) $v)->all();
         foreach (['H', 'D', 'S', 'U08'] as $k) {
             $this->assertNotContains($this->tpid($k), $all, "{$k} is on nobody's list");
         }
-        $this->assertNotContains($this->tpid('U01'), $this->listIds($this->anna, self::TUE), 'Ben holds U01 - not offered to Anna');
+        $this->assertNotContains($this->tpid('B01'), $this->listIds($this->anna, self::TUE), 'Ben holds B01 - not offered to Anna');
 
         // MISSED (the agency default): Monday's open items are closed as missed - and nothing is carried.
         $monAnna = RtsListItem::withoutGlobalScopes()->where('user_id', $this->anna->id)->where('list_date', self::MON)->get()->groupBy('status')->map->count()->all();
@@ -391,8 +396,8 @@ final class AgentWeekScenarioTest extends TestCase
         // The page shows Tuesday's follow-up on top; counted in the day's "of 4".
         $this->at(self::TUE . ' 08:30:00');
         $html = $this->actingAs($this->ben)->get(route('road-to-sold.index'))->assertOk()->assertSee('0 of 4')->getContent();
-        $this->assertLessThan(strpos($html, 'Uvongo Ave 10'), strpos($html, 'Uvongo Ave 03'), 'the follow-up leads the list');
-        $this->actingAs($this->ben)->get(route('road-to-sold.index', ['date' => self::MON, 'status' => 'all']))->assertOk()->assertSee('Uvongo Ave 04');
+        $this->assertLessThan(strpos($html, 'Central Ave 05'), strpos($html, 'Central Ave 03'), 'the follow-up leads the list');
+        $this->actingAs($this->ben)->get(route('road-to-sold.index', ['date' => self::MON, 'status' => 'all']))->assertOk()->assertSee('Central Ave 04');
         $missed = $this->actingAs($this->mo)->getJson(route('road-to-sold.drilldown', ['metric' => 'missed', 'period' => 'custom', 'start' => self::MON, 'end' => self::MON]))->assertOk();
         $this->assertSame(4 + 2, $missed->json('total'), "Anna's U01-U04 and Cara's M02 and R01 (the extra U10 is not part of the target)");
     }
@@ -410,10 +415,10 @@ final class AgentWeekScenarioTest extends TestCase
         $this->assertEqualsCanonicalizing($this->ids('M02', 'R01'), $cara->where('origin', 'rollover')->pluck('tracked_property_id')->map(fn ($v) => (int) $v)->all());
         $this->assertSame(['rolled'], RtsListItem::withoutGlobalScopes()->where('user_id', $this->cara->id)->where('list_date', self::MON)->whereIn('tracked_property_id', $this->ids('M02', 'R01'))->pluck('status')->unique()->all());
 
-        // Anna's missed U01-U04 are now Ben's (he holds them for 30 days). Rolling them over would hand Anna properties another agent holds.
+        // Ben's B01-B04 are held and owned by Ben. Nothing of his may ever turn up on Anna's list, rolled over or not.
         $anna = $this->listOf($this->anna, self::TUE);
         $rolled = $anna->where('origin', 'rollover')->pluck('tracked_property_id')->map(fn ($v) => (int) $v)->all();
-        $this->assertSame([], array_values(array_intersect($rolled, $this->ids('U01', 'U02', 'U03', 'U04'))), 'RULE: never suggest a property another agent holds - not even as a rolled-over item');
+        $this->assertSame([], array_values(array_intersect($rolled, $this->ids('B01', 'B02', 'B03', 'B04'))), 'RULE: never suggest a property another agent holds - not even as a rolled-over item');
         $this->assertCount(6, $anna, 'the day still meets the target');
         foreach ($anna as $item) {
             $this->assertFalse(app(HoldService::class)->isHeldByOther((int) $item->tracked_property_id, $this->anna), 'nothing on Anna\'s list is held by someone else');
@@ -449,7 +454,7 @@ final class AgentWeekScenarioTest extends TestCase
         $this->assertSame(3, $wd->targetFor($this->cara, self::FRI), 'leave that is not approved yet carries the full target');
         $this->nightly(self::THU);
         $this->assertCount(0, $this->listOf($this->ben, self::THU));
-        $this->assertCount(6, $this->listOf($this->anna, self::THU));
+        $this->assertCount(7, $this->listOf($this->anna, self::THU), '6 new properties, plus the wrong number Asha called on Monday: find the owner again after 3 days, counted apart');
         $this->assertCount(3, $this->listOf($this->cara, self::THU));
         $this->at(self::THU . ' 09:00:00');
         $this->actingAs($this->ben)->get(route('road-to-sold.index'))->assertOk()->assertSee('No list for today.');
@@ -513,9 +518,8 @@ final class AgentWeekScenarioTest extends TestCase
 
             // the same figures on the page the agent actually sees (the agent opens their own, the admin opens the rest)
             $page = $this->visible($this->actingAs($agent)->get(route('road-to-sold.index'))->assertOk()->getContent());
-            $this->assertMatchesRegularExpression('/Calls made\s+' . count($mine) . '\s+of\s+' . $bar['calls_made']['should_be'] . '\b/', $page, "{$name}: the page shows the same calls made");
-            $this->assertMatchesRegularExpression('/Conversations\s+' . count(array_filter($mine, fn ($e) => $e['kind'] === 'conversation')) . '\b/', $page);
-            $this->assertMatchesRegularExpression('/Evaluations booked\s+' . count(array_filter($mine, fn ($e) => $e['valuation'])) . '\b/', $page);
+            // The v3 summary cards (Calls made / Conversations / Evaluations booked) left the page on 2 Nov (Johan: one counter, the belt tiles are those figures);
+            // the figures stay proved above against the ledger and below through the drill-down.
             $this->assertDoesNotMatchRegularExpression(self::OLD_WORD, $page, "{$name}: the list page never says the old word");
 
             // click a step -> the rows behind it: the drill-down total is the figure
@@ -565,7 +569,7 @@ final class AgentWeekScenarioTest extends TestCase
                             $this->assertSame(count(array_filter($mine, fn ($e) => $e['key'] === $key)), $c('outcome:' . $key), "{$who}/{$preset}/{$row['name']}: outcome {$key}");
                         }
                         $this->assertSame($this->expectedTarget(array_search($row['agent_id'], array_map(fn ($u) => $u->id, $people), true), $from, $to), $c('target'), "{$who}/{$preset}/{$row['name']}: target skips holiday and leave");
-                        $worked = collect($mine)->filter(fn ($e) => $e['item'] && $e['origin'] !== 'added')->pluck('item')->unique()->count();
+                        $worked = collect($mine)->filter(fn ($e) => $e['item'] && ! in_array($e['origin'], ['added', 'follow_up'], true))->pluck('item')->unique()->count();
                         $extra = collect($mine)->filter(fn ($e) => $e['item'] && $e['origin'] === 'added')->pluck('item')->unique()->count();
                         $this->assertSame($worked, $c('worked'), "{$who}/{$preset}/{$row['name']}: worked toward the target");
                         $this->assertSame($extra, $c('added_worked'), "{$who}/{$preset}/{$row['name']}: extra over target");
@@ -628,19 +632,21 @@ final class AgentWeekScenarioTest extends TestCase
         $this->artisan('rts:build-lists', ['--date' => self::MON, '--agency' => $b->id])->assertExitCode(0);
 
         $bList = RtsListItem::withoutGlobalScopes()->where('user_id', $bAgent->id)->where('list_date', self::MON)->get();
-        $this->assertCount(5, $bList, 'its own agency default of 5');
-        $this->assertEqualsCanonicalizing(array_slice($bTp, 0, 5), $bList->pluck('tracked_property_id')->map(fn ($v) => (int) $v)->all(), 'only its own stock');
+        $this->assertCount(3, $bList, 'six properties dealt out between its agent and its manager (road-to-sold.md 22.6)');
+        $this->assertSame([], array_values(array_diff($bList->pluck('tracked_property_id')->map(fn ($v) => (int) $v)->all(), $bTp)), 'only its own stock');
         $this->assertSame(0, RtsListItem::withoutGlobalScopes()->where('agency_id', $this->agency->id)->whereIn('tracked_property_id', $bTp)->count(), 'agency A never sees agency B\'s properties');
 
         // B captures one outcome through the page.
-        $this->actingAs($bAgent)->post(route('road-to-sold.outcomes.record'), ['tracked_property_id' => $bTp[0], 'list_item_id' => $bList->first()->id, 'outcome_definition_id' => $this->def('no_answer', $b->id)->id])
+        $firstTp = TrackedProperty::withoutGlobalScopes()->find($bList->first()->tracked_property_id);
+        $secondTp = TrackedProperty::withoutGlobalScopes()->find($bList->skip(1)->first()->tracked_property_id);
+        $this->actingAs($bAgent)->post(route('road-to-sold.outcomes.record'), ['tracked_property_id' => $firstTp->id, 'list_item_id' => $bList->first()->id, 'outcome_definition_id' => $this->def('no_answer', $b->id)->id])
             ->assertSessionHasNoErrors()->assertSessionHas('status');
 
         // B's page, report and drill-downs: only B.
         $page = $this->actingAs($bAgent)->get(route('road-to-sold.index'))->assertOk();
-        $page->assertSee('Otherville Rd 2')->assertDontSee('Uvongo Ave')->assertDontSee('Manaba Ave');   // Rd 1 was called, so it is no longer "open"
-        $this->actingAs($bAgent)->get(route('road-to-sold.index', ['status' => 'all']))->assertOk()->assertSee('Otherville Rd 1');
-        $this->actingAs($bAgent)->get(route('road-to-sold.index', ['agent' => $this->anna->id]))->assertNotFound();
+        $page->assertSee($secondTp->street_name)->assertDontSee('Uvongo Ave')->assertDontSee('Manaba Ave');   // the first was called, so it is no longer "open"
+        $this->actingAs($bAgent)->get(route('road-to-sold.index', ['status' => 'all']))->assertOk()->assertSee($firstTp->street_name);
+        $this->actingAs($bAgent)->get(route('road-to-sold.index', ['agent' => $this->anna->id]))->assertOk()->assertDontSee('Manaba Ave')->assertDontSee('Uvongo Ave');
         $this->actingAs($bMgr)->get(route('road-to-sold.index', ['agent' => $this->anna->id]))->assertNotFound();
 
         $rep = $this->actingAs($bMgr)->get(route('road-to-sold.report', ['period' => 'today']))->assertOk();
@@ -673,15 +679,15 @@ final class AgentWeekScenarioTest extends TestCase
         $this->nightly(self::MON);
         $this->at(self::MON . ' 09:00:00');
 
-        // BEN works first: U01 three times, so the third is the run of no-answers that drops it; U02-U04 are conversations.
+        // BEN works first: B01 three times, so the third is the run of no-answers that drops it; B02-B04 are conversations.
         foreach ([1, 2, 3] as $n) {
-            $this->capture($this->ben, 'U01', 'no_answer', [], $this->itemFor($this->ben, 'U01', self::MON));
+            $this->capture($this->ben, 'B01', 'no_answer', [], $this->itemFor($this->ben, 'B01', self::MON));
         }
-        $this->capture($this->ben, 'U02', 'spoke_evaluation_booked', ['appointment_at' => '2026-10-20 10:00'], $this->itemFor($this->ben, 'U02', self::MON));
-        $this->capture($this->ben, 'U03', 'spoke_call_back', ['next_action_at' => self::TUE], $this->itemFor($this->ben, 'U03', self::MON));
-        $this->capture($this->ben, 'U04', 'spoke_not_interested', ['next_action_at' => '2026-10-20'], $this->itemFor($this->ben, 'U04', self::MON));
+        $this->capture($this->ben, 'B02', 'spoke_evaluation_booked', ['appointment_at' => '2026-10-20 10:00'], $this->itemFor($this->ben, 'B02', self::MON));
+        $this->capture($this->ben, 'B03', 'spoke_call_back', ['next_action_at' => self::TUE], $this->itemFor($this->ben, 'B03', self::MON));
+        $this->capture($this->ben, 'B04', 'spoke_not_interested', ['next_action_at' => '2026-10-20'], $this->itemFor($this->ben, 'B04', self::MON));
 
-        // ANNA's U01-U04 are now Ben's, so she works the rest of her list (the assistant makes the wrong-number call for her).
+        // ANNA leaves U01-U04 untouched and works the rest of her list (the assistant makes the wrong-number call for her).
         $this->at(self::MON . ' 10:30:00');
         $this->capture($this->anna, 'U05', 'listed_other_agency_open', ['next_action_at' => self::THU], $this->itemFor($this->anna, 'U05', self::MON));
         $this->capture($this->anna, 'U06', 'mandated_other_agency_sole', ['next_action_at' => '2026-10-30'], $this->itemFor($this->anna, 'U06', self::MON));
@@ -689,7 +695,7 @@ final class AgentWeekScenarioTest extends TestCase
         $this->capture($this->anna, 'U08', 'do_not_contact', [], $this->itemFor($this->anna, 'U08', self::MON));
 
         // Anna adds two more to her day ("Add to my day") and calls one of them.
-        $this->actingAs($this->anna)->post(route('road-to-sold.add-to-day'), ['selection' => 'long_on_market', 'count' => 2])->assertSessionHas('status', 'Added 2 to your day.');
+        $this->actingAs($this->anna)->post(route('road-to-sold.add-to-day'), ['selection' => 'long_on_market', 'count' => 2])->assertSessionHas('status', fn ($m) => str_starts_with((string) $m, 'Added: '));   // names the properties (23.x: a reply beside the button)
         $this->capture($this->anna, 'U09', 'no_answer', [], $this->itemFor($this->anna, 'U09', self::MON));
 
         // CARA calls the first of hers.
@@ -705,7 +711,7 @@ final class AgentWeekScenarioTest extends TestCase
         // TUESDAY (Ben first, so the properties he takes are his; then Anna works what is left of hers; then Cara).
         $this->nightly(self::TUE);
         $this->at(self::TUE . ' 09:00:00');
-        $this->workNext($this->ben, 'spoke_not_interested', ['next_action_at' => '2026-10-30']);          // the follow-up (U03)
+        $this->workNext($this->ben, 'spoke_not_interested', ['next_action_at' => '2026-10-30']);          // the follow-up (B03)
         $this->workNext($this->ben, 'no_answer');
         $this->workNext($this->ben, 'spoke_call_back', ['next_action_at' => self::FRI]);
         $this->workNext($this->anna, 'no_answer');
@@ -949,15 +955,16 @@ final class AgentWeekScenarioTest extends TestCase
         $province = DB::table('p24_provinces')->insertGetId(['p24_id' => 9201, 'p24_country_id' => $country, 'name' => 'KwaZulu-Natal']);
         $city = DB::table('p24_cities')->insertGetId(['p24_id' => 9211, 'p24_province_id' => $province, 'name' => 'Margate']);
         $sub = [];
-        foreach (['Uvongo' => 920101, 'Manaba' => 920102, 'Ramsgate' => 920103] as $name => $p24) {
+        foreach (['Uvongo' => 920101, 'Manaba' => 920102, 'Ramsgate' => 920103, 'Central' => 920104] as $name => $p24) {
             $sub[$name] = DB::table('p24_suburbs')->insertGetId([
                 'name' => $name, 'slug' => strtolower($name), 'p24_id' => $p24, 'p24_city_id' => $city, 'created_at' => now(), 'updated_at' => now(),
             ]);
         }
-        foreach (['Uvongo', 'Manaba', 'Ramsgate'] as $name) {
+        foreach (['Uvongo', 'Manaba', 'Ramsgate', 'Central'] as $name) {
             $this->putInPool($this->agency->id, $sub[$name]);
         }
-        foreach ([[$this->anna, 'Uvongo'], [$this->ben, 'Uvongo'], [$this->cara, 'Manaba']] as [$u, $s]) {
+        // v3 (road-to-sold.md 22.6): a property belongs to one agent, so Ben works his own suburb (Central) instead of sharing Anna's stock.
+        foreach ([[$this->anna, 'Uvongo'], [$this->ben, 'Central'], [$this->cara, 'Manaba']] as [$u, $s]) {
             RtsAgentArea::create([
                 'agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'track' => 'sales',
                 'user_id' => $u->id, 'p24_suburb_id' => $sub[$s], 'assigned_by_user_id' => $this->adi->id,
@@ -973,6 +980,9 @@ final class AgentWeekScenarioTest extends TestCase
         }
         foreach (range(1, 40) as $i) {
             $this->prop(sprintf('U%02d', $i), 'Uvongo', $sub['Uvongo'], sprintf('Uvongo Ave %02d', $i), Carbon::parse('2026-03-01')->addDays($i - 1)->toDateString(), $i <= 12);
+        }
+        foreach (range(1, 12) as $i) {
+            $this->prop(sprintf('B%02d', $i), 'Central', $sub['Central'], sprintf('Central Ave %02d', $i), Carbon::parse('2026-03-01')->addDays($i - 1)->toDateString(), $i <= 12);
         }
         foreach (range(1, 2) as $i) {
             $this->prop(sprintf('M%02d', $i), 'Manaba', $sub['Manaba'], sprintf('Manaba Ave %02d', $i), Carbon::parse('2026-03-20')->addDays($i - 1)->toDateString(), true);

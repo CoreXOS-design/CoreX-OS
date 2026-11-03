@@ -74,7 +74,9 @@ final class CanonicalEngineSurfacesTest extends TestCase
         // a nice-to-have the property lacks → the % decays below 100 (anti-Propcon:
         // partial fit shows as a real %, not a fabricated full match).
         $property = $this->property($agencyId, $agent->id, $suburbId, [
-            'price' => 1_800_000, 'beds' => 3, 'features_json' => json_encode([]),
+            // A property with a feature list that lacks the wish. With NO feature list at all the wish cannot be checked and is skipped,
+            // not scored 0 (MatchingService, spec mic-work-tab.md 13.15), which would leave a full 100.
+            'price' => 1_800_000, 'beds' => 3, 'features_json' => json_encode(['garden']),
         ]);
         $buyer = $this->buyer($agencyId, $agent->id);
         $this->match($agencyId, $buyer->id, [
@@ -88,7 +90,7 @@ final class CanonicalEngineSurfacesTest extends TestCase
 
         $this->assertNotNull($row, 'partial match still surfaces');
         $this->assertGreaterThanOrEqual(MatchingService::MIN_SCORE_TO_DISPLAY, $row['match_score']);
-        $this->assertLessThan(100, $row['match_score'], 'price miss should drag the % below 100');
+        $this->assertLessThan(100, $row['match_score'], 'a missed nice-to-have should drag the % below 100');
         $this->assertSame(MatchingService::tierFor($row['match_score']), $row['tier']);
     }
 

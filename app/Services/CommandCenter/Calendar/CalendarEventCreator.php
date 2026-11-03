@@ -115,12 +115,30 @@ class CalendarEventCreator
                 // recur_* inputs; occurrences are materialised on view.
                 'is_recurring'    => (bool) ($data['is_recurring'] ?? false),
                 'recurrence_rule' => $data['recurrence_rule'] ?? null,
-            ]);
+            ] + $this->beltKeys($data));
 
             $this->syncEventLinks($event, $data, $user);
 
             return $event;
         });
+    }
+
+    /**
+     * Road to Sold v4 (road-to-sold.md 23.8): an appointment booked from the belt names its tracked property and belt record. Only when the columns
+     * exist (migration) and only keys that were given; a plain calendar booking is matched later by CalendarEventObserver.
+     *
+     * @return array<string,int>
+     */
+    private function beltKeys(array $data): array
+    {
+        if (! \App\Services\RoadToSold\BeltLinks::calendarColumns()) {
+            return [];
+        }
+
+        return array_filter([
+            'tracked_property_id' => ! empty($data['tracked_property_id']) ? (int) $data['tracked_property_id'] : null,
+            'rts_prospect_id'     => ! empty($data['rts_prospect_id']) ? (int) $data['rts_prospect_id'] : null,
+        ]);
     }
 
     /**

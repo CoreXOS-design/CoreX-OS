@@ -34,6 +34,7 @@ final class AuditActorCoverageTest extends TestCase
     private const NO_STAFF_ACTOR = [
         \App\Models\CommandCenter\CalendarReminderLog::class,   // user_id = who was reminded
         \App\Models\CommandCenter\NotificationDispatchLog::class, // user_id = the recipient
+        \App\Models\NotificationDropLog::class,                  // user_id = the person whose alert was dropped (AT-451), not an actor
     ];
 
     /**

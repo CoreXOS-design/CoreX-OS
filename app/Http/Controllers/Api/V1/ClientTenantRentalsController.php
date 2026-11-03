@@ -235,11 +235,12 @@ class ClientTenantRentalsController extends Controller
         $data = $request->validate([
             // AT-452 - "Other - not on the list": no catalogue type, a required description, no self-checks, and it can never be "That fixed it"
             'other_type' => 'nullable|boolean',
-            'rental_fault_type_id' => 'required_without:other_type|nullable|integer',
+            // section 31.2 - the problem type is OPTIONAL: no type (and no "other") is an untyped report - the description is then required and the agent classifies it
+            'rental_fault_type_id' => 'nullable|integer',
             'resolution' => 'required|in:first_aid_resolved,still_a_problem',
             'follows_fault_report_id' => 'nullable|integer',
-            'title' => 'required_without:other_type|nullable|string|max:191',
-            'description' => 'required_if:other_type,1,true|nullable|string|max:5000',
+            'title' => 'nullable|string|max:191',
+            'description' => 'nullable|string|max:5000',
             'photos' => 'nullable|array|max:10',
             'photos.*' => 'file|mimes:' . \App\Services\Images\HeicConverter::UPLOAD_MIMES . '|max:15360',   // section 29 (C-I1): an iPhone HEIC is accepted and converted
             // section 22.3 - what the tenant ticked: JSON [{text, ticked}] (a snapshot of the steps they were shown)
@@ -250,7 +251,8 @@ class ClientTenantRentalsController extends Controller
             'captured_at' => 'nullable|date',
         ]);
 
-        $isOther = $request->boolean('other_type');
+        $untyped = ! $request->boolean('other_type') && empty($data['rental_fault_type_id']);
+        $isOther = $request->boolean('other_type') || $untyped;
         $faultType = null;
         if ($isOther) {
             if (trim((string) ($data['description'] ?? '')) === '') {
@@ -279,7 +281,7 @@ class ClientTenantRentalsController extends Controller
             'reported_by_contact_id' => $contact->id,
             'reported_channel' => RentalFaultReport::CHANNEL_APP,
             // an "Other" report has no title field on the form: the title is the start of what the tenant wrote
-            'title' => $isOther ? 'Other: ' . \Illuminate\Support\Str::limit(trim(preg_replace('/\s+/', ' ', strip_tags((string) $data['description']))), 90, '...') : $data['title'],
+            'title' => $isOther ? ($untyped ? '' : 'Other: ') . \Illuminate\Support\Str::limit(trim(preg_replace('/\s+/', ' ', strip_tags((string) $data['description']))), 90, '...') : (trim((string) ($data['title'] ?? '')) !== '' ? $data['title'] : $faultType->name),
             'description' => $data['description'] ?? '',
             'tenant_self_checks' => $isOther ? null : $this->selfChecksFrom($data['self_checks'] ?? null),
             'reported_urgent' => $request->boolean('urgent') && ($data['resolution'] ?? null) === 'still_a_problem',

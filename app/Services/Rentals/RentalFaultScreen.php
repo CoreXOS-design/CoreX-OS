@@ -164,10 +164,9 @@ final class RentalFaultScreen
     private function next(RentalFaultReport $f, string $stage, ?RentalApproval $decision, $wo, array $c, \Closure $fmt): array
     {
         $can = $c['can'] ?? [];
-        $go = fn (string $label, string $panel, ?string $click = null) => ['kind' => 'go', 'label' => $label, 'panel' => $panel, 'click' => $click];
-        $link = fn (string $label, string $href) => ['kind' => 'link', 'label' => $label, 'href' => $href];
+        $link = fn (string $label, string $href) => NextAction::link($label, $href);
         $recordOk = ($can['record_approval'] ?? false) && ($c['recordBlock'] ?? null) === null;
-        $record = $recordOk ? $go("Record the owner's decision", 'decision', '[data-owner-decision-open]') : null;
+        $record = $recordOk ? NextAction::open("Record the owner's decision", 'owner-decision') : null;
         $openWo = $wo && ($c['canOpenWorkOrder'] ?? false) ? $link('Open work order #' . $wo->id, route('corex.rental-work-orders.show', $wo->id)) : null;
         $hold = ! empty($c['ownerHold']);
 
@@ -175,10 +174,13 @@ final class RentalFaultScreen
         switch ($stage) {
             case 'prepare':
                 $canSend = ($can['send_to_owner'] ?? false) && $f->sent_to_owner_at === null && empty($c['inspectBlock']);
+                // section 31 - the press IS the send: it submits "What the owner will see" (when that form is on the page) straight to the send route; no dialog, no jump
+                $sendUrl = route('corex.rental-fault-reports.send-to-owner-to-authorise', $f);
+                $ownerFormOnPage = $f->owner_approval_status === RentalFaultReport::APPROVAL_NOT_REQUIRED && (bool) ($c['can']['create'] ?? false);
                 $out = [
                     'text' => $hold ? 'Paused by the owner. Use Resume on this page to record their go-ahead.' : 'Check what the owner will see, then send it to the owner - or send a contractor to look first.',
                     'tone' => 'warn',
-                    'button' => $canSend ? $go('Send to the owner to authorise', 'decision', '[data-send-to-owner-to-authorise]') : $go('Who goes to look first?', 'decision'),
+                    'button' => $canSend ? ($ownerFormOnPage ? NextAction::submit('Send to owner', 'owner-version-form', $sendUrl) : NextAction::post('Send to owner', $sendUrl)) : null,
                     'secondary' => $record,
                 ];
                 break;
@@ -186,15 +188,18 @@ final class RentalFaultScreen
                 $out = [
                     'text' => $hold ? 'Paused by the owner. Use Resume on this page to record their go-ahead.' : 'Waiting for the owner. If they have told you their decision, record it.',
                     'tone' => 'warn',
-                    'button' => $record ?? $go('Who goes to look first?', 'decision'),
+                    'button' => $record,
                 ];
                 break;
             case 'appoint':
                 $ok = ($can['raise_work_order'] ?? false) && $f->workOrderBlockReason() === null;
                 $out = [
-                    'text' => $f->status === RentalFaultReport::STATUS_OWNER_HANDLING ? 'The owner is handling this themselves.' : 'The owner approved. Choose who does the work and the work order is made from this fault.',
+                    'text' => $f->status === RentalFaultReport::STATUS_OWNER_HANDLING ? 'The owner is handling this themselves.' : 'The owner approved. Press Send to on the contractor or crew below - the work order is made from this fault and their link goes out.',
                     'tone' => 'ok',
-                    'button' => $ok ? $go('Create work order', 'appoint') : null,
+                    // section 31.4 - the property's default contractor (or the owner's own pick) is one press right here; otherwise the picker below is the action
+                    'button' => $ok && ! empty($c['defaultSupplier']) && $f->approval_route !== RentalFaultReport::ROUTE_OWNER_HANDLES
+                        ? NextAction::post('Send to ' . $c['defaultSupplier']['name'], route('corex.rental-fault-reports.raise-work-order', $f), ['pick' => 's:' . $c['defaultSupplier']['id']])
+                        : null,
                 ];
                 if ($f->status === RentalFaultReport::STATUS_OWNER_HANDLING) {
                     $out['button'] = null;
@@ -205,7 +210,7 @@ final class RentalFaultScreen
                 $out = [
                     'text' => 'The owner declined, so the fault is closed. If they ring back and change their mind, change the decision here.',
                     'tone' => 'danger',
-                    'button' => $recordOk ? $go('Owner changed their mind - change the decision', 'decision', '[data-owner-decision-open]') : null,
+                    'button' => $recordOk ? NextAction::open('Owner changed their mind - change the decision', 'owner-decision') : null,
                 ];
                 break;
             case 'work_order':

@@ -71,7 +71,7 @@ final class CompanyPropertiesViaDirectorshipTest extends TestCase
             'created_at' => now(), 'updated_at' => now(),
         ]);
         DB::table('tracked_property_owners')->insert([
-            'tracked_property_id' => $tpId, 'contact_id' => $company->id, 'name' => '1502 BEAUMONT PROP CC',
+            'agency_id' => DB::table('tracked_properties')->where('id', $tpId)->value('agency_id'), 'tracked_property_id' => $tpId, 'contact_id' => $company->id, 'name' => '1502 BEAUMONT PROP CC',
             'id_number' => '201001792823', 'is_primary' => true, 'created_at' => now(), 'updated_at' => now(),
         ]);
 
@@ -114,7 +114,7 @@ final class CompanyPropertiesViaDirectorshipTest extends TestCase
             'created_at' => now(), 'updated_at' => now(),
         ]);
         DB::table('tracked_property_owners')->insert([
-            'tracked_property_id' => $tpId, 'contact_id' => $company->id, 'id_number' => '201001792823',
+            'agency_id' => DB::table('tracked_properties')->where('id', $tpId)->value('agency_id'), 'tracked_property_id' => $tpId, 'contact_id' => $company->id, 'id_number' => '201001792823',
             'name' => '1502 BEAUMONT PROP CC', 'is_primary' => true, 'created_at' => now(), 'updated_at' => now(),
         ]);
 

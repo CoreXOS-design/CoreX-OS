@@ -19,8 +19,9 @@
 <div x-show="commentsModalOpen" x-cloak
      @keydown.escape.window="commentsModalOpen = false"
      @click.self="commentsModalOpen = false"
-     style="position: fixed; inset: 0; z-index: 70; background: rgba(0,0,0,0.4); display: flex; align-items: center; justify-content: center;">
-    <div @click.stop style="background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 16px; width: 92%; max-width: 480px; max-height: 85vh; display: flex; flex-direction: column;">
+     style="position: fixed; inset: 0; z-index: 70; background: rgba(0,0,0,0.4);">
+    {{-- centred by position, not by a flex parent: x-show replaces the inline display value, so a display:flex here is lost the first time the modal shows (it then opened in the top-left corner) --}}
+    <div @click.stop style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 16px; width: 92%; max-width: 480px; max-height: 85vh; display: flex; flex-direction: column;">
         <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
             <h3 style="font-size: 0.875rem; font-weight: 600; color: var(--text-primary);">Property comments</h3>
             <button type="button" @click="commentsModalOpen = false"

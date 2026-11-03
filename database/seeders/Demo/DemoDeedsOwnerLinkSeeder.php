@@ -67,6 +67,7 @@ class DemoDeedsOwnerLinkSeeder
             }
 
             DB::table('tracked_property_owners')->insert([
+                'agency_id'           => DB::table('tracked_properties')->where('id', $tp->id)->value('agency_id'),
                 'tracked_property_id' => $tp->id,
                 'contact_id'          => $contact->id,
                 'matched_contact_at'  => now(),

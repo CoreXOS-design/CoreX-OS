@@ -119,8 +119,7 @@ final class ContractorDefaultOnlyTest extends TestCase
         $fault->forceFill(['status' => RentalFaultReport::STATUS_APPROVED, 'owner_approval_status' => RentalFaultReport::APPROVAL_APPROVED, 'approval_route' => 'agency_appoints'])->save();
         $html = $this->actingAs($this->agent)->get(route('corex.rental-fault-reports.show', $fault))->assertOk()->getContent();
         $this->assertStringContainsString('data-raise-work-order', $html);
-        $this->assertStringContainsString("picked: ''", $html);
-        $this->assertStringContainsString('name="agency_service_provider_id" value=""', $html);
+        $this->assertStringNotContainsString('<input type="hidden" name="pick" value="s:', $html, 'section 31.4: nobody is guessed - the Next bar offers no one-press "Send to", the picker below is the action');
 
         // and an agency with exactly ONE contractor still gets no guess
         foreach ([$this->defaultMan, $this->ownersPick] as $s) {
@@ -140,8 +139,7 @@ final class ContractorDefaultOnlyTest extends TestCase
 
         $fault->forceFill(['status' => RentalFaultReport::STATUS_APPROVED, 'owner_approval_status' => RentalFaultReport::APPROVAL_APPROVED, 'approval_route' => 'agency_appoints'])->save();
         $html = $this->actingAs($this->agent)->get(route('corex.rental-fault-reports.show', $fault))->assertOk()->getContent();
-        $this->assertStringContainsString("picked: '" . $this->defaultMan->id . "'", $html);
-        $this->assertStringContainsString('name="agency_service_provider_id" value="' . $this->defaultMan->id . '"', $html);
+        $this->assertStringContainsString('<input type="hidden" name="pick" value="s:' . $this->defaultMan->id . '">', $html, 'section 31.4: the property default is the Next bar\'s one press');
     }
 
     public function test_the_contractor_the_owner_picked_wins_over_the_property_default(): void
@@ -156,7 +154,7 @@ final class ContractorDefaultOnlyTest extends TestCase
 
         $this->assertSame($this->ownersPick->id, $this->svc()->defaultSupplierId($fault));
         $html = $this->actingAs($this->agent)->get(route('corex.rental-fault-reports.show', $fault))->assertOk()->getContent();
-        $this->assertStringContainsString("picked: '" . $this->ownersPick->id . "'", $html);
+        $this->assertStringContainsString('<input type="hidden" name="pick" value="s:' . $this->ownersPick->id . '">', $html);
     }
 
     public function test_an_owner_on_their_link_who_says_you_arrange_it_does_not_turn_the_proposed_contractor_into_their_pick(): void

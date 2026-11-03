@@ -168,6 +168,6 @@ final class LaneThreeIntegrationTest extends TestCase
         $this->assertSame('worked', RtsListItem::withoutGlobalScopes()->find($item->id)->status);
         // closing the day later does not touch a worked item
         $r = app(ListBuilderService::class)->closePastDays($this->agent, '2026-10-15');
-        $this->assertSame(['missed' => 0, 'rolled' => 0], $r);
+        $this->assertSame(['missed' => 0, 'rolled' => 0], \Illuminate\Support\Arr::only($r, ['missed', 'rolled']));
     }
 }

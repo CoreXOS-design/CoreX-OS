@@ -3913,6 +3913,9 @@ class SignatureService
             ->asyncCompletionEnabled();
         $pdfSync = $asyncCompletion && (bool) config('docuperfect.async_completion_pdf_sync');
 
+        // Road to Sold: MandateSigned is raised once per signing, on the call that actually completes it.
+        $wasAlreadyCompleted = $template->status === SignatureTemplate::STATUS_COMPLETED;
+
         // 1. Lock the document, write the audit log, and seal — wrapped in one explicit
         // transaction (TRANSACTIONAL OUTBOX) so that when async_completion is on and
         // pdfSync is off, FinalizeSignedDocumentJob::dispatch() below lands in the SAME
@@ -3991,7 +3994,7 @@ class SignatureService
         // tracked_property.promoted_to_stock (the separate manual promote action),
         // so no double-count. Fire-and-forget: any points failure is swallowed and
         // NEVER affects the legally-durable completion above.
-        DB::afterCommit(function () use ($template) {
+        DB::afterCommit(function () use ($template, $wasAlreadyCompleted) {
             try {
                 $document = $template->document;
                 if (! $document) {
@@ -4005,6 +4008,24 @@ class SignatureService
                 $agent = $agentUserId ? \App\Models\User::find((int) $agentUserId) : null;
                 app(\App\Services\Activity\InstantPointService::class)
                     ->credit('mandate.signed', $agent, $document);
+
+                // Road to Sold phase 0 (road-to-sold.md 6.2): the dead MandateSigned event, wired to its real raise site. Once per
+                // signing - never on a repeat call for an envelope that was already completed - and only for a document that
+                // belongs to the envelope's own agency. SafeRaise: a failing listener never touches the completed signing.
+                if (! $wasAlreadyCompleted && (int) ($document->agency_id ?: $template->agency_id) === (int) $template->agency_id) {
+                    $property = $document->property_id ? \App\Models\Property::withoutGlobalScopes()->find($document->property_id) : null;
+                    if ($property && (int) $property->agency_id !== (int) $template->agency_id) {
+                        $property = null; // never carry another agency's property on this agency's event
+                    }
+                    \App\Support\Events\SafeRaise::dispatch('MandateSigned', fn () => new \App\Events\Mandate\MandateSigned(
+                        mandate: $document,
+                        property: $property,
+                        agencyIdHint: $template->agency_id ? (int) $template->agency_id : null,
+                        actorUserId: $agent?->id,
+                        userId: $agent?->id,
+                        branchId: $document->branch_id ? (int) $document->branch_id : ($property?->branch_id ? (int) $property->branch_id : null),
+                    ));
+                }
             } catch (\Throwable $e) {
                 \Illuminate\Support\Facades\Log::warning('mandate.signed credit failed (swallowed)', [
                     'signature_template_id' => $template->id,

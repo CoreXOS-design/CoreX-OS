@@ -395,8 +395,8 @@ class CoreMatchListPdfService
                 : trim('R ' . number_format((int) ($match->price_min ?? 0)) . ' – R ' . number_format((int) ($match->price_max ?? 0)));
         }
 
-        if ($match->property_type) {
-            $bits[] = ucwords(str_replace('_', ' ', (string) $match->property_type));
+        foreach ($match->propertyTypeLabels() as $typeLabel) {
+            $bits[] = $typeLabel;
         }
 
         $specs = [];

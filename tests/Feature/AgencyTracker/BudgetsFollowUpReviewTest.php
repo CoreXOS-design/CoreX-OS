@@ -122,7 +122,7 @@ final class BudgetsFollowUpReviewTest extends TestCase
         $this->assertSame(0.0, $d['own']);
 
         $this->actingAs($this->admin)->get(route('road-to-sold.settings.budgets.index', ['period' => '2026-10']))
-            ->assertOk()->assertSee('Branches add up to')->assertSee('R 587 500.00');
+            ->assertOk()->assertSee('Branches add up to')->assertSee('587500');   // the split panel starts its total at the branches' sum (printed live in the browser)
 
         $this->budgetRow(['level' => 'agency', 'scope_key' => RtsBudget::KEY_AGENCY, 'period' => '2026-10', 'requirement' => 900000]);
         $d = $svc->agencyRequirementDetail($this->agency->id, '2026-10');

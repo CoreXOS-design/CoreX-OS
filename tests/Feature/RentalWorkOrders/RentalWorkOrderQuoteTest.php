@@ -190,7 +190,7 @@ final class RentalWorkOrderQuoteTest extends TestCase
             ->assertOk();
 
         $page->assertSee('data-quote-form-errors', false);       // the reason sits next to the form ...
-        $this->assertMatchesRegularExpression('#<details data-capture-quote\s+open#', $page->getContent()); // ... and the form stays open
+        $this->assertMatchesRegularExpression('#x-data="\{ open: true \}"[^>]*>\s*<template x-teleport="body">\s*<div x-show="open" x-cloak class="nd-overlay"[^>]*data-next-dialog="quote-capture"#', $page->getContent()); // ... and the dialog opens by itself
         $page->assertSee('Details (optional)', false);
         $page->assertDontSee('required if no document attached', false);
     }

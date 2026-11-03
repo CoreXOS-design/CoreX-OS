@@ -11,7 +11,10 @@
  *   - Won expanded is one line per buyer (row height <= 40px), a table, not cards, and it scrolls inside itself.
  *
  *   node scripts/buyer-pipeline-fit-check.mjs --app-root=/corex-staging --base=https://staging.corexos.co.za \
- *        --users=agent:24,manager:25,owner:22 [--shots=DIR] [--path=/corex/command-center/buyers/pipeline]
+ *        --users=agent:24,manager:25,owner:22 [--shots=DIR] [--path=/corex/command-center/buyers/pipeline] [--fake-won=37]
+ *
+ * --fake-won=N: when the data has no Won buyers, injects N rows (same markup as the Blade, long addresses) into the
+ * opened Won list in the browser only — a layout proof with a full list; nothing is written anywhere.
  *
  * Exit code 1 when any check fails. Read-only (loads pages, clicks the Won strip, submits nothing).
  */
@@ -28,6 +31,7 @@ const BASE = arg('base', 'https://staging.corexos.co.za');
 const SHOTS = arg('shots', '');
 const PATH_ = arg('path', '/corex/command-center/buyers/pipeline');
 const USERS = arg('users', 'agent:24,manager:25,owner:22').split(',').map((s) => s.split(':'));
+const FAKE_WON = parseInt(arg('fake-won', '0'), 10) || 0;
 const SCOPES = { agent: 'own', manager: 'branch', owner: 'agency' };
 const VIEWPORTS = [[1366, 768], [1920, 1080]];
 const MIN_BODY_768 = 240;
@@ -86,6 +90,15 @@ for (const [role, uid] of USERS) {
     const toggle = await page.$('[data-bp-won-toggle]');
     if (toggle) {
       await toggle.click(); await wait(300);
+      if (FAKE_WON) {
+        await page.evaluate((n) => {
+          const body = document.getElementById('bp-won-body');
+          if (body.querySelector('table')) return;
+          const rows = Array.from({ length: n }, (_, i) => `<tr><td><a href="#">Won Buyer Number ${i + 1} With A Long Name</a></td><td>Falan Du Bois</td><td>2${i % 9} Oct 2026</td><td>${i + 1} Marine Drive, Uvongo Beach, Margate, KwaZulu-Natal (long address)</td><td><span class="ds-badge ds-badge-success text-[10px] whitespace-nowrap">Won</span></td></tr>`).join('');
+          body.innerHTML = '<table class="bp-won-table"><colgroup><col style="width: 24%"><col style="width: 20%"><col style="width: 14%"><col><col style="width: 90px"></colgroup><thead><tr><th>Name</th><th>Agent</th><th>Last activity</th><th>Property</th><th>Status</th></tr></thead><tbody>' + rows + '</tbody></table>';
+        }, FAKE_WON);
+        await wait(200);
+      }
       const b = await page.evaluate(measure);
       await shot('won-open');
       check(`${tag}: Won expanded — page still does not scroll`, b.pageScroll <= 1 && b.sideways <= 1, `scroll ${b.pageScroll}px`);

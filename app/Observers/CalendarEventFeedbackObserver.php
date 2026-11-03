@@ -2,6 +2,8 @@
 
 namespace App\Observers;
 
+use App\Events\Evaluation\EvaluationCompleted;
+use App\Events\Viewing\ViewingHeld;
 use App\Models\BuyerPropertyView;
 use App\Models\CommandCenter\CalendarEvent;
 use App\Models\CommandCenter\CalendarEventClassSetting;
@@ -10,6 +12,9 @@ use App\Models\Contact;
 use App\Models\DailyActivityEntry;
 use App\Services\Activity\PointStateService;
 use App\Services\BuyerStateService;
+use App\Services\Properties\PropertyViewings;
+use App\Support\Events\SafeRaise;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 class CalendarEventFeedbackObserver
@@ -101,6 +106,146 @@ class CalendarEventFeedbackObserver
         if ($feedback->property_id) {
             $this->refreshPropertyView($feedback->contact_id, $feedback->property_id, $feedback->id, $feedback->agency_id);
         }
+    }
+
+    /**
+     * Road to Sold step 4: the evaluation was DONE - the first feedback captured for a property_evaluation
+     * event. Once per evaluation: a second attendee's feedback, or an edit of the first, raises nothing.
+     * created() and updated() are separate hooks on purpose: after a create, wasRecentlyCreated stays true for
+     * every later save of the same in-memory object, so it cannot be used to tell "the save that captured it".
+     */
+    public function created(CalendarEventFeedback $feedback): void
+    {
+        $this->raiseEvaluationCompleted($feedback);
+        $this->raiseViewingHeld($feedback, null);
+    }
+
+    public function updated(CalendarEventFeedback $feedback): void
+    {
+        if (($feedback->wasChanged('captured_at') && $feedback->getOriginal('captured_at') === null)
+            // v4 (23.10): an edit that turns the status into "held" is the save that makes the evaluation count (raiseEvaluationCompleted dedupes on an earlier held one)
+            || ($feedback->wasChanged('kind_specific_data') && $feedback->captured_at !== null)) {
+            $this->raiseEvaluationCompleted($feedback);
+        }
+        // The row as it was before this save: a viewing counts only on the save that first makes it count.
+        $this->raiseViewingHeld($feedback, (new CalendarEventFeedback)->setRawAttributes($feedback->getOriginal(), true));
+    }
+
+    /**
+     * Road to Sold step 10: a buyer's viewing of one property was held. Counts by the one rule PropertyViewings::capture() applies
+     * everywhere (status "viewed", not blank), plus captured and not archived, on a viewing-category appointment. Raised only on
+     * the save that moves the row from "does not count" to "counts" ($before = null on a create), so an edit of a row that already
+     * counted - or a second save of the same row - raises nothing. Never breaks the feedback save.
+     */
+    private function raiseViewingHeld(CalendarEventFeedback $feedback, ?CalendarEventFeedback $before): void
+    {
+        try {
+            if (! $this->countsAsViewingHeld($feedback) || ($before && $this->countsAsViewingHeld($before))) {
+                return;
+            }
+            $event = CalendarEvent::withoutGlobalScopes()->find($feedback->calendar_event_id);
+            if (! $event || $event->deleted_at !== null || ! in_array($event->category, PropertyViewings::VIEWING_CATEGORIES, true)) {
+                return;
+            }
+            if ($feedback->agency_id !== null && $event->agency_id !== null && (int) $feedback->agency_id !== (int) $event->agency_id) {
+                return;
+            }
+            SafeRaise::dispatch('ViewingHeld', fn () => new ViewingHeld(
+                feedbackId: (int) $feedback->id,
+                calendarEventId: (int) $event->id,
+                propertyId: $feedback->property_id !== null ? (int) $feedback->property_id : null,
+                contactId: $feedback->contact_id !== null ? (int) $feedback->contact_id : ($event->contact_id !== null ? (int) $event->contact_id : null),
+                agencyId: $event->agency_id !== null ? (int) $event->agency_id : null,
+                branchId: $event->branch_id !== null ? (int) $event->branch_id : null,
+                userId: $event->user_id !== null ? (int) $event->user_id : null,
+                heldAt: (string) $feedback->captured_at,
+                actorUserId: $feedback->captured_by_user_id !== null ? (int) $feedback->captured_by_user_id : null,
+            ));
+        } catch (\Throwable $e) {
+            Log::warning('ViewingHeld hook caught exception, feedback save proceeds', [
+                'feedback_id' => $feedback->id ?? null,
+                'message'     => $e->getMessage(),
+            ]);
+        }
+    }
+
+    private function countsAsViewingHeld(CalendarEventFeedback $feedback): bool
+    {
+        if (! $feedback->calendar_event_id || $feedback->captured_at === null || $feedback->deleted_at !== null) {
+            return false;
+        }
+        $capture = PropertyViewings::capture($feedback);
+
+        return $capture['status'] === PropertyViewings::STATUS_VIEWED && ! $capture['blank'];
+    }
+
+    /** Never breaks the feedback save. */
+    private function raiseEvaluationCompleted(CalendarEventFeedback $feedback): void
+    {
+        try {
+            if (! $feedback->calendar_event_id || $feedback->captured_at === null) {
+                return;
+            }
+            $event = CalendarEvent::withoutGlobalScopes()->find($feedback->calendar_event_id);
+            if (! $event || $event->category !== 'property_evaluation') {
+                return;
+            }
+            // v4 (road-to-sold.md 23.8 / 23.10): the evaluation counts as HELD only when the feedback says so. No feedback status at all (every feedback
+            // saved before v4, or by a screen that does not ask) is held, as it always was. A no-show is the station-5 off-ramp; a rescheduled one keeps
+            // the appointment and counts neither as held nor as lost.
+            $status = $this->evalStatus($feedback);
+            if ($status === 'no_show') {
+                app(\App\Services\RoadToSold\BeltLinks::class)->evaluationNoShow($event, $feedback->captured_by_user_id ? (int) $feedback->captured_by_user_id : null);
+
+                return;
+            }
+            if ($status !== 'held') {
+                return;
+            }
+            // the answer given on the form IS the result (23.10): the one result service sets the record, the claim and the property (idempotent per day)
+            app(\App\Services\RoadToSold\BeltLinks::class)->resultFromFeedback($feedback, $event);
+            // v4 (23.16): feedback saved on an evaluation that was held pays the agent who held it, once per feedback
+            if ($event->user_id) {
+                app(\App\Services\RoadToSold\BeltPoints::class)->credit('rts.evaluation_feedback', \App\Models\User::query()->withoutGlobalScopes()->find((int) $event->user_id), $feedback, ['date' => $feedback->captured_at]);
+            }
+            $earlier = CalendarEventFeedback::withoutGlobalScopes()
+                ->where('calendar_event_id', $feedback->calendar_event_id)
+                ->where('id', '!=', $feedback->id)
+                ->whereNotNull('captured_at')
+                ->get(['kind_specific_data'])
+                ->contains(fn ($f) => $this->evalStatus($f) === 'held');
+            if ($earlier) {
+                return;
+            }
+            // done is ONE rule: the held feedback also completes the appointment itself (without touching the observer that cancels / dismisses)
+            DB::table('calendar_events')->where('id', $event->id)->where('status', 'pending')->update(['status' => 'completed']);
+            SafeRaise::dispatch('EvaluationCompleted', fn () => new EvaluationCompleted(
+                calendarEventId: (int) $event->id,
+                feedbackId: (int) $feedback->id,
+                agencyId: $event->agency_id !== null ? (int) $event->agency_id : null,
+                userId: $event->user_id !== null ? (int) $event->user_id : null,
+                propertyId: $event->property_id !== null ? (int) $event->property_id : null,
+                contactId: $feedback->contact_id !== null ? (int) $feedback->contact_id : ($event->contact_id !== null ? (int) $event->contact_id : null),
+                completedAt: (string) $feedback->captured_at,
+                actorUserId: $feedback->captured_by_user_id !== null ? (int) $feedback->captured_by_user_id : null,
+                trackedPropertyId: ! empty($event->tracked_property_id) ? (int) $event->tracked_property_id : null,
+            ));
+        } catch (\Throwable $e) {
+            Log::warning('EvaluationCompleted hook caught exception, feedback save proceeds', [
+                'feedback_id' => $feedback->id ?? null,
+                'message'     => $e->getMessage(),
+            ]);
+        }
+    }
+
+    /** held | no_show | rescheduled; a feedback with no status is held (v4 23.10). */
+    private function evalStatus($feedback): string
+    {
+        $kd = $feedback->kind_specific_data;
+        $kd = is_array($kd) ? $kd : (is_string($kd) ? (json_decode($kd, true) ?: []) : []);
+        $s = (string) ($kd['eval_status'] ?? 'held');
+
+        return in_array($s, ['held', 'no_show', 'rescheduled'], true) ? $s : 'held';
     }
 
     private function refreshPropertyView(int $contactId, int $propertyId, int $feedbackId, ?int $agencyId): void

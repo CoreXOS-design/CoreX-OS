@@ -95,6 +95,94 @@ class TargetService
         });
     }
 
+    /** The four monthly measures and how many decimals each carries when a total is split (value is money, the rest are counts). */
+    public const SPLIT_MEASURES = ['points' => 0, 'deals' => 0, 'listings' => 0, 'value' => 2];
+
+    /**
+     * Split the agency's monthly targets (or one branch's) by percentages and save every agent's four numbers in ONE transaction
+     * (road-to-sold.md section 21.3). The same percentages apply to all four measures; each is shared exactly (SplitAllocator), so the
+     * agents' numbers add up to the total typed - never one over, never one short. A level that does not add up to 100% refuses the
+     * whole save.
+     *
+     * @param  ?int                              $branchId        null = $totals is the agency's, split to branches first
+     * @param  array<string,float|int|string>    $totals          points / deals / listings / value
+     * @param  array<int,float|string>           $branchPercents  branch id => percent (agency level only)
+     * @param  array<int,array<int,float|string>> $agentPercents  branch id => (agent id => percent)
+     * @param  array<int,int[]>                  $agentIdsByBranch the agents each branch's share is split to (the ones the screen lists)
+     * @return array<int,array<string,float|int>> agent id => measure => saved number
+     * @throws \Illuminate\Validation\ValidationException
+     */
+    public function saveSplit(User $actor, string $period, ?int $branchId, array $totals, array $branchPercents, array $agentPercents, array $agentIdsByBranch): array
+    {
+        $agencyId = (int) ($actor->effectiveAgencyId() ?: 0);
+        abort_unless($agencyId > 0, 403, 'Switch into an agency first.');
+        $agentIdsByBranch = array_filter($agentIdsByBranch, fn ($ids) => $ids !== []);
+
+        return DB::transaction(function () use ($actor, $period, $branchId, $totals, $branchPercents, $agentPercents, $agentIdsByBranch, $agencyId) {
+            $branchNames = DB::table('branches')->where('agency_id', $agencyId)->pluck('name', 'id')->all();
+            $branchPct = [];
+            if ($branchId === null) {
+                $ids = array_keys($agentIdsByBranch);
+                if ($ids === []) {
+                    throw \Illuminate\Validation\ValidationException::withMessages(['branches' => 'There are no agents to split the targets between.']);
+                }
+                $branchPct = count($ids) === 1 ? [$ids[0] => 100.0] : $this->splitPercents($ids, $branchPercents, 'branches', 'The branches changed while you were on this page - reload and split again.');
+                \App\Services\RoadToSold\SplitAllocator::assertTallies($branchPct, 'branch', 'branches');
+            } else {
+                abort_unless(isset($agentIdsByBranch[$branchId]), 404);
+                $branchPct = [$branchId => 100.0];
+            }
+
+            $saved = [];
+            $perBranch = [];
+            foreach (self::SPLIT_MEASURES as $measure => $decimals) {
+                $perBranch[$measure] = \App\Services\RoadToSold\SplitAllocator::allocate((float) ($totals[$measure] ?? 0), $branchPct, $decimals);
+            }
+            foreach ($branchPct as $bid => $_) {
+                $ids = array_values($agentIdsByBranch[$bid] ?? []);
+                $name = $branchNames[$bid] ?? 'branch';
+                $pct = count($ids) === 1 ? [$ids[0] => 100.0] : $this->splitPercents($ids, (array) ($agentPercents[$bid] ?? []), "agents.{$bid}", "The agents of {$name} changed while you were on this page - reload and split again.");
+                \App\Services\RoadToSold\SplitAllocator::assertTallies($pct, "{$name} agents", "agents.{$bid}");
+
+                $byMeasure = [];
+                foreach (self::SPLIT_MEASURES as $measure => $decimals) {
+                    $byMeasure[$measure] = \App\Services\RoadToSold\SplitAllocator::allocate((float) $perBranch[$measure][$bid], $pct, $decimals);
+                }
+                foreach ($ids as $uid) {
+                    $agent = User::query()->withoutGlobalScopes()->find($uid);
+                    abort_unless($agent, 404);
+                    $values = [
+                        'points_target'   => (int) $byMeasure['points'][$uid],
+                        'deals_target'    => (int) $byMeasure['deals'][$uid],
+                        'listings_target' => (int) $byMeasure['listings'][$uid],
+                        'value_target'    => (float) $byMeasure['value'][$uid],
+                    ];
+                    $this->saveMonthly($actor, $agent, $period, $values);
+                    $saved[$uid] = array_map(fn ($v) => $v, array_combine(array_keys(self::SPLIT_MEASURES), array_values($values)));
+                }
+            }
+
+            return $saved;
+        });
+    }
+
+    /** @param int[] $ids @param array<int|string,mixed> $posted @return array<int,float> */
+    private function splitPercents(array $ids, array $posted, string $field, string $changedMessage): array
+    {
+        $out = [];
+        foreach ($ids as $id) {
+            if (! array_key_exists($id, $posted) || ! is_numeric($posted[$id])) {
+                throw \Illuminate\Validation\ValidationException::withMessages([$field => $changedMessage]);
+            }
+            $out[$id] = (float) $posted[$id];
+        }
+        if (count(array_diff(array_map('intval', array_keys($posted)), $ids)) > 0) {
+            throw \Illuminate\Validation\ValidationException::withMessages([$field => $changedMessage]);
+        }
+
+        return $out;
+    }
+
     /** Archive an agent's targets for a month (soft). False when there was nothing to archive. */
     public function archiveMonthly(User $actor, User $agent, string $period): bool
     {

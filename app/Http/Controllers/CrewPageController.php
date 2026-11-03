@@ -167,17 +167,23 @@ class CrewPageController extends Controller
             return $this->unavailable();
         }
 
+        // section 31.5 - ONE form: the finished-work photos and "Job done" are one press (the press IS the confirmation - no separate tick)
         $data = $request->validate([
             'full_name' => ['required', 'string', 'min:2', 'max:191'],
-            'confirm' => ['accepted'],
+            'photos' => ['nullable', 'array', 'max:' . CrewJobService::MAX_PHOTOS_PER_SUBMIT],
+            'photos.*' => ['file', 'mimes:jpg,jpeg,png,webp,heic,heif', 'max:51200'],
         ], [
             'full_name.required' => 'Type your full name to sign.',
             'full_name.min' => 'Type your full name to sign.',
-            'confirm.accepted' => 'Tick the box to confirm the work is completed.',
+            'photos.*.mimes' => 'Photos must be JPG, PNG, WEBP or HEIC.',
+            'photos.*.max' => 'A photo is too large - each one can be up to 50 MB.',
         ]);
 
         $ctx = CrewViewContext::forCrewPage($record, $jobCard, $request);
         try {
+            if ($request->hasFile('photos')) {
+                $this->jobs->addPhotos($jobCard, array_values($request->file('photos', [])), 'completed', null, $ctx, []);
+            }
             $this->jobs->markCompleted($jobCard, $data['full_name'], true, $ctx, $request->only(['found_text', 'cause_id', 'cause_note']));
         } catch (\LogicException|\InvalidArgumentException $e) {
             $failed = $this->failed($request, $token, $jobCard, $e->getMessage());

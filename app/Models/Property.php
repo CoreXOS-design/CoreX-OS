@@ -6,6 +6,8 @@ use App\Models\CommandCenter\CalendarEvent;
 use App\Models\CommandCenter\CalendarEventLink;
 use App\Models\Concerns\BelongsToAgency;
 use App\Models\Concerns\BelongsToBranch;
+use App\Models\Concerns\HasCanonicalPortalRef;
+use App\Support\Property\PortalRef;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -17,7 +19,18 @@ use Illuminate\Support\Str;
 
 class Property extends Model
 {
-    use SoftDeletes, BelongsToAgency, BelongsToBranch;
+    use SoftDeletes, BelongsToAgency, BelongsToBranch, \App\Models\Concerns\FlagsDemoRows;
+    use HasCanonicalPortalRef;
+
+    /** @return array<string, ?string> */
+    public function canonicalRefValues(): array
+    {
+        return [
+            'p24_canonical_ref' => PortalRef::normalise($this->p24_ref, PortalRef::P24)
+                ?? PortalRef::normalise($this->p24_listing_number, PortalRef::P24),
+            'pp_canonical_ref'  => PortalRef::normalise($this->pp_ref, PortalRef::PP),
+        ];
+    }
 
     /**
      * Transient (NOT persisted) flag set by bulk importers before save. When
@@ -53,6 +66,29 @@ class Property extends Model
 
     /** How many withoutNewListingSideEffects() calls are open right now (they may nest). */
     private static int $suppressNewListingSideEffects = 0;
+
+    /** How many withoutActivityPoints() calls are open right now (they may nest). */
+    private static int $suppressActivityPoints = 0;
+
+    /**
+     * Road to Sold v4 (23.16): run $callback with every Property CREATED inside it scoring nothing (skipActivityPoints) while everything else
+     * about a new property stays as it is. For a property the belt makes FOR the agent from a MIC address (opening a row / Pitch now): the agent
+     * did not capture it, so `property.captured` is not credited; a property the agent captures themselves still is. Scoped to the callback and
+     * restored even when it throws.
+     *
+     * @template T
+     * @param callable():T $callback
+     * @return T
+     */
+    public static function withoutActivityPoints(callable $callback): mixed
+    {
+        self::$suppressActivityPoints++;
+        try {
+            return $callback();
+        } finally {
+            self::$suppressActivityPoints--;
+        }
+    }
 
     /**
      * AT-479 — run $callback with every Property CREATED inside it marked as imported stock: no new-listing chase tasks
@@ -91,6 +127,9 @@ class Property extends Model
      * SoldStockService when it starts the property's next listing cycle. Unset = 'manual'.
      */
     public ?string $cycleStartReason = null;
+
+    /** Statuses that are not stock the agency holds: a Market-Intelligence-only row, a not-selling note, an unpublished draft, an archived row. */
+    public const NOT_OWN_STOCK_STATUSES = ['prospecting', 'not_selling', 'draft', 'archived'];
 
     /**
      * Off-market / terminal listing statuses — the single source of truth for
@@ -1285,6 +1324,8 @@ class Property extends Model
         // approved for syndication.
         'syndication_approved_at'     => 'datetime',
         'portal_sold_until'           => 'date',
+        'under_offer_at'              => 'datetime',
+        'sold_at'                     => 'datetime',
         'listing_cycle'               => 'integer',
         'compliance_evidence_flags'   => 'array',
         'first_marketed_at'           => 'datetime',
@@ -1321,6 +1362,9 @@ class Property extends Model
             if (self::$suppressNewListingSideEffects > 0) {
                 $property->skipNewListingAutomation = true;
                 $property->skipActivityPoints = true;
+            }
+            if (self::$suppressActivityPoints > 0) {
+                $property->skipActivityPoints = true;   // made by the belt for the agent, not captured by them
             }
         });
 
@@ -1456,6 +1500,7 @@ class Property extends Model
     public function documents(): \Illuminate\Database\Eloquent\Relations\BelongsToMany
     {
         return $this->belongsToMany(Document::class, 'document_properties')
+            ->using(DocumentProperty::class)
             ->withTimestamps()
             ->latest('documents.created_at');
     }

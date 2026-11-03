@@ -131,7 +131,7 @@
         foreach ([[$match->beds_min, 'beds', 'bed'], [$match->baths_min, 'baths', 'bath'], [$match->garages_min, 'garages', 'garage']] as [$val, $plural, $single]) {
             if ($val !== null) { $sizeBits[] = $val . '+ ' . ((int) $val === 1 ? $single : $plural); }
         }
-        $typeBits = array_values(array_filter([$match->category, $match->property_type]));
+        $typeBits = array_values(array_filter(array_merge([$match->category], $match->propertyTypeLabels())));
         $isBlank = !$typeBits && empty($match->suburbList()) && !$match->price_min && !$match->price_max && !$sizeBits;
     @endphp
     <div class="rounded-md" style="background:var(--surface); border:1px solid var(--border);">

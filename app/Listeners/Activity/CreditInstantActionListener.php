@@ -6,6 +6,7 @@ namespace App\Listeners\Activity;
 
 use App\Events\Contact\ContactCreated;
 use App\Events\Deal\DealClosed;
+use App\Events\Deal\DealCommissionFinalised;
 use App\Events\Deal\DealCreated;
 use App\Events\Deal\DealStageAdvanced;
 use App\Events\Deal\DealStatusChanged;
@@ -63,11 +64,10 @@ use Throwable;
  *                                         InstantPointService's
  *                                         updateOrCreate key)
  *   PresentationOutcomeRecorded (won*) → presentation.won
- *   PresentationOutcomeRecorded (lost*)→ NO CREDIT here (presentation.lost
- *                                         is seeded but credited at a
- *                                         later phase if Johan opts in;
- *                                         this commit follows the prompt's
- *                                         explicit Phase-1 list)
+ *   PresentationOutcomeRecorded (lost*)→ presentation.lost (Road to Sold
+ *                                         phase 0: the V1 "action, not
+ *                                         outcome" rule, as the seeder says)
+ *   DealCommissionFinalised            → deal.commission_finalised (each agent on the deal, once)
  *   PitchSent                          → outreach.pitch_sent
  *   TrackedPropertyPromotedToStock     → tracked_property.promoted_to_stock
  *   RcrSubmissionSubmitted             → rcr.submitted
@@ -158,6 +158,19 @@ final class CreditInstantActionListener
         }
     }
 
+    /**
+     * Road to Sold phase 0 (road-to-sold.md 6.2): the seeded `deal.commission_finalised` slug existed and nothing credited it.
+     * DealObserver raises DealCommissionFinalised once, when commission_status first moves to a paid state. Each agent on the deal
+     * is credited once (the idempotency key is user + day + slug + deal); the office user who marked it paid is not.
+     */
+    public function handleDealCommissionFinalised(DealCommissionFinalised $event): void
+    {
+        $this->creditParticipants(
+            $this->resolver->resolveForDealCommissionFinalised($event->deal),
+            $event->deal,
+        );
+    }
+
     public function handlePresentationGenerated(PresentationGenerated $event): void
     {
         // Idempotency: InstantPointService keys on (user, day, def,
@@ -170,15 +183,19 @@ final class CreditInstantActionListener
 
     public function handlePresentationOutcomeRecorded(PresentationOutcomeRecorded $event): void
     {
-        // V1: credit presentation.won when the outcome is in the WON_OUTCOMES
-        // set (won_mandate or won_sale). presentation.lost is seeded but not
-        // credited from this listener — the prompt's Phase-1 list explicitly
-        // names presentation.won only.
-        if (!in_array($event->outcome, PresentationOutcome::WON_OUTCOMES, true)) {
+        // V1 rule (Johan, ActivityInstantActionsSeeder): the agent did the work either way - presentation.won for a WON_OUTCOMES
+        // outcome (won_mandate / won_sale), presentation.lost for a LOST_OUTCOMES one (lost_to_*). Road to Sold phase 0 wired the
+        // lost half, which was seeded active but never credited. still_pending / other credit nothing.
+        $slug = match (true) {
+            in_array($event->outcome, PresentationOutcome::WON_OUTCOMES, true)  => 'presentation.won',
+            in_array($event->outcome, PresentationOutcome::LOST_OUTCOMES, true) => 'presentation.lost',
+            default => null,
+        };
+        if ($slug === null) {
             return;
         }
         $subject = Presentation::find($event->presentationId);
-        $this->safeCredit('presentation.won', $this->user($event->actorUserIdValue), $subject);
+        $this->safeCredit($slug, $this->user($event->actorUserIdValue), $subject);
     }
 
     public function handlePitchSent(PitchSent $event): void
@@ -260,7 +277,34 @@ final class CreditInstantActionListener
 
     public function handleClaimCreated(ClaimCreated $event): void
     {
+        // Road to Sold v4 (23.16): the claim is station 2 of the belt and pays ONCE per prospect. A later claim row for the same agent and property
+        // (the Pitch now / Owner screen opening again, a re-claim after a lock) is the same prospect and pays nothing more.
+        if ($this->alreadyPaidClaimFor($event->claim)) {
+            return;
+        }
         $this->safeCredit('mic.claim_taken', $this->user($event->claim->user_id), $event->claim);
+    }
+
+    /** Has this agent already been paid mic.claim_taken for another (not taken back) claim on the same tracked property? */
+    private function alreadyPaidClaimFor(ProspectingClaim $claim): bool
+    {
+        try {
+            $trackedId = (int) \Illuminate\Support\Facades\DB::table('prospecting_listings')->where('id', $claim->prospecting_listing_id)->value('tracked_property_id');
+            if ($trackedId <= 0) {
+                return false;
+            }
+            $others = \Illuminate\Support\Facades\DB::table('prospecting_claims as c')->join('prospecting_listings as l', 'l.id', '=', 'c.prospecting_listing_id')
+                ->where('c.user_id', $claim->user_id)->where('l.tracked_property_id', $trackedId)->where('c.id', '<>', $claim->id)->pluck('c.id');
+            if ($others->isEmpty()) {
+                return false;
+            }
+            $defIds = \App\Models\ActivityDefinitionCalendarClass::query()->withoutGlobalScopes()->instant()->where('slug', 'mic.claim_taken')->pluck('activity_definition_id');
+
+            return \App\Models\DailyActivityEntry::query()->withoutGlobalScopes()->where('user_id', $claim->user_id)->whereIn('activity_definition_id', $defIds)
+                ->where('subject_type', ProspectingClaim::class)->whereIn('subject_id', $others)->where('point_state', '<>', \App\Models\DailyActivityEntry::STATE_REVOKED)->exists();
+        } catch (Throwable $e) {
+            return false;   // when in doubt the old behaviour stands: pay
+        }
     }
 
     public function handleClaimReleased(ClaimReleased $event): void
@@ -282,7 +326,9 @@ final class CreditInstantActionListener
         // the MIC feedback controller, so re-editing the status later never
         // re-fires; InstantPointService idempotency (per agent/day/claim) is the
         // second guard. Credits the claiming agent (claim->user_id).
-        $this->safeCredit('mic.claim_feedback', $this->user((int) $event->claim->user_id), $event->claim);
+        // Road to Sold v4 (road-to-sold.md 23.2 / 23.16): mic.claim_feedback STOPS. MIC feedback is the station-4 outcome now and the outcome carries
+        // its own points, so one call is never paid twice. The event still fires (the recipe task engine reads it); only the credit is retired.
+        return;
     }
 
     // ───────────────────────────────────────────────────────────────────

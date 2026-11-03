@@ -3,7 +3,6 @@
 namespace App\Services\RoadToSold;
 
 use App\Models\User;
-use App\Services\PermissionService;
 use Illuminate\Support\Collection;
 
 /**
@@ -21,8 +20,11 @@ class VisibleAgents
     public static function for(User $viewer): Collection
     {
         $agencyId = (int) ($viewer->effectiveAgencyId() ?: 0);
-        $scope    = PermissionService::getDataScope($viewer, 'road_to_sold');
-        if ($agencyId <= 0 || $scope === null) {
+        // ONE rule for a role with no stored breadth, shared with the rest of Road to Sold (Scope::level, and the Role Manager's
+        // "in force" line for this module): own - never everyone, never nobody. This used to return an empty cohort on null while
+        // the page itself fell back to own, so the same person saw their own list but an empty Areas / Targets / Budgets screen.
+        $scope    = Scope::level($viewer);
+        if ($agencyId <= 0) {
             return collect();
         }
 

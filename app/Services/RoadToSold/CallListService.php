@@ -8,6 +8,7 @@ use App\Models\ProspectingListing;
 use App\Models\RoadToSold\RtsContactOutcome;
 use App\Models\RoadToSold\RtsListItem;
 use App\Models\User;
+use App\Services\RoadToSold\Support\CurrentAskingPrice;
 use Carbon\Carbon;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
@@ -88,6 +89,10 @@ class CallListService
             if ($status !== 'all') {
                 $q->where('rts_list_items.status', $status);
             }
+            // 23.30.3 (3 Nov, Johan): Today's work lists only what is still at Loaded. The moment Find owner or Swap is pressed the property lives in its own
+            // stage box and leaves this list (one record, one box). A follow-up is the promise of a call-back on a property that is already further along, so it stays.
+            $q->where(fn ($w) => $w->where('rts_list_items.origin', RtsListItem::ORIGIN_FOLLOW_UP)->orWhereNull('rts_list_items.prospect_id')
+                ->orWhereIn('rts_list_items.prospect_id', fn ($s) => $s->select('id')->from('rts_prospects')->where('stage', ProspectStages::FOUND)));
             if ($selection) {
                 $q->where('rts_list_items.selection', $selection);
             }
@@ -129,7 +134,7 @@ class CallListService
         ];
     }
 
-    /** Worked / counting toward the target / added on top, for the day. */
+    /** Worked / counting toward the target (new intake) / added on top / follow-ups, for the day. */
     public function dayCounts(User $viewer, int $agentId, Carbon $date, string $track = 'sales'): array
     {
         $base = fn () => RtsListItem::query()->visibleTo($viewer)->forDay($agentId, $date, $track);
@@ -140,6 +145,10 @@ class CallListService
             'worked'        => (clone $counting)->where('rts_list_items.status', RtsListItem::STATUS_WORKED)->count(),
             'added'         => $base()->where('rts_list_items.origin', RtsListItem::ORIGIN_ADDED)->count(),
             'added_worked'  => $base()->where('rts_list_items.origin', RtsListItem::ORIGIN_ADDED)
+                ->where('rts_list_items.status', RtsListItem::STATUS_WORKED)->count(),
+            // follow-ups are counted apart from the day's new intake (road-to-sold.md 22.3)
+            'followups'        => $base()->where('rts_list_items.origin', RtsListItem::ORIGIN_FOLLOW_UP)->count(),
+            'followups_worked' => $base()->where('rts_list_items.origin', RtsListItem::ORIGIN_FOLLOW_UP)
                 ->where('rts_list_items.status', RtsListItem::STATUS_WORKED)->count(),
             'any'           => $base()->count(),
         ];
@@ -164,8 +173,8 @@ class CallListService
     {
         return match ($key) {
             'my_buyers_sourcing'     => 'My buyers need stock',
-            'agency_buyers_sourcing' => 'Agency buyers need stock',
-            'hot_pockets'            => 'Hottest sales pockets',
+            'agency_buyers_sourcing' => 'Colleagues\' buyers need stock',
+            'hot_pockets'            => 'Hottest pockets (long on market and reduced)',
             'price_drops'            => 'Price drops',
             'new_on_market'          => 'New on market',
             'long_on_market'         => 'Long on market',
@@ -173,12 +182,37 @@ class CallListService
             'my_expired_stock'       => 'My expired stock',
             'my_stock_not_selling'   => 'My stock that is not selling',
             'follow_up'              => 'Follow-up due',
+            'my_claims'              => 'Your claims',
             null, ''                 => '',
             default                  => ucfirst(str_replace('_', ' ', (string) $key)),
         };
     }
 
     // ── Rows ────────────────────────────────────────────────────────────────────────────────
+
+    /**
+     * The Loaded list's row fields (price, days on market, agency, owner, last outcome) for any set of properties - the station lists show the very same row (23.24).
+     *
+     * @param  int[]  $trackedIds
+     * @return array<int,array<string,mixed>> tracked property id => row
+     */
+    public function rowsForTracked(array $trackedIds, int $agencyId, string $track = 'sales'): array
+    {
+        $ids = array_values(array_unique(array_filter(array_map('intval', $trackedIds))));
+        if ($ids === []) {
+            return [];
+        }
+        $tps = TrackedProperty::query()->whereIn('id', $ids)
+            ->with(['ownerContact.primaryPhone', 'owners.contact.primaryPhone', 'prospectingListings'])->get()->keyBy('id');
+        $current = $this->outcomes->currentFor($agencyId, $ids, $track);
+        $out = [];
+        foreach ($ids as $id) {
+            $tp = $tps->get($id);
+            $out[$id] = $this->row($tp, $this->listingOf($tp), null, $current->get($id), ['tracked_property_id' => $id, 'why' => '', 'status' => 'open'], $agencyId);
+        }
+
+        return $out;
+    }
 
     /** @return array<string,mixed> */
     private function rowFromItem(RtsListItem $i, ?RtsContactOutcome $current, int $agencyId): array
@@ -192,7 +226,9 @@ class CallListService
             'prospecting_listing_id' => $i->prospecting_listing_id,
             'property_id'        => $i->property_id,
             'selection'          => $i->selection,
-            'why'                => $i->reason ?: $this->selectionLabel($i->selection),
+            // a claim on the day shows how long the hold has left (read live, so the number is today's)
+            'why'                => $i->selection === 'my_claims' && $i->prospect_id ? app(ConveyorService::class)->claimLine((int) $i->prospect_id) : ($i->reason ?: $this->selectionLabel($i->selection)),
+            'why_facts'          => $i->reason_facts,
             'status'             => $i->status,
             'origin'             => $i->origin,
             'position'           => $i->position,
@@ -214,6 +250,7 @@ class CallListService
             'property_id'        => $o->property_id,
             'selection'          => null,
             'why'                => $why,
+            'why_facts'          => null,
             'status'             => $o->dropped ? 'dropped' : 'open',
             'origin'             => null,
             'position'           => 0,
@@ -222,12 +259,17 @@ class CallListService
 
     private function listingOf(?TrackedProperty $tp): ?ProspectingListing
     {
-        if (! $tp) {
-            return null;
-        }
-        $listings = $tp->relationLoaded('prospectingListings') ? $tp->prospectingListings : $tp->prospectingListings()->get();
+        return CurrentAskingPrice::pick($this->listingsOf($tp));
+    }
 
-        return $listings->sortByDesc(fn ($l) => [(int) $l->is_active, $l->last_seen_at?->timestamp ?? 0])->first();
+    /** @return Collection<int,ProspectingListing> */
+    private function listingsOf(?TrackedProperty $tp): Collection
+    {
+        if (! $tp) {
+            return new Collection();
+        }
+
+        return $tp->relationLoaded('prospectingListings') ? $tp->prospectingListings : $tp->prospectingListings()->get();
     }
 
     /**
@@ -237,7 +279,7 @@ class CallListService
     private function row(?TrackedProperty $tp, ?ProspectingListing $listing, $property, ?RtsContactOutcome $current, array $base, int $agencyId): array
     {
         $owner = $this->ownerOf($tp);
-        $price = $listing?->price ?: ($property?->price ?: $tp?->last_known_asking_price);
+        $price = CurrentAskingPrice::pick($this->listingsOf($tp))?->price ?: ($listing?->price ?: ($property?->price ?: $tp?->last_known_asking_price));
         $dom = $listing ? $listing->daysOnMarket() : ($property?->listed_date ? (int) Carbon::parse($property->listed_date)->diffInDays(now()->startOfDay()) : null);
 
         return $base + [

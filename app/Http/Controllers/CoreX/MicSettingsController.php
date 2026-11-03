@@ -1,0 +1,184 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\Http\Controllers\CoreX;
+
+use App\Http\Controllers\Controller;
+use App\Models\AddressMatchSetting;
+use App\Models\MicAgencySetting;
+use App\Services\Prospecting\MicWork\MicWorkTiles;
+use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+
+/**
+ * The MIC Settings page (mic-work-tab.md section 9, step 6.5): the one place an agency tunes the Work tab. Per agency, saved into
+ * `mic_agency_settings.values` through MicAgencySetting. The matching switches (after-import sweep, P24 group linking + price spread, twin
+ * auto-link) belong to the matching lane and live in `address_match_settings`: shown here from their one source, changed on their own page.
+ */
+final class MicSettingsController extends Controller
+{
+    public function edit(Request $request)
+    {
+        $agencyId = $this->agencyId($request);
+        $s = MicAgencySetting::for($agencyId);
+
+        // Suburbs the agency has adverts in, plus any it already listed, as the area picker.
+        $known = DB::table('prospecting_listings as l')->join('p24_suburbs as s', 's.id', '=', 'l.p24_suburb_id')
+            ->where('l.agency_id', $agencyId)->whereNull('l.deleted_at')->whereNull('s.deleted_at')
+            ->leftJoin('p24_cities as ci', 'ci.id', '=', 's.p24_city_id')->groupBy('s.id', 's.name', 'ci.name')->orderBy('s.name')->get(['s.id', 's.name', 'ci.name as city'])->keyBy('id');
+        $chosen = $s->areas();
+        $extra = array_diff($chosen, $known->keys()->all());
+        if ($extra) {
+            DB::table('p24_suburbs as s')->leftJoin('p24_cities as ci', 'ci.id', '=', 's.p24_city_id')->whereIn('s.id', $extra)->get(['s.id', 's.name', 'ci.name as city'])->each(fn ($r) => $known->put($r->id, $r));
+        }
+
+        // ticked suburbs first, then A-Z; plus the suggestions from the agency's own work
+        $suggested = app(\App\Services\Prospecting\MicWork\SuggestedAreas::class)->forAgency($agencyId);
+        $suburbsSorted = $known->values()->sortBy([fn ($a, $b) => (in_array((int) $b->id, $chosen, true) <=> in_array((int) $a->id, $chosen, true)), fn ($a, $b) => strcasecmp($a->name, $b->name)])->values();
+        foreach ($suggested as $sg) {
+            if (! $known->has($sg['id'])) {
+                $suburbsSorted->push((object) ['id' => $sg['id'], 'name' => $sg['name'], 'city' => $sg['city']]);
+            }
+        }
+
+        // two suburbs with the same name carry their town so the agent can tell them apart
+        $dupes = $suburbsSorted->groupBy(fn ($r) => mb_strtolower(trim((string) $r->name)))->filter(fn ($g) => $g->count() > 1)->keys()->flip();
+        $suburbsSorted->each(fn ($r) => $r->label = \App\Services\Prospecting\MicWork\MicWorkList::titleSuburb($r->name) . ($dupes->has(mb_strtolower(trim((string) $r->name))) && ! empty($r->city) ? ' (' . \App\Services\Prospecting\MicWork\MicWorkList::titleSuburb($r->city) . ')' : ''));
+        $sgDupes = collect($suggested)->groupBy(fn ($r) => mb_strtolower($r['name']))->filter(fn ($g) => $g->count() > 1)->keys()->flip();
+        $suggested = array_map(fn ($sg) => $sg + ['label' => $sg['name'] . ($sgDupes->has(mb_strtolower($sg['name'])) && $sg['city'] ? ' (' . $sg['city'] . ')' : '')], $suggested);
+
+        return view('corex.market-intelligence.settings', [
+            'suggested' => $suggested,
+            'values' => [
+                'areas' => $chosen,
+                'refresh_interval_days' => $s->refreshIntervalDaysValue(),
+                'tiles_shown' => $s->tilesShown(),
+                'score_weights' => $s->scoreWeights(),
+                'neighbour_months' => $s->neighbourMonthsValue(),
+                'neighbour_each_side' => $s->neighbourEachSideValue(),
+                'gone_tile_days' => $s->goneTileDaysValue(),
+                'detail_pages_per_session' => $s->detailPagesPerSession(),
+                'area_agency_pages_per_run' => $s->areaAgencyPagesPerRunValue(),
+                'area_street_pages_per_run' => $s->areaStreetPagesPerRunValue(),
+                'opt_out_registry_check' => $s->optOutRegistryCheck(),
+                'working_suburb_min_count' => $s->workingSuburbMinCount(),
+                'default_view' => $s->defaultView(),
+                'rows_per_page' => $s->rowsPerPage(),
+                'reduced_window_days' => $s->reducedWindowDays(),
+                'stale_window_days' => $s->staleWindowDays(),
+                'mandate_length_days' => $s->mandateLengthDays(),
+                'price_tolerance_pct' => $s->priceTolerancePct(),
+                'mandate_words' => implode("\n", $s->mandateWords()),
+            ],
+            'suburbs' => $suburbsSorted,
+            'tiles' => MicWorkTiles::TILES,
+            'matching' => AddressMatchSetting::forAgency($agencyId),
+        ]);
+    }
+
+    public function update(Request $request): RedirectResponse
+    {
+        $agencyId = $this->agencyId($request);
+        $data = $request->validate([
+            'areas' => ['nullable', 'array'],
+            'areas.*' => ['integer', 'exists:p24_suburbs,id'],
+            'add_areas' => ['nullable', 'string', 'max:500'],
+            'refresh_interval_days' => ['required', 'integer', 'min:1', 'max:60'],
+            'working_suburb_min_count' => ['nullable', 'integer', 'min:1', 'max:100'],
+            'default_view' => ['nullable', 'in:adverts,list'],
+            'rows_per_page' => ['nullable', 'integer', 'min:10', 'max:100'],
+            'reduced_window_days' => ['nullable', 'integer', 'min:1', 'max:365'],
+            'stale_window_days' => ['nullable', 'integer', 'min:1', 'max:365'],
+            'mandate_length_days' => ['nullable', 'integer', 'min:1', 'max:730'],
+            'price_tolerance_pct' => ['nullable', 'integer', 'min:0', 'max:50'],
+            'mandate_words' => ['nullable', 'string', 'max:2000'],
+            'tiles_shown' => ['nullable', 'array'],
+            'tiles_shown.*' => ['integer', 'between:1,11'],
+            'weights' => ['required', 'array'],
+            'weights.seller' => ['required', 'integer', 'min:0', 'max:100'],
+            'weights.buyer' => ['required', 'integer', 'min:0', 'max:100'],
+            'weights.pocket' => ['required', 'integer', 'min:0', 'max:100'],
+            'weights.known' => ['required', 'integer', 'min:0', 'max:100'],
+            'weights.reachable' => ['required', 'integer', 'min:0', 'max:100'],
+            'neighbour_months' => ['required', 'integer', 'min:1', 'max:6'],
+            'neighbour_each_side' => ['required', 'integer', 'min:1', 'max:15'],
+            'gone_tile_days' => ['required', 'integer', 'min:1', 'max:365'],
+            'detail_pages_per_session' => ['required', 'integer', 'min:1', 'max:200'],
+            'area_agency_pages_per_run' => ['required', 'integer', 'min:1', 'max:100'],
+            'area_street_pages_per_run' => ['required', 'integer', 'min:1', 'max:1000'],
+        ]);
+
+        if (array_sum($data['weights']) !== 100) {
+            return back()->withInput()->withErrors(['weights' => 'The five score weights must add up to 100 (they add up to ' . array_sum($data['weights']) . ').']);
+        }
+        // Mandate words: each must say "sole" or "exclusive" next to mandate / agent / agency (13.4), so "open mandate" can never flag a property
+        $mandateWords = [];
+        $badWords = [];
+        if ($request->has('adverts_present') && $request->filled('mandate_words')) {
+            foreach (preg_split('/\R+/', (string) $data['mandate_words']) ?: [] as $w) {
+                $w = mb_strtolower(trim(preg_replace('/\s+/u', ' ', $w)));
+                if ($w === '') {
+                    continue;
+                }
+                MicAgencySetting::cleanMandateWords([$w]) === [] ? $badWords[] = $w : $mandateWords[] = $w;
+            }
+            if ($badWords !== []) {
+                return back()->withInput()->withErrors(['mandate_words' => 'Not saved: "' . implode('", "', $badWords) . '". A sole-mandate word must have "sole" or "exclusive" next to mandate, agent or agency (for example "sole mandate" or "exclusive agency"), 3 to 60 characters.']);
+            }
+            $mandateWords = array_values(array_unique($mandateWords));
+        }
+        $tiles = array_values(array_unique(array_map('intval', $data['tiles_shown'] ?? [])));
+        if ($tiles === []) {
+            return back()->withInput()->withErrors(['tiles_shown' => 'Show at least one tile.']);
+        }
+
+        // Areas the agency typed by name: only an exact suburb name is accepted, never a guess.
+        $areas = array_map('intval', $data['areas'] ?? []);
+        $unknown = [];
+        foreach (array_filter(array_map('trim', explode(',', (string) ($data['add_areas'] ?? '')))) as $name) {
+            $id = DB::table('p24_suburbs')->whereNull('deleted_at')->whereRaw('LOWER(name) = ?', [mb_strtolower($name)])->value('id');
+            $id ? $areas[] = (int) $id : $unknown[] = $name;
+        }
+
+        MicAgencySetting::saveValues($agencyId, array_filter([
+            // only when the form posted it (non-negotiable 10a: an older form without the field must not reset it)
+            'working_suburb_min_count' => $request->filled('working_suburb_min_count') ? (int) $data['working_suburb_min_count'] : null,
+            // the Adverts view group (13.7): saved only when the form that posted it carried the group
+            'default_view' => $request->has('adverts_present') && $request->filled('default_view') ? $data['default_view'] : null,
+            'rows_per_page' => $request->has('adverts_present') && $request->filled('rows_per_page') ? (int) $data['rows_per_page'] : null,
+            'reduced_window_days' => $request->has('adverts_present') && $request->filled('reduced_window_days') ? (int) $data['reduced_window_days'] : null,
+            'stale_window_days' => $request->has('adverts_present') && $request->filled('stale_window_days') ? (int) $data['stale_window_days'] : null,
+            'mandate_length_days' => $request->has('adverts_present') && $request->filled('mandate_length_days') ? (int) $data['mandate_length_days'] : null,
+            'mandate_words' => $request->has('adverts_present') && $request->filled('mandate_words') ? $mandateWords : null,
+            // buyer matching (13.15): saved only when the form that posted it carried the group
+            'price_tolerance_pct' => $request->has('adverts_present') && $request->filled('price_tolerance_pct') ? (int) $data['price_tolerance_pct'] : null,
+        ], fn ($v) => $v !== null) + [
+            'areas' => array_values(array_unique($areas)),
+            'refresh_interval_days' => (int) $data['refresh_interval_days'],
+            'tiles_shown' => $tiles,
+            'score_weights' => array_map('intval', $data['weights']),
+            'neighbour_months' => (int) $data['neighbour_months'],
+            'neighbour_each_side' => (int) $data['neighbour_each_side'],
+            'gone_tile_days' => (int) $data['gone_tile_days'],
+            'detail_pages_per_session' => (int) $data['detail_pages_per_session'],
+            'area_agency_pages_per_run' => (int) $data['area_agency_pages_per_run'],
+            'area_street_pages_per_run' => (int) $data['area_street_pages_per_run'],
+            // a checkbox that is absent means OFF only when this form posted it (guard, non-negotiable 10a)
+            'opt_out_registry_check' => $request->boolean('opt_out_registry_check'),
+        ]);
+        \Illuminate\Support\Facades\Cache::forget("mic-work:has-scores:$agencyId");
+
+        return redirect()->route('market-intelligence.settings')
+            ->with('status', 'MIC settings saved.' . ($unknown ? ' Not found as a suburb name, so not added: ' . implode(', ', $unknown) . '.' : ''));
+    }
+
+    private function agencyId(Request $request): int
+    {
+        $agencyId = $request->user()->effectiveAgencyId();
+        abort_unless($agencyId !== null, 403);
+
+        return (int) $agencyId;
+    }
+}

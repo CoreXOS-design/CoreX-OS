@@ -1,0 +1,658 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\Services\Prospecting\MicWork;
+
+use App\Models\ProspectingListing;
+use App\Models\Prospecting\TrackedProperty;
+use App\Services\Prospecting\PropertySourceFacts;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Pagination\LengthAwarePaginator as Paginator;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
+
+/**
+ * The Work tab list (mic-work-tab.md 2.1 D): ONE ROW PER PROPERTY FILE. A file's adverts (P24 + PP, any agency) are grouped under its
+ * tracked property; an advert with no file stands as its own one-advert row (key = -advert id). The caller hands over the SAME filtered
+ * ProspectingListing query the old per-advert list used, so search, filters, tiles and agency/branch/own scoping all apply unchanged; this class
+ * only groups, sorts and pages it. Two steps, no per-row queries: (1) the page's file keys by SQL group, (2) one batched read per column source.
+ */
+final class MicWorkList
+{
+    public const PER_PAGE = 50;
+
+    /** cc5's stable reason codes -> the words on the chips (spec 3). */
+    public const REASON_LABELS = ['price_cuts' => 'Price cuts', 'relisted' => 'Re-listed', 'long_dom' => 'Long on market', 'owner_selling' => 'Owner selling', 'mandate_ended' => 'Mandate ended',
+        'strong_buyers' => 'Strong buyers', 'buyers_waiting' => 'Buyers waiting', 'fast_pocket' => 'Fast pocket', 'lead_pocket' => 'Lead pocket', 'pocket_activity' => 'Pocket activity',
+        'well_known' => 'Well known', 'deeds_owner' => 'Deeds owner', 'alert_history' => 'Alert history', 'reachable' => 'Reachable', 'back_on_market' => 'Back on the market', 'unworked' => 'Unworked'];
+
+    /** sort key => SQL over the grouped adverts. Dir "desc" = the natural "most first" order for the column. */
+    private const SORTS = [
+        'last_seen' => 'MAX(last_seen_at)',
+        'time' => 'MIN(COALESCE(listed_date, first_seen_at))', // oldest first when "most first"
+        'dom' => 'MIN(COALESCE(listed_date, first_seen_at))', // 13.2 "Days on market": the same order as `time` (longest on the market first)
+        'newest' => 'MAX(COALESCE(listed_date, first_seen_at))', // 13.2 "Newest"
+        'price' => 'MAX(price)',
+        'suburb' => 'MIN(suburb)',
+        'address' => 'MIN(COALESCE((SELECT street_name FROM tracked_properties tp0 WHERE tp0.id = prospecting_listings.tracked_property_id), address, suburb))',
+    ];
+
+    public function __construct(private readonly PropertySourceFacts $sourceFacts) {}
+
+    /**
+     * Short per-query cache for the Work page's slow, slow-moving reads (totals, filter-list sources). Bypassed under test so tests always see their own data.
+     * The key must carry everything the result depends on (agency, viewer scope, SQL + bindings).
+     */
+    public static function remember(string $key, int $seconds, \Closure $fn): mixed
+    {
+        return app()->runningUnitTests() ? $fn() : \Illuminate\Support\Facades\Cache::remember('mic-work:' . $key, $seconds, $fn);
+    }
+
+    /** The ONE suburb formatter for the Work tab (list, panels): title case, never the raw capitals the portals send. */
+    public static function titleSuburb(?string $name): string
+    {
+        return \Illuminate\Support\Str::title(mb_strtolower(trim((string) $name)));
+    }
+
+    /** "12 Foo Road, SHELLY BEACH" -> "12 Foo Road, Shelly Beach": the suburb after the last comma goes through the same formatter. */
+    public static function tidyAddress(?string $address): string
+    {
+        $a = trim((string) $address);
+        $at = strrpos($a, ', ');
+
+        return $at === false ? $a : substr($a, 0, $at + 2) . self::titleSuburb(substr($a, $at + 2));
+    }
+
+    /** CMA / deeds addresses arrive in capitals ("938 FASCADALE"): title-case the whole line when it has no lowercase at all, else tidy the suburb only. */
+    public static function tidyLine(?string $address): string
+    {
+        $a = trim((string) $address);
+
+        return $a !== '' && $a === mb_strtoupper($a) ? \Illuminate\Support\Str::title(mb_strtolower($a)) : self::tidyAddress($a);
+    }
+
+    /**
+     * Which pending review pairs raise the "Possible match" chip on a row: only pairs that say two files are probably the SAME property - a Property24
+     * group, a same-agency twin, a same-address freehold. Flat / complex / unit / scheme pairs ("no unit number - may be a different unit"), own-stock
+     * and capture pairs, advert clashes, map-point and unit-split reviews do not (they are noise on the worklist; they stay on the Possible matches page).
+     * Interim until cc4 lists the kinds in 11.3 with an explicit unit/scheme flag: the same_address kind is told apart by its reason text.
+     */
+    public static function raisesPossibleMatch(?string $kind, string $reason): bool
+    {
+        if (in_array($kind, ['portal_group', 'twin'], true)) {
+            return true;
+        }
+
+        return $kind === 'same_address' && ! preg_match('/flat|complex|unit|scheme/i', $reason);
+    }
+
+    /** @return list<string> */
+    public static function sortKeys(): array
+    {
+        return array_merge(array_keys(self::SORTS), self::hasFileStats() ? ['buyers', 'cut'] : [], self::hasScores() ? ['score'] : []);
+    }
+
+    /** Opportunity score once cc5's stored stats exist; until then newest activity first. */
+    public static function defaultSort(): string
+    {
+        return self::hasScores() ? 'score' : 'last_seen';
+    }
+
+    /** True once cc5's score has actually been computed for this agency (the stats table can exist with every score still empty). */
+    public static function hasScores(): bool
+    {
+        if (! self::hasFileStats()) {
+            return false;
+        }
+        $agencyId = (int) (auth()->user()?->effectiveAgencyId() ?? 0);
+
+        return \Illuminate\Support\Facades\Cache::remember("mic-work:has-scores:$agencyId", 300, fn () => DB::table('mic_file_stats')->where('agency_id', $agencyId)->whereNotNull('score')->exists());
+    }
+
+    public static function hasFileStats(): bool
+    {
+        static $has = null;
+
+        return $has ??= Schema::hasTable('mic_file_stats');
+    }
+
+    /**
+     * @param  Builder<ProspectingListing>  $filtered  the fully filtered, agency-scoped advert query (no order, no page)
+     */
+    public function page(Builder $filtered, int $agencyId, string $sort, string $dir, int $page, bool $includeOwnStock = false): LengthAwarePaginator
+    {
+        $dir = $dir === 'asc' ? 'asc' : 'desc';
+        $perPage = \App\Models\MicAgencySetting::rowsPerPageFor($agencyId);
+        if (! $includeOwnStock) {
+            // Our own stock is not prospecting: files our agency holds are out unless the manager asks for them (mic-work-tab 6.7).
+            $filtered = (clone $filtered)->whereNotExists(function ($w) use ($agencyId) {
+                $w->select(DB::raw(1))->from('tracked_property_agency_work as ow')->where('ow.agency_id', $agencyId)->where('ow.is_own_stock', 1)
+                    ->whereColumn('ow.tracked_property_id', 'prospecting_listings.tracked_property_id');
+            });
+        }
+        $base = (clone $filtered)->toBase()->reorder()->select([])
+            ->selectRaw('COALESCE(prospecting_listings.tracked_property_id, -prospecting_listings.id) AS fkey')
+            ->selectRaw('MAX(last_seen_at) AS last_seen, MIN(COALESCE(listed_date, first_seen_at)) AS since, COUNT(*) AS n')
+            ->groupBy('fkey');
+
+        // one flat DISTINCT count over the same filtered set - cheaper than counting the grouped subquery. Total and the page's keys are cached for a
+        // few minutes per exact query (the SQL + its bindings carry the agency and the viewer's own/branch scope), never in tests.
+        $remember = function (string $part, int $ttl, \Closure $fn) use ($filtered, $sort, $dir, $page, $perPage) {
+            if (app()->runningUnitTests()) {
+                return $fn();
+            }
+            $q = (clone $filtered)->toBase();
+
+            return \Illuminate\Support\Facades\Cache::remember('mic-work:' . $part . ':' . md5($q->toSql() . json_encode($q->getBindings()) . "|$sort|$dir|$page|$perPage"), $ttl, $fn);
+        };
+        $total = (int) $remember('total', 300, fn () => (clone $filtered)->toBase()->reorder()->selectRaw('COUNT(DISTINCT COALESCE(prospecting_listings.tracked_property_id, -prospecting_listings.id)) AS c')->value('c'));
+
+        $q = clone $base;
+        if (in_array($sort, ['score', 'buyers', 'cut'], true) && self::hasFileStats()) {
+            $col = ['score' => 'score', 'buyers' => 'buyers_strong', 'cut' => 'cut_amount'][$sort];
+            $q->selectRaw("MAX((SELECT s.$col FROM mic_file_stats s WHERE s.agency_id = prospecting_listings.agency_id AND s.tracked_property_id = prospecting_listings.tracked_property_id)) AS ord")
+                ->orderBy('ord', $dir);
+        } else {
+            $expr = self::SORTS[$sort] ?? self::SORTS['last_seen'];
+            $q->selectRaw("$expr AS ord");
+            // "time" most-first = the longest on the market = the OLDEST date first.
+            $q->orderBy('ord', $sort === 'time' ? ($dir === 'desc' ? 'asc' : 'desc') : $dir);
+        }
+        $keys = $remember('keys', 120, fn () => $q->orderBy('fkey')->forPage($page, $perPage)->pluck('fkey')->map(fn ($k) => (int) $k)->all());
+
+        $rows = $keys ? $this->forFiles($keys, $agencyId) : [];
+
+        return new Paginator($rows, $total, $perPage, $page, ['path' => request()->url(), 'query' => request()->query()]);
+    }
+
+    /**
+     * The full record of each file (adverts, price history, alerts, deeds, market context, buyers, our history) - one batched read per source. Feeds
+     * the property-per-row view and the record card that expands under a row of the classic list.
+     *
+     * @param  list<int>  $keys  tracked property ids (positive) or negated advert ids (single-advert rows)
+     * @return list<array<string, mixed>>
+     */
+    public function forFiles(array $keys, int $agencyId, ?int $buyerId = null, ?int $wishlistId = null): array
+    {
+        $tpIds = array_values(array_filter($keys, fn ($k) => $k > 0));
+        $loneIds = array_values(array_map(fn ($k) => -$k, array_filter($keys, fn ($k) => $k < 0)));
+
+        $adverts = ProspectingListing::query()->where('agency_id', $agencyId)
+            ->where(fn ($q) => $q->whereIn('tracked_property_id', $tpIds ?: [0])->orWhereIn('id', $loneIds ?: [0]))
+            ->orderByDesc('is_active')->orderByDesc('last_seen_at')
+            ->get(['id', 'tracked_property_id', 'portal_source', 'portal_ref', 'portal_url', 'address', 'suburb', 'price', 'bedrooms', 'bathrooms', 'garages',
+                'property_size_m2', 'erf_size_m2', 'property_type', 'agent_name', 'agency_name', 'first_seen_at', 'last_seen_at', 'listed_date', 'is_active',
+                'portal_status', 'advertiser_type', 'is_reduced', 'canonical_ref', 'p24_suburb_id', 'p24_group_id', 'thumbnail_source_url', 'thumbnail_path',
+                'card_heading', 'description_snippet', 'description', 'photo_urls', 'photo_count', 'features', 'parking', 'sole_mandate_wording', 'sole_mandate_first_seen_at', 'rates_amount', 'levies_amount',
+                'details_read_at', 'details_read_price', 'details_read_by', 'details_read_card_hash', 'listing_type', 'agency_id'])
+            ->groupBy(fn ($l) => $l->tracked_property_id ?: -$l->id);
+        $advertIds = $adverts->flatten()->pluck('id')->all();
+
+        $tps = $tpIds ? TrackedProperty::withoutGlobalScopes()->where('agency_id', $agencyId)->whereIn('id', $tpIds)
+            ->get(['id', 'street_number', 'street_name', 'unit_number', 'complex_name', 'suburb', 'p24_suburb_id', 'property_type', 'bedrooms', 'bathrooms', 'garages',
+                'floor_size_m2', 'erf_size_m2', 'deeds_captured_at', 'deeds_registered_date', 'last_known_sold_price', 'last_known_sold_date', 'bond_amount'])->keyBy('id') : collect();
+
+        $sources = $this->sourceFacts->forListings($agencyId, $adverts->flatten());
+
+        $history = $advertIds ? DB::table('prospecting_price_history')->whereIn('prospecting_listing_id', $advertIds)
+            ->orderBy('changed_at')->get(['prospecting_listing_id', 'old_price', 'new_price', 'changed_at'])->groupBy('prospecting_listing_id') : collect();
+
+        $deeds = $tpIds ? DB::table('tracked_property_external_refs')->where('agency_id', $agencyId)->where('source_type', 'deeds_capture')->whereNull('deleted_at')
+            ->whereIn('tracked_property_id', $tpIds)->pluck('tracked_property_id')->flip() : collect();
+
+        // 13.12 the file's own history lines for the Full card: "Split from ... by ... on ..." / "Advert split off to ..." / "Advert split undone ..." (newest last)
+        $fileNotes = $tpIds ? DB::table('tracked_property_agency_work_events')->where('agency_id', $agencyId)->whereIn('tracked_property_id', $tpIds)->whereIn('kind', ['split_from', 'split_off', 'split_undone', 'buyer_hidden', 'buyer_restored'])
+            ->orderBy('occurred_at')->orderBy('id')->get(['tracked_property_id', 'reason', 'occurred_at'])->groupBy('tracked_property_id') : collect();
+        $work = $tpIds ? DB::table('tracked_property_agency_work as w')->leftJoin('users as u', 'u.id', '=', 'w.claimed_by_user_id')
+            ->where('w.agency_id', $agencyId)->whereIn('w.tracked_property_id', $tpIds)
+            ->get(['w.tracked_property_id', 'w.prospecting_status', 'w.prospecting_reason', 'w.is_own_stock', 'w.claimed_by_user_id', 'u.name as claimed_by'])->keyBy('tracked_property_id') : collect();
+
+        $holds = $this->myHolds($agencyId, $tpIds);
+
+        $buyers = $advertIds ? DB::table('prospecting_buyer_matches')->where('agency_id', $agencyId)->whereIn('prospecting_listing_id', $advertIds)
+            ->whereNull('dismissed_at')->where('score', '>=', 50)->groupBy('prospecting_listing_id')
+            ->selectRaw('prospecting_listing_id, COUNT(DISTINCT contact_id) c')->pluck('c', 'prospecting_listing_id') : collect();
+
+        $stats = ($tpIds && self::hasFileStats()) ? DB::table('mic_file_stats')->where('agency_id', $agencyId)->whereIn('tracked_property_id', $tpIds)->get()->keyBy('tracked_property_id') : collect();
+
+        $subIds = $adverts->flatten()->pluck('p24_suburb_id')->merge($tps->pluck('p24_suburb_id'))->filter()->unique()->values()->all();
+        $subNames = $subIds ? DB::table('p24_suburbs')->whereIn('id', $subIds)->pluck('name', 'id') : collect();
+
+        // P24 / PP e-mail alerts of this agency for the page's files: by link to the file, or by the advert's canonical ref.
+        $refKey = [];
+        foreach ($adverts as $fk => $list) {
+            foreach ($list as $a) {
+                if ($a->canonical_ref) {
+                    $refKey[$a->canonical_ref] = $fk;
+                }
+            }
+        }
+        $alertsByKey = [];
+        foreach (\App\Services\Prospecting\AlertPropertyLinker::PORTALS as $portal => $cfg) {
+            $cfg['model']::withoutGlobalScope(\App\Models\Scopes\AgencyScope::class)->where('agency_id', $agencyId)
+                ->where(fn ($q) => $q->whereIn('tracked_property_id', $tpIds ?: [0])->orWhereIn('canonical_ref', array_keys($refKey) ?: ['-']))
+                ->with(['priceChanges' => fn ($q) => $q->orderBy('change_date')])->get()
+                ->each(function ($al) use (&$alertsByKey, $refKey, $portal, $cfg) {
+                    $fk = $al->tracked_property_id ?: ($refKey[$al->canonical_ref] ?? null);
+                    if ($fk === null) {
+                        return;
+                    }
+                    $alertsByKey[$fk][] = [
+                        'portal' => $portal === 'p24' ? 'P24' : 'PP', 'number' => (string) $al->{$cfg['number']},
+                        'first' => $al->first_seen_date?->format('j M Y'), 'first_raw' => $al->first_seen_date?->format('Y-m-d'), 'last_raw' => $al->last_seen_date?->format('Y-m-d'), 'last' => $al->last_seen_date?->format('j M Y'),
+                        'mandated' => (bool) ($al->is_mandated ?? false), 'price' => (int) $al->asking_price, 'original' => $al->original_price !== null ? (int) $al->original_price : null,
+                        'changes' => $al->priceChanges->map(fn ($c) => ['date' => $c->change_date->format('j M Y'), 'old' => (int) $c->old_price, 'new' => (int) $c->new_price])->all(),
+                    ];
+                });
+        }
+
+        $pairs = $tpIds ? $this->possiblePairs($agencyId, $tpIds) : [];
+
+        // Top matched buyers per file (own agency, strong enough to count), for the expand.
+        $buyerNames = [];
+        if ($advertIds) {
+            $advKey = [];
+            foreach ($adverts as $fk => $list) {
+                foreach ($list as $a) {
+                    $advKey[$a->id] = $fk;
+                }
+            }
+            DB::table('prospecting_buyer_matches as m')->join('contacts as c', 'c.id', '=', 'm.contact_id')
+                ->where('m.agency_id', $agencyId)->where('c.agency_id', $agencyId)->whereNull('c.deleted_at')->whereNull('m.dismissed_at')->where('m.score', '>=', 50)
+                ->whereIn('m.prospecting_listing_id', $advertIds)->orderByDesc('m.score')->limit(600)
+                ->get(['m.prospecting_listing_id', 'm.contact_id', 'm.score', 'c.first_name', 'c.last_name'])
+                ->each(function ($m) use (&$buyerNames, $advKey) {
+                    $fk = $advKey[$m->prospecting_listing_id] ?? null;
+                    if ($fk !== null && ! isset($buyerNames[$fk][$m->contact_id]) && count($buyerNames[$fk] ?? []) < 3) {
+                        $buyerNames[$fk][$m->contact_id] = ['id' => (int) $m->contact_id, 'name' => trim($m->first_name . ' ' . $m->last_name) ?: 'Buyer #' . $m->contact_id, 'score' => (int) $m->score];
+                    }
+                });
+        }
+
+        // Our history: claims on the file's adverts, and our own past/present mandates on the file.
+        $claims = $advertIds ? DB::table('prospecting_claims as cl')->leftJoin('users as u', 'u.id', '=', 'cl.user_id')->where('cl.agency_id', $agencyId)->whereNull('cl.deleted_at')
+            ->whereIn('cl.prospecting_listing_id', $advertIds)->orderByDesc('cl.claimed_at')->limit(300)->get(['cl.prospecting_listing_id', 'cl.status', 'cl.claimed_at', 'cl.released_at', 'cl.release_reason', 'u.name as who']) : collect();
+        $claimsByKey = [];
+        foreach ($claims as $c) {
+            $claimsByKey[$advKey[$c->prospecting_listing_id] ?? 0][] = ['who' => $c->who, 'status' => $c->status, 'at' => $c->claimed_at ? \Carbon\Carbon::parse($c->claimed_at)->format('j M Y') : null, 'released' => $c->released_at ? \Carbon\Carbon::parse($c->released_at)->format('j M Y') : null, 'reason' => $c->release_reason];
+        }
+        $mandates = $tpIds ? DB::table('properties')->where('agency_id', $agencyId)->whereNull('deleted_at')->whereIn('tracked_property_id', $tpIds)
+            ->orderByDesc('id')->get(['tracked_property_id', 'status', 'mandate_type', 'expiry_date', 'price'])->groupBy('tracked_property_id') : collect();
+
+        // cc5's market context per file (spec 11.1b, FileContext::forFiles) - nearby sales and the suburb line - when that service exists.
+        $context = [];
+        $ctxClass = 'App\\Services\\MarketIntelligence\\Context\\FileContext';
+        if ($tpIds && class_exists($ctxClass) && method_exists($ctxClass, 'forFiles')) {
+            try {
+                $context = app($ctxClass)->forFiles($agencyId, $tpIds);
+            } catch (\Throwable $e) {
+                \Illuminate\Support\Facades\Log::warning('MIC Work list: MarketContext failed', ['error' => $e->getMessage()]);
+            }
+        }
+
+        // AT-528: P24 group member counts for the page's adverts ("Listed by N agencies"), and the agency's Adverts-view settings (read once)
+        $groupIds = $adverts->flatten()->pluck('p24_group_id')->filter()->unique()->values()->all();
+        $groupCounts = ($groupIds && Schema::hasTable('p24_group_members')) ? DB::table('p24_group_members')->whereIn('p24_group_id', $groupIds)->groupBy('p24_group_id')
+            ->selectRaw('p24_group_id, COUNT(*) as c')->pluck('c', 'p24_group_id') : collect();
+        $mic = \App\Models\MicAgencySetting::for($agencyId);
+        $reducedSince = now()->subDays($mic->reducedWindowDays())->toDateString();
+        $staleDays = $mic->staleWindowDays();
+        $mandateWords = $mic->mandateWords();
+        $mandateLength = \App\Models\MicAgencySetting::mandateLengthDaysFor($agencyId);
+
+        $buyerFit = BuyerFit::for($agencyId, $buyerId, $wishlistId); // 13.18: only when a buyer is selected
+
+        $out = [];
+        foreach ($keys as $key) {
+            $list = $adverts->get($key, collect());
+            if ($list->isEmpty()) {
+                continue;
+            }
+            $active = $list->where('is_active', true);
+            $live = $active->isNotEmpty() ? $active : $list;
+            $tp = $key > 0 ? $tps->get($key) : null;
+            $lead = $live->first();
+
+            // Price now and the move come from ONE advert: the lead advert on the file (the live one seen last). Its own history only.
+            $leadChanges = $this->netChanges($history->get($lead->id, collect())); // R 0 (POA) dropped, same-day flip-flops netted
+            $priceNow = (int) ($lead->price ?: 0);
+            $firstPrice = $leadChanges ? (int) $leadChanges[0]['old'] : null;
+            $move = ($firstPrice && $priceNow && $priceNow !== $firstPrice) ? $priceNow - $firstPrice : null;
+            $cuts = $move !== null && $move < 0 ? count(array_filter($leadChanges, fn ($c) => $c['new'] < $c['old'])) : 0;
+
+            $addr = $tp && trim((string) $tp->street_name) !== ''
+                ? trim(implode(' ', array_filter([in_array(trim((string) $tp->street_number), ['', '0'], true) ? null : trim((string) $tp->street_number), trim((string) $tp->street_name)])))
+                : ($list->first(fn ($a) => trim((string) $a->address) !== '' && $a->address !== ProspectingListing::ADDRESS_PLACEHOLDER)?->address);
+            $pid = $tp?->p24_suburb_id ?: $lead->p24_suburb_id;
+            $suburb = $pid && $subNames->has($pid) ? $subNames[$pid] : self::titleSuburb($tp?->suburb ?: $lead->suburb);
+            // 13.19: the file's type follows its LIVE LEAD advert (newest active), not the first-ever capture stored on the file
+            $type = $lead->property_type ?: $tp?->property_type;
+            $beds = $tp?->bedrooms ?? $list->max('bedrooms');
+            $baths = $tp?->bathrooms ?? $list->max('bathrooms');
+            $garages = $tp?->garages ?? $list->max('garages');
+            $erf = $tp?->erf_size_m2 ?: $list->max('erf_size_m2');
+            $floor = $tp?->floor_size_m2 ?: $list->max('property_size_m2');
+            if (! $addr) {
+                $addr = trim(implode(' · ', array_filter([$suburb, $type, $tp?->complex_name ? $tp->complex_name . ($erf ? ' ' . number_format((float) $erf) . ' m²' : '') : null]))) ?: 'Address not known yet';
+            }
+
+            // time on market: portal listed date is exact; else first seen is a MINIMUM ("N+") until a complete crawl is on record (cc5 DomEstimator / mic_file_stats).
+            $st = $stats->get($key);
+            $listed = $list->pluck('listed_date')->filter()->min();
+            $first = $list->pluck('first_seen_at')->filter()->min();
+            if ($st && $st->dom_days !== null) {
+                $dom = ['days' => (int) $st->dom_days, 'label' => match ($st->dom_mode) { 'listed' => $st->dom_days, 'approx' => '~' . $st->dom_days, default => $st->dom_days . '+' }];
+            } elseif ($listed) {
+                $d = (int) $listed->diffInDays(now());
+                $dom = ['days' => $d, 'label' => (string) $d];
+            } elseif ($first) {
+                $d = (int) $first->diffInDays(now());
+                $dom = ['days' => $d, 'label' => $d . '+'];
+            } else {
+                $dom = ['days' => null, 'label' => '-'];
+            }
+            if ($dom['days'] !== null && $dom['days'] < 7) {
+                $dom['label'] = 'new';
+            }
+
+            $agencies = $live->pluck('agency_name')->map(fn ($n) => trim((string) $n))->filter(fn ($n) => $n !== '' && strcasecmp($n, 'Sale') !== 0)->unique()->values();
+            $owner = $live->contains(fn ($a) => $a->advertiser_type === 'owner');
+            $statuses = $list->pluck('portal_status')->filter()->unique();
+            $flags = [];
+            if ($live->contains(fn ($a) => $a->portal_status === 'under_offer')) { $flags[] = 'Under offer'; }
+            if ($statuses->contains('sold')) { $flags[] = 'Sold'; }
+            if ($active->isEmpty()) { $flags[] = 'Not seen since ' . ($list->pluck('last_seen_at')->filter()->max()?->format('j M') ?? '-'); }
+            // Reduced (13.4 + Johan's 1 Nov addendum, CONFIDENT only): the portal's Reduced flag on the advert we show, OR that same advert (same portal ref) read at two
+            // different prices inside the agency's reduced window. A different advert on the same property at another price is never a cut. old_price / cut_amount /
+            // cut_date describe the latest such cut (null for the portal flag alone).
+            // A cut only stands while the price is still BELOW what it was before that cut (a later rise back to or past it undoes it: 1,399,000 -> 1,350,000 -> 1,420,000
+            // is an increase, not a cut). old_price = the advert's own price before its last standing cut; cut_amount = old_price - the price now.
+            $recentCuts = array_values(array_filter($leadChanges, fn ($c) => $c['new'] < $c['old'] && $c['day'] >= $reducedSince && $priceNow > 0 && $priceNow < $c['old']));
+            $isReduced = (bool) $lead->is_reduced || $recentCuts !== [];
+            $lastCut = $recentCuts ? end($recentCuts) : null;
+            $oldPrice = $lastCut ? (int) $lastCut['old'] : null;
+            if ($isReduced) { $flags[] = 'Reduced'; }
+            $p24Alerts = array_values(array_filter($alertsByKey[$key] ?? [], fn ($x) => ($x['portal'] ?? '') === 'P24'));
+            $lastAlert = collect($p24Alerts)->filter(fn ($x) => ! empty($x['last_raw']))->sortByDesc('last_raw')->first();
+            if ($st && $st->relisted) { $flags[] = 'Re-listed'; }
+
+            $srcRows = $list->map(fn ($a) => $sources[(int) $a->id] ?? null)->filter();
+            $w = $work->get($key);
+
+            // 13.4 sole mandate: the agency's mandate words in the advert's own wording (snippet or full text, whole phrase), else a P24 alert flagged mandated
+            $byWording = $live->contains(fn ($a) => $a->sole_mandate_wording !== null ? (bool) $a->sole_mandate_wording
+                : (MicAdvertFilters::mentionsMandate($a->description_snippet, $mandateWords, $a->agency_name ?? null) || MicAdvertFilters::mentionsMandate($a->description, $mandateWords, $a->agency_name ?? null)));
+            $byAlert = collect($alertsByKey[$key] ?? [])->contains(fn ($x) => ! empty($x['mandated']));
+            // when we first saw it as sole mandate (the earliest matching capture, or a mandated alert's received date), how long ago, and whether the agency's mandate length is reached
+            $mandateSince = ($byWording || $byAlert) ? SoleMandateMatcher::since($live, collect($alertsByKey[$key] ?? [])->filter(fn ($x) => ! empty($x['mandated']))->pluck('first_raw')) : null;
+            $mandateDays = SoleMandateMatcher::daysSince($mandateSince);
+            $firstOf = fn (string $col) => $live->pluck($col)->first(fn ($v) => $v !== null && trim((string) $v) !== '');
+            $photos = $live->pluck('photo_urls')->map(fn ($v) => is_array($v) ? $v : (is_string($v) ? json_decode($v, true) : null))->first(fn ($v) => is_array($v) && $v !== []);
+            $lastSeen = $list->pluck('last_seen_at')->filter()->max();
+            $lastSeenDays = $lastSeen ? (int) $lastSeen->diffInDays(now()) : null;
+            $thumbAdvert = $live->first(fn ($a) => $a->thumbnail_path || $a->thumbnail_source_url) ?? $lead;
+            $out[] = [
+                'key' => $key,
+                'tp_id' => $key > 0 ? $key : null,
+                'score' => $st && $st->score !== null ? (float) $st->score : null,
+                'reasons' => $st ? array_values(array_filter([$st->reason_1 ?? null, $st->reason_2 ?? null])) : [],
+                'p24' => $list->contains('portal_source', 'p24'),
+                'pp' => $list->contains('portal_source', 'pp'),
+                'alert' => $srcRows->contains(fn ($s) => $s['alert']) || ! empty($alertsByKey[$key]),
+                'alerts' => $alertsByKey[$key] ?? [],
+                'alert_tip' => (function () use ($alertsByKey, $key) {
+                    $first = collect($alertsByKey[$key] ?? [])->filter(fn ($a) => ! empty($a['first_raw']))->sortBy('first_raw')->first();
+
+                    return 'In a ' . ($first['portal'] ?? 'P24') . ' alert email' . ($first ? ' · first ' . \Carbon\Carbon::parse($first['first_raw'])->format('j M') : '');
+                })(),
+                'pair_ids' => $pairs[$key] ?? [],
+                'buyer_names' => array_values($buyerNames[$key] ?? []),
+                // 13.18 "Buyer wants vs property has" for the selected buyer: the filters' own verdicts, field by field (null without a buyer)
+                'buyer_fit' => $buyerFit?->forFacts([
+                    'price' => $priceNow, 'suburb' => $suburb, 'suburb_id' => $pid ? (int) $pid : null, 'type' => $type, 'beds' => $beds, 'baths' => $baths, 'garages' => $garages,
+                    'erf' => $erf, 'floor' => $floor, 'parking' => $list->max('parking'), 'features' => $lead->features, 'listing_type' => $lead->listing_type,
+                ]),
+                'claims' => $this->collapseClaims($claimsByKey[$key] ?? []),
+                'mandates' => ($mandates->get($key) ?? collect())->map(fn ($m) => ['status' => $m->status, 'type' => $m->mandate_type, 'expiry' => $m->expiry_date ? \Carbon\Carbon::parse($m->expiry_date)->format('j M Y') : null, 'price' => $m->price ? (int) $m->price : null])->all(),
+                'context' => $context[$key] ?? null,
+                'advert_count' => $live->count(),
+                'own_stock' => (bool) ($w->is_own_stock ?? false),
+                'deeds' => $deeds->has($key),
+                'owner' => $owner,
+                'address' => $addr,
+                'suburb' => $suburb,
+                'facts' => ['type' => $type, 'beds' => $beds, 'baths' => $baths, 'garages' => $garages, 'floor' => $floor, 'erf' => $erf],
+                'price' => $priceNow ?: null,
+                'move' => $move,
+                'cuts' => $cuts,
+                'agencies' => $agencies->all(),
+                'dom' => $dom,
+                'last_seen' => $list->pluck('last_seen_at')->filter()->max(),
+                // ---- 13.5 contract (AT-528) ----
+                'card_heading' => $firstOf('card_heading'),
+                'description_snippet' => $firstOf('description_snippet'),
+                'description' => $firstOf('description'),
+                'photo_urls' => $photos,
+                'photo_count' => $lead->photo_count ?? ($photos ? count($photos) : null),
+                'features' => $live->pluck('features')->map(fn ($v) => is_array($v) ? $v : (is_string($v) ? json_decode($v, true) : null))->first(fn ($v) => is_array($v) && $v !== []),
+                'listed_date' => $listed?->format('Y-m-d'),
+                'agent_name' => $firstOf('agent_name'),
+                'erf_size_m2' => $erf ?: null,
+                'floor_size_m2' => $floor ?: null,
+                'parking' => $live->max('parking'),
+                'is_reduced' => $isReduced,
+                'old_price' => $oldPrice,
+                'cut_amount' => $lastCut ? (int) $lastCut['old'] - $priceNow : null,
+                'cut_date' => $lastCut['day'] ?? null,
+                'first_seen' => ($list->pluck('first_seen_at')->filter()->min())?->format('Y-m-d'),
+                'alert_count' => count($p24Alerts),
+                'alert_last_date' => $lastAlert['last_raw'] ?? null,
+                'alert_last_asking' => $lastAlert ? (int) $lastAlert['price'] : null,
+                'rates_amount' => $live->max('rates_amount') ?: null,
+                'levies_amount' => $live->max('levies_amount') ?: null,
+                'portal_status' => $lead->portal_status,
+                'is_owner' => $owner,
+                'is_sole_mandate' => $byWording || $byAlert,
+                'sole_mandate_first_seen_at' => $mandateSince?->format('Y-m-d'),
+                'sole_mandate_days' => $mandateDays,
+                'sole_mandate_ending' => $mandateDays !== null && $mandateDays >= $mandateLength,
+                'sole_mandate_source' => $byWording ? 'wording' : ($byAlert ? 'alert' : null),
+                'group_member_count' => (int) $live->map(fn ($a) => (int) ($groupCounts[$a->p24_group_id] ?? 0))->max(),
+                // ONE number for "how many adverts / agencies are on this property": the popover, the pill, the List badge and the Adverts line of the intel block all read these (live, from the same adverts);
+                // `group_member_count` stays P24's own statement of its group size, which can include adverts we hold on other files
+                'adverts_total' => $list->count(),
+                'agencies_total' => self::agenciesIn($list),
+                'days_on_market' => $dom['days'],
+                'dom_is_minimum' => str_ends_with((string) $dom['label'], '+'),
+                'last_seen_days' => $lastSeenDays,
+                'is_stale' => $lastSeenDays !== null && $lastSeenDays > $staleDays,
+                'portal_url' => $lead->portal_url,
+                'details' => $this->detailsOf($live),
+                'thumbnail_source_url' => $thumbAdvert->thumbnail_source_url,
+                'thumbnail_path' => $thumbAdvert->thumbnail_path,
+                'thumbnail_advert_id' => (int) $thumbAdvert->id,
+                'flags' => $flags,
+                'buyers' => (int) $list->sum(fn ($a) => (int) ($buyers[$a->id] ?? 0)),
+                'buyers_strong' => $st->buyers_strong ?? null,
+                'buyers_mid' => $st->buyers_mid ?? null,
+                'file_notes' => ($tp ? $fileNotes->get((int) $tp->id, collect()) : collect())->map(fn ($e) => ['text' => $e->reason, 'date' => substr((string) $e->occurred_at, 0, 10)])->values()->all(),
+                'claimed_by' => $w->claimed_by ?? null,
+                'work_status' => $w->prospecting_status ?? null,
+                'work_reason' => $w->prospecting_reason ?? null,
+                // v4 (road-to-sold.md 23.5 / 23.6): the viewer's own claim hold on this file and whether the owner still has to be found
+                'hold' => $tp ? ($holds[(int) $tp->id] ?? null) : null,
+                // 13.12: newest listed first (listed date, else first seen); `id` is what "Not the same property" posts; `can_split` is false for the only advert on a file
+                'adverts' => $list->sortByDesc(fn ($a) => ($a->listed_date ?? $a->first_seen_at)?->format('Y-m-d') ?? '')->values()->map(fn ($a) => [
+                    'id' => (int) $a->id, 'can_split' => $list->pluck('canonical_ref')->map(fn ($r) => $r ?: 'x')->unique()->count() > 1,
+                    'sole_mandate' => ($a->sole_mandate_wording !== null ? (bool) $a->sole_mandate_wording : (MicAdvertFilters::mentionsMandate($a->description_snippet, $mandateWords, $a->agency_name ?? null) || MicAdvertFilters::mentionsMandate($a->description, $mandateWords, $a->agency_name ?? null)))
+                        ? 'Sole mandate' . (($d = SoleMandateMatcher::daysSince($a->sole_mandate_first_seen_at)) !== null ? ' · ' . $d . ' d' : '') : null,
+                    'portal' => strtoupper($a->portal_source), 'owner' => $a->advertiser_type === 'owner', 'ref' => $a->portal_ref, 'url' => $a->portal_url, 'agency' => $a->agency_name, 'agent' => $a->agent_name,
+                    'price' => $a->price, 'listed' => $a->listed_date?->format('j M Y'), 'seen' => $a->first_seen_at?->format('j M Y'), 'active' => (bool) $a->is_active,
+                    'status' => $a->portal_status,
+                    'last_seen' => $a->last_seen_at?->format('j M'),
+                    'changes' => $this->netChanges($history->get($a->id, collect())),
+                ])->all(),
+                'deeds_info' => $tp && $tp->deeds_captured_at ? ['registered' => $tp->deeds_registered_date ? \Carbon\Carbon::parse($tp->deeds_registered_date)->format('j M Y') : null, 'price' => $tp->last_known_sold_price, 'bond' => $tp->bond_amount] : null,
+            ];
+        }
+
+        return $out;
+    }
+
+    /** How many different agencies stand behind these adverts (an owner's private advert counts as one "agency"; the same agency twice counts once). */
+    public static function agenciesIn(iterable $adverts): int
+    {
+        $seen = [];
+        foreach ($adverts as $a) {
+            $seen[(($a->advertiser_type ?? null) === 'owner') ? 'owner' : mb_strtolower(trim((string) ($a->agency_name ?? '')))] = true;
+        }
+
+        return count($seen);
+    }
+
+    /**
+     * The same person claiming the same advert the same day with the same outcome is one line with a count (a file's adverts each carry their own claim).
+     *
+     * @param  list<array<string, mixed>>  $claims
+     * @return list<array<string, mixed>>
+     */
+    private function collapseClaims(array $claims): array
+    {
+        $out = [];
+        foreach ($claims as $c) {
+            $k = ($c['who'] ?? '') . '|' . ($c['status'] ?? '') . '|' . ($c['at'] ?? '') . '|' . ($c['released'] ?? '') . '|' . ($c['reason'] ?? '');
+            if (isset($out[$k])) {
+                $out[$k]['count']++;
+            } else {
+                $out[$k] = $c + ['count' => 1];
+            }
+        }
+
+        return array_slice(array_values($out), 0, 6);
+    }
+
+    /**
+     * A price history as the REAL changes: R 0 (price on application) rows are dropped, and a run of changes on the same day is netted into one line
+     * (first old price -> last new price) - and vanishes when the day ends where it began (990k -> 1.05m -> 990k is not a change).
+     *
+     * @param  \Illuminate\Support\Collection<int, object>  $rows  prospecting_price_history rows, oldest first
+     * @return list<array{date:string, day:string, old:int, new:int}>
+     */
+    private function netChanges($rows): array
+    {
+        $days = [];
+        foreach ($rows as $h) {
+            if ((float) $h->old_price <= 0 || (float) $h->new_price <= 0) {
+                continue;
+            }
+            $day = \Carbon\Carbon::parse($h->changed_at)->format('Y-m-d');
+            if (isset($days[$day])) {
+                $days[$day]['new'] = (int) $h->new_price;
+            } else {
+                $days[$day] = ['day' => $day, 'old' => (int) $h->old_price, 'new' => (int) $h->new_price];
+            }
+        }
+        $out = [];
+        foreach ($days as $d) {
+            if ($d['old'] !== $d['new']) {
+                $out[] = ['date' => \Carbon\Carbon::parse($d['day'])->format('j M Y'), 'day' => $d['day'], 'old' => $d['old'], 'new' => $d['new']];
+            }
+        }
+
+        return $out;
+    }
+
+    /**
+     * Pending review pairs that raise the "Possible match" chip, per file: only same-property kinds (see raisesPossibleMatch), only pairs this file is in.
+     *
+     * @param  list<int>  $tpIds
+     * @return array<int, list<int>> file id => decision ids
+     */
+    public function possiblePairs(int $agencyId, array $tpIds): array
+    {
+        $tpIds = array_values(array_unique(array_map('intval', $tpIds)));
+        if (! $tpIds) {
+            return [];
+        }
+        $pairs = [];
+        $pend = DB::table('property_match_decisions as d')->where('d.agency_id', $agencyId)->where('d.subject_type', \App\Services\Prospecting\PropertyIdentityResolver::DECISION_SUBJECT)
+            ->whereNull('d.deleted_at')->whereNull('d.confirmed_at')->whereNull('d.rejected_at')
+            ->where(fn ($q) => $q->whereIn('d.matched_id', $tpIds)->orWhereRaw("CAST(JSON_UNQUOTE(JSON_EXTRACT(d.incoming_facts, '$.incoming_tracked_property_id')) AS UNSIGNED) IN (" . implode(',', $tpIds) . ')'))
+            ->get(['d.id', 'd.matched_id', 'd.incoming_facts', 'd.reason']);
+        foreach ($pend as $d) {
+            $facts = json_decode((string) $d->incoming_facts, true) ?: [];
+            if (! self::raisesPossibleMatch($facts['kind'] ?? null, (string) $d->reason)) {
+                continue;
+            }
+            foreach ([(int) $d->matched_id, (int) ($facts['incoming_tracked_property_id'] ?? 0)] as $side) {
+                if ($side && in_array($side, $tpIds, true)) {
+                    $pairs[$side][] = (int) $d->id;
+                }
+            }
+        }
+
+        return $pairs;
+    }
+
+    /**
+     * 13.16 / 13.16b - what we know of this file's adverts at the "search view" or "full details" level, for the card, the filter and the stats line. The advert
+     * that was read (the newest read) carries the level; otherwise the advert a click would read (P24 first, then PP, one with a live address).
+     *
+     * @param  \Illuminate\Support\Collection<int,\App\Models\ProspectingListing>  $live
+     * @return array{level:string, read_at:?string, read_on:?string, read_by:?string, stale:bool, target:?array{id:int,portal:string,ref:string,url:string}, photo_count:int}
+     */
+    private function detailsOf($live): array
+    {
+        $read = $live->filter(fn ($a) => $a->details_read_at !== null)->sortByDesc(fn ($a) => $a->details_read_at->getTimestamp())->first();
+        $pick = $read ?? $live->filter(fn ($a) => ! empty($a->portal_url))->sortBy(fn ($a) => $a->portal_source === 'p24' ? 0 : 1)->first();
+        $by = $read && $read->details_read_by ? (string) (\App\Models\User::withoutGlobalScopes()->whereKey($read->details_read_by)->value('name') ?? '') : '';
+        $photos = $read && is_array($read->photo_urls) ? count($read->photo_urls) : 0;
+
+        return [
+            'level' => $read ? 'full' : 'search',
+            'read_at' => $read?->details_read_at?->toIso8601String(),
+            'read_on' => $read?->details_read_at?->format('j M'),
+            'read_by' => $by !== '' ? trim(explode(' ', trim($by))[0]) : null,
+            'stale' => $read ? \App\Services\Prospecting\MicAdvertFacts::changedSinceRead($read) : false,
+            'target' => ($pick && ! empty($pick->portal_url) && ! empty($pick->portal_ref))
+                ? ['id' => (int) $pick->id, 'portal' => $pick->portal_source === 'pp' ? 'pp' : 'p24', 'ref' => (string) $pick->portal_ref, 'url' => (string) $pick->portal_url] : null,
+            'photo_count' => $photos,
+        ];
+    }
+    /**
+     * The viewer's own claim holds on these property files (v4 23.5): claim id, hold end, working days left, whether an extension is left, and
+     * whether the owner still has to be found before the owner can be contacted (23.6). Empty for a viewer without a held claim.
+     *
+     * @param  int[]  $tpIds
+     * @return array<int,array{claim_id:int,until:string,days_left:?int,can_extend:bool,find_owner:bool,missing:string}>
+     */
+    private function myHolds(int $agencyId, array $tpIds): array
+    {
+        $uid = (int) (auth()->id() ?: 0);
+        $hold = app(\App\Services\RoadToSold\ClaimHoldService::class);
+        if ($uid <= 0 || $tpIds === [] || ! $hold->available()) {
+            return [];
+        }
+        $claims = \App\Models\ProspectingClaim::withoutGlobalScopes()->where('prospecting_claims.agency_id', $agencyId)->where('prospecting_claims.user_id', $uid)
+            ->where('prospecting_claims.is_active', 1)->whereNull('prospecting_claims.released_at')->whereNull('prospecting_claims.deleted_at')->whereNotNull('prospecting_claims.hold_until')
+            ->join('prospecting_listings as l', 'l.id', '=', 'prospecting_claims.prospecting_listing_id')->whereIn('l.tracked_property_id', $tpIds)
+            ->orderBy('prospecting_claims.hold_until')->get(['prospecting_claims.*', 'l.tracked_property_id as file_id']);
+        $owner = app(\App\Services\RoadToSold\OwnerStationService::class);
+        $out = [];
+        foreach ($claims as $c) {
+            $tpId = (int) $c->file_id;
+            if (isset($out[$tpId])) {
+                continue;
+            }
+            $missing = $owner->missing($agencyId, $tpId);
+            $out[$tpId] = [
+                'claim_id' => (int) $c->id, 'until' => \Carbon\Carbon::parse($c->hold_until)->format('j M Y'), 'days_left' => $hold->daysLeft($c),
+                'can_extend' => $hold->mayExtend($c), 'find_owner' => $missing !== [], 'missing' => implode(' and ', $missing),
+            ];
+        }
+
+        return $out;
+    }
+}

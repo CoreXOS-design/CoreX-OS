@@ -64,8 +64,20 @@ class CalendarController extends Controller
         $shared['scopeCeiling'] = $ceiling;
         $shared['autoOpenFeedbackEventId'] = $request->input('capture_feedback');
 
+        // road-to-sold.md 23.23 drop 6: inside the pitch popup's Book evaluation step the calendar page is only the New Event form - nothing of the grid,
+        // the deck or the agenda is shown, so none of it is built (the page took 5-6 s and 2.2 MB, 2,800 queries, to show a form).
+        $pitchBook = $request->boolean('pitch_book') && \App\Support\Embed::on();
+        // the same for the popup's Presentation results step before the appointment is held (road-to-sold.md 23.25): the Capture Feedback form alone - the
+        // form fetches its own data, so none of the grid, deck or agenda is built or shown behind it
+        $pitchBook = $pitchBook || ($request->filled('capture_feedback') && \App\Support\Embed::on());
+        $request->attributes->set('pitch_book_slim', $pitchBook);
+        // road-to-sold.md 23.30: the Book evaluation form opens on the next working slot (the next whole hour inside working hours), never a time that has gone
+        $shared['pitchBookSlot'] = $request->boolean('pitch_book') && \App\Support\Embed::on()
+            ? array_map(fn ($t) => ['date' => $t->format('Y-m-d'), 'time' => $t->format('H:i')], app(\App\Services\CommandCenter\NextWorkingSlot::class)->for($user))
+            : null;
+
         // AT-164 Gate 4 — the Tile Deck (below the grid, all views).
-        $shared['deck']        = $this->tiles->buildDeck($user);
+        $shared['deck']        = $pitchBook ? [] : $this->tiles->buildDeck($user);
         $shared['deckCatalog'] = $this->tiles->catalog($user);
         $shared['deckLayout']  = $this->tiles->resolveLayout($user);
         $shared['deckSlots']   = $this->tiles->slotCount($user);
@@ -79,7 +91,7 @@ class CalendarController extends Controller
         // collapsed states / scroll mode), with code defaults; and the resident agenda.
         $cockpit = $this->resolveCockpit($pref);
         $shared['cockpit'] = $cockpit;
-        $shared['agenda']  = $this->tiles->panelAgenda($user);
+        $shared['agenda']  = $pitchBook ? [] : $this->tiles->panelAgenda($user);
 
         // AT-164 — CALENDAR SCROLLING preference (continuous stream vs classic paged).
         // Per-user, part of the saved arrangement. An explicit ?scroll= renders that mode
@@ -291,7 +303,10 @@ class CalendarController extends Controller
         // AT-164 Gate 5 — the per-month block (grid + species split + spanning bars) is
         // now built by one reusable method so the continuous-scroll endpoint renders
         // through the identical pipeline.
-        $block = $this->monthBlockData($user, $year, $month, $typeFilter, $categoryFilter, $scope);
+        $slim  = (bool) $request->attributes->get('pitch_book_slim');   // the pitch popup's Book evaluation step: only the form is shown (see index())
+        $block = $slim
+            ? ['grid' => [], 'byDate' => [], 'deadlineGroups' => [], 'spanningBars' => [], 'filteredEvents' => collect()]
+            : $this->monthBlockData($user, $year, $month, $typeFilter, $categoryFilter, $scope);
         $grid                 = $block['grid'];
         $appointmentByDate    = $block['byDate'];
         $deadlineGroupsByDate = $block['deadlineGroups'];
@@ -323,7 +338,7 @@ class CalendarController extends Controller
         // lazy-load top threshold (so init never trips loadPrev and drifts), plus enough
         // BELOW to overflow the frame and engage scrolling immediately.
         $preloadStart   = $anchorMonday->copy()->subWeeks(6);
-        $weekRows       = $this->weekRowsData($user, $preloadStart, 20, $typeFilter, $categoryFilter, $scope);
+        $weekRows       = $slim ? [] : $this->weekRowsData($user, $preloadStart, 20, $typeFilter, $categoryFilter, $scope);
         $anchorWeek     = $anchorMonday->toDateString();
 
         // AT-164 — PAGED shell data: exactly the weeks of the anchor MONTH (Monday of the
@@ -331,7 +346,7 @@ class CalendarController extends Controller
         // renderer as the continuous stream (one rendering truth, two navigation shells).
         $monthLastMonday = Carbon::create($year, $month, 1)->endOfMonth()->startOfWeek(Carbon::MONDAY);
         $pagedWeekCount  = (int) round($monthFirstMonday->diffInWeeks($monthLastMonday)) + 1;
-        $pagedWeekRows   = $this->weekRowsData($user, $monthFirstMonday->copy(), max(4, min(6, $pagedWeekCount)), $typeFilter, $categoryFilter, $scope);
+        $pagedWeekRows   = $slim ? [] : $this->weekRowsData($user, $monthFirstMonday->copy(), max(4, min(6, $pagedWeekCount)), $typeFilter, $categoryFilter, $scope);
 
         // Agenda range logic
         $rangeGroups = [
@@ -367,7 +382,7 @@ class CalendarController extends Controller
             default: $range = 'month'; $rangeStart = $base->copy()->startOfMonth(); $rangeEnd = $base->copy()->endOfMonth(); break;
         }
 
-        $agendaEvents = $this->applyFilters(
+        $agendaEvents = $slim ? collect() : $this->applyFilters(
             $this->service->getEventsForRange($user, $rangeStart->toDateString(), $rangeEnd->toDateString(), [], $scope),
             $user, $typeFilter, $categoryFilter, $scope
         );
@@ -384,7 +399,7 @@ class CalendarController extends Controller
 
         // Build labels for legend
         $classLabels = [];
-        foreach ($this->sharedViewData($user, $view, $typeFilter, $categoryFilter, $scope)['availableCategories'] as $cat) {
+        foreach (($slim ? $shared : $this->sharedViewData($user, $view, $typeFilter, $categoryFilter, $scope))['availableCategories'] as $cat) {
             $classLabels[$cat->event_class] = $cat->label;
         }
         $branchLabels = \App\Models\Branch::withoutGlobalScopes()
@@ -1152,6 +1167,17 @@ class CalendarController extends Controller
             ->orderBy('sort_order')
             ->get(['id', 'label']);
 
+        // Inside the pitch popup (own record, seller-facing evaluation) the Outcome list is the Result form's positive answers only; null everywhere else.
+        $popupResults = null;
+        if ($isSellerFacing && $calendarEvent->category === 'property_evaluation' && request()->filled('rts_prospect') && \App\Support\Embed::on()) {
+            $rts = \App\Models\RoadToSold\RtsProspect::query()->whereKey((int) request('rts_prospect'))->where('user_id', $user->ownershipUserId())->first();
+            if ($rts) {
+                $popupResults = collect(app(\App\Services\RoadToSold\ResultOptionService::class)->list((int) $rts->agency_id, (string) $rts->track))
+                    ->filter(fn ($o) => in_array($o['class'] ?? '', ['won', 'pending'], true))
+                    ->map(fn ($o) => ['key' => $o['key'], 'label' => $o['label'], 'needs_date' => $o['class'] !== 'won', 'days' => $o['revisit_days'] ?? null])->values()->all();
+            }
+        }
+
         // Per-property mode (listing_presentation): iterate properties, not contacts
         if ($feedbackMode === 'per_property') {
             $existing = \App\Models\CommandCenter\CalendarEventFeedback::query()
@@ -1166,6 +1192,8 @@ class CalendarController extends Controller
                     'date'  => $calendarEvent->event_date->format('D, j M Y H:i'),
                 ],
                 'feedback_mode' => 'per_property',
+                // v4 (road-to-sold.md 23.10): an evaluation asks what happened first (held / no show / rescheduled)
+                'is_evaluation' => $calendarEvent->category === 'property_evaluation',
                 // CX-103 (Johan, 2026-08-19) — per_property grouping now also
                 // covers viewing (multi-stop trips), not just listing
                 // presentations. This was hardcoded to 'listing_presentation'
@@ -1188,7 +1216,14 @@ class CalendarController extends Controller
                 // for — never hardcoded to lp_outcome regardless of class.
                 // Reuses $outcomes (already fetched, same category) rather than
                 // re-querying, so the two can never drift.
-                'lp_outcomes' => $outcomes->pluck('label')->values(),
+                // v4 (road-to-sold.md 23.10): a seller-facing appointment (evaluation / listing presentation) answers from the ONE result list, the same one the
+                // presentation panel and the belt card use; a buyer-facing viewing keeps its own list. An answer saved in the old wording stays selectable.
+                'lp_outcomes' => $isSellerFacing
+                    ? collect(array_column($popupResults ?? app(\App\Services\RoadToSold\ResultOptionService::class)->list((int) $agencyId), 'label'))
+                        ->merge($properties->map(fn ($p) => ($existing->get($p->id)?->kind_specific_data['outcome'] ?? null))->filter())->unique()->values()
+                    : $outcomes->pluck('label')->values(),
+                // the pitch popup's ONE form (road-to-sold.md 23.25 step 7): only Won and Undecided here, with what the form needs to post the answer; lost / not selling is the popup's Stops here
+                'result_options' => $popupResults ?? [],
                 // Mandate type has no meaning for a buyer-facing appointment
                 // (a viewing) — empty list, and the "Mandate type" field hides
                 // itself client-side when this is empty (see the x-show gate
@@ -1912,6 +1947,12 @@ class CalendarController extends Controller
 
         if ($request->wantsJson()) {
             return response()->json($event, 201);
+        }
+
+        // road-to-sold.md 23.23 drop 4: an evaluation booked in the pitch popup goes on to the "Evaluation booked" page (it records the call and tells the popup)
+        if ($request->boolean('pitch_book') && \App\Support\Embed::on()) {
+            return redirect()->route('seller-outreach.entry.evaluation-booked', ['calendarEvent' => $event->id]
+                + array_filter($request->only(['pitch_outcome', 'pitch_when', 'pitch_note', 'pitch_channel', 'rts_prospect', 'rts_stage', 'embed']), fn ($v) => is_scalar($v) && $v !== ''));
         }
 
         return redirect()

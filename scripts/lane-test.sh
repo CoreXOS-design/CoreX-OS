@@ -114,13 +114,25 @@ die() { echo "[lane-test] $*" >&2; exit 1; }
 # and the probe lock is dropped the instant the subshell exits.)
 lock_held() { [[ -e "$1" ]] && ! ( flock -n 9 ) 9<"$1" 2>/dev/null; }
 
+# Mask credentials in a command line before it is shown to anyone. The holder of a lock can be a
+# `mysqldump`/`mysql` that Laravel's schema:dump launched with --password='...' inline, and this
+# script prints that holder's command line to every waiting lane. Masks --password=X, --password 'X',
+# -pX, and NAME=value for the usual secret names. Always mask BEFORE truncating: cutting first can
+# leave a partial secret behind.
+mask_secrets() {
+    sed -E \
+        -e "s/(--password(=|[[:space:]]+))('[^']*'|\"[^\"]*\"|[^[:space:]]+)/\1'***'/g" \
+        -e "s/(^|[[:space:]])-p[^[:space:]-][^[:space:]]*/\1-p***/g" \
+        -e "s/((MYSQL_PWD|DB_PASSWORD|LANETEST_DB_PASSWORD|MYSQL_ROOT_PASSWORD)=)[^[:space:]]+/\1***/g"
+}
+
 # Describe the holder recorded in an info file ("worktree / pid / started / cmd").
 describe_holder() {
     local info="$1" lock="$2" worktree pid started_epoch started_human cmd now
     if [[ -f "$info" ]]; then
         worktree=$(sed -n '1p' "$info"); pid=$(sed -n '2p' "$info")
         started_epoch=$(sed -n '3p' "$info"); started_human=$(sed -n '4p' "$info")
-        cmd=$(sed -n '5p' "$info"); now=$(date +%s)
+        cmd=$(sed -n '5p' "$info" | mask_secrets); now=$(date +%s)
         echo "      worktree : $worktree"
         echo "      pid      : $pid$(kill -0 "$pid" 2>/dev/null || echo '  (wrapper gone -- a child process still holds the lock)')"
         echo "      started  : $started_human  ($(( now - started_epoch ))s ago)"
@@ -131,7 +143,7 @@ describe_holder() {
         local pids pid c any=0
         pids=$(lsof -t "$lock" 2>/dev/null | sort -un || true)
         for pid in $pids; do
-            c=$(tr '\0' ' ' 2>/dev/null < "/proc/$pid/cmdline" | cut -c1-110 || true)
+            c=$(tr '\0' ' ' 2>/dev/null < "/proc/$pid/cmdline" | mask_secrets | cut -c1-110 || true)
             [[ -n "$c" && "$c" != sleep* ]] || continue
             any=1
             echo "      pid $pid : $c  (cwd $(readlink "/proc/$pid/cwd" 2>/dev/null || echo '?'), up $(ps -o etime= -p "$pid" 2>/dev/null | tr -d ' ' || echo '?'))"

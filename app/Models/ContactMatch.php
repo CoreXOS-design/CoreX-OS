@@ -452,6 +452,20 @@ class ContactMatch extends Model
         return [];
     }
 
+    /**
+     * Every property type the wishlist asks for, ready to print ("House", "Apartment / Flat", "Townhouse"). Screens that show the wishlist's type
+     * use THIS, never the legacy single `property_type` column (it holds only the first pick).
+     *
+     * @return string[]
+     */
+    public function propertyTypeLabels(): array
+    {
+        return array_values(array_unique(array_filter(array_map(
+            fn ($t) => ucwords(trim(str_replace(['_', '-'], ' ', (string) $t))),
+            $this->propertyTypeList()
+        ))));
+    }
+
     public function isPropertyHidden(int $propertyId): bool
     {
         return in_array($propertyId, $this->hidden_property_ids ?? []);

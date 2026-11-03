@@ -10,14 +10,19 @@
         ->values()->all();
     $agentRows  = $report['agents'];
     $metricMeta = $report['metrics'];
-    $branchUrlBase = route('performance.agency-report.branch', ['branch' => '__KEY__', 'period' => $preset]);
-    $agentUrlBase  = route('performance.agency-report.agent', ['user' => '__UID__', 'period' => $preset]);
+    // The branch and agent pages open on the same period (custom dates included) and the same deal-status ticks as this screen.
+    $detailCarry   = array_filter(['start' => request('start'), 'end' => request('end')]) + $statuses->toQuery();
+    $branchUrlBase = route('performance.agency-report.branch', ['branch' => '__KEY__', 'period' => $preset] + $detailCarry);
+    $agentUrlBase  = route('performance.agency-report.agent', ['user' => '__UID__', 'period' => $preset] + $detailCarry);
     // Custom-range params flow through to the drilldown endpoint (contract §B). Built as a
     // plain path (not route()) so the view never depends on cc6's endpoint being registered
     // yet — the modal degrades to "coming soon" on 404 until cc6 lands the route.
-    $drillQuery = array_filter(['period' => $preset, 'start' => request('start'), 'end' => request('end')]);
+    $drillQuery = array_filter(['period' => $preset, 'start' => request('start'), 'end' => request('end')]) + $statuses->toQuery();
     $drilldownBase = url('/corex/performance/agency-report/drilldown') . '?' . http_build_query($drillQuery);
     $hasCustomDates = request()->filled('start') || request()->filled('end');
+    // Print carries the whole view (period + custom dates + comparison + ticks), so it prints what is on screen.
+    $printUrl = route('performance.agency-report.print', array_merge($viewQuery, ['period' => $preset]));
+    $compareRange = $comparisonMeta['range'] ?? null;
 @endphp
 <div class="w-full space-y-5"
      x-data="agencyReport({
@@ -33,6 +38,8 @@
         drilldownBase: @js($drilldownBase),
         currentPreset: @js($preset),
         hasCustomDates: {{ $hasCustomDates ? 'true' : 'false' }},
+        statusSelected: {{ Illuminate\Support\Js::from($statuses->buckets()) }},
+        defaultStatuses: {{ Illuminate\Support\Js::from(\App\Services\Performance\DealStatusSelection::DEFAULT) }},
         defaultUrl: @js(route('performance.agency-report'))
      })">
 
@@ -59,12 +66,12 @@
                     class="text-[11px] px-3 py-1 rounded"
                     style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);"
                     title="Reset period, sort, filters and toggles to default">Reset view</button>
-            <a href="{{ route('performance.agency-report.print', ['period' => $preset]) }}" target="_blank" data-tour="rpt-perf-print"
+            <a href="{{ $printUrl }}" target="_blank" data-tour="rpt-perf-print"
                class="text-[11px] px-3 py-1 rounded no-underline"
                style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);"
                title="Print the whole-company report">Print report</a>
             {{-- Period selector (cc5-owned partial — DO NOT edit here, only include it) --}}
-            @include('performance.agency-report._period-selector', ['preset' => $preset, 'presets' => $presets, 'compareMode' => $compareMode, 'compareModes' => $compareModes])
+            @include('performance.agency-report._period-selector', ['preset' => $preset, 'presets' => $presets, 'compareMode' => $compareMode, 'compareModes' => $compareModes, 'hiddenFields' => $statuses->toQuery()])
         </div>
 
         @if(session('period_error'))
@@ -94,11 +101,11 @@
                 <div class="flex items-center gap-3 flex-wrap" role="group" aria-label="Deal status filter">
                     <span class="text-xs font-bold uppercase tracking-widest" style="color:var(--text-muted);">Deals</span>
                     <label class="text-[11px] flex items-center gap-1" style="color:var(--text-primary);">
-                        <input type="checkbox" @change="toggleAll($event.target.checked)" :checked="allStatusesOn()"> All
+                        <input type="checkbox" @change="toggleAll($event.target.checked); $nextTick(() => applyStatuses())" :checked="allStatusesOn()"> All
                     </label>
                     <template x-for="st in statusKeys" :key="st">
                         <label class="text-[11px] flex items-center gap-1 capitalize" style="color:var(--text-primary);">
-                            <input type="checkbox" x-model="statusOn[st]"> <span x-text="st"></span>
+                            <input type="checkbox" x-model="statusOn[st]" @change="$nextTick(() => applyStatuses())"> <span x-text="st"></span>
                         </label>
                     </template>
                 </div>
@@ -162,6 +169,16 @@
             @endif
             .
         </p>
+        {{-- Deal-status ticks: which deals every figure on this page is counting, and — with a comparison —
+             the exact figure, change and the previous period's actual figure, so nothing has to be worked out. --}}
+        <p class="text-[11px] mt-1" style="color:var(--text-muted);" data-qa="counting-statuses">
+            Counting {{ $statuses->isEverything() ? 'all deals, including Declined' : $statuses->label() . ' deals' }}{{ in_array('declined', $statuses->buckets(), true) ? '' : ' (Declined excluded)' }}.
+        </p>
+        @if($heroComp && $compareRange)
+            <div class="text-xs mt-1" data-qa="hero-compare">
+                <x-performance-delta :c="$heroComp" :money="true" :previous-label="$compareRange" :lead="'R ' . number_format($heroValue, 2)" />
+            </div>
+        @endif
     </div>
 
     {{-- Company totals — each card drills into its detail (contract §B) --}}
@@ -191,15 +208,22 @@
                              x-text="fmtMoney(hasDealStatus ? statusGrossCommission() : {{ $grossSrv }})">{{ $grossSrv }}</div>
                         <div class="text-[11px] mt-0.5" style="color:var(--text-secondary);">
                             Agent share <span x-text="fmtMoney(hasDealStatus ? statusCommission() : {{ $agentSrv }})">{{ $agentSrv }}</span>
+                            @if($compareRange)<x-performance-delta :c="$comparison['company']['commission_gross_ex_vat'] ?? null" :money="true" :previous-label="$compareRange" />@endif
                         </div>
                         <div class="text-[11px]" style="color:var(--text-primary); font-weight:600;">
                             Company share <span x-text="fmtMoney(hasDealStatus ? statusCompanyCommission() : {{ $companySrv }})">{{ $companySrv }}</span>
+                            @if($compareRange)<x-performance-delta :c="$comparison['company']['commission_gross_ex_vat_company'] ?? null" :money="true" :previous-label="$compareRange" />@endif
                         </div>
                     @else
                         <div class="text-xl font-bold" style="color:var(--text-primary);">{{ $report['company'][$m['key']] ?? 0 }}</div>
                     @endif
                     <div class="text-[11px]" style="color:var(--text-muted);">{{ $m['label'] }}</div>
-                    <x-performance-delta :c="$c" :phrase="$comparisonMeta['phrase'] ?? ''" :money="$m['key'] === 'commission_gross_ex_vat'" />
+                    @if($m['key'] === 'commission_gross_ex_vat')
+                        {{-- The big figure on this card is Gross (agent + company), so its delta is on Gross too. --}}
+                        <x-performance-delta :c="$comparison['company']['commission_gross_total'] ?? null" :phrase="$comparisonMeta['phrase'] ?? ''" :money="true" :previous-label="$compareRange" />
+                    @else
+                        <x-performance-delta :c="$c" :phrase="$comparisonMeta['phrase'] ?? ''" :previous-label="$compareRange" />
+                    @endif
                 </button>
             @endforeach
         </div>
@@ -238,7 +262,7 @@
                         </th>
                         <template x-for="m in metrics" :key="m.key">
                             <th :class="isMoney(m.key) ? 'metric-th metric-money' : 'metric-th metric-qty'" @click="sortBranch(m.key)" :aria-sort="ariaBranch(m.key)">
-                                <div :class="isMoney(m.key) ? '' : 'th-rot'"><span x-text="m.label"></span> <span x-text="branchArrow(m.key)"></span></div>
+                                <div :class="isMoney(m.key) ? '' : 'th-rot'"><span x-text="m.column_label || m.label"></span> <span x-text="branchArrow(m.key)"></span></div>
                             </th>
                         </template>
                     </tr>
@@ -350,7 +374,7 @@
                         </th>
                         <template x-for="m in metrics" :key="m.key">
                             <th :class="isMoney(m.key) ? 'metric-th metric-money' : 'metric-th metric-qty'" @click="sortAgent(m.key)" :aria-sort="ariaAgent(m.key)">
-                                <div :class="isMoney(m.key) ? '' : 'th-rot'"><span x-text="m.label"></span> <span x-text="agentArrow(m.key)"></span></div>
+                                <div :class="isMoney(m.key) ? '' : 'th-rot'"><span x-text="m.column_label || m.label"></span> <span x-text="agentArrow(m.key)"></span></div>
                             </th>
                         </template>
                     </tr>
@@ -498,6 +522,7 @@ function agencyReport(cfg) {
         currentPreset: cfg.currentPreset || 'this_month',
         hasCustomDates: !!cfg.hasCustomDates,
         defaultUrl: cfg.defaultUrl,
+        defaultStatuses: cfg.defaultStatuses || ['pending', 'granted', 'registered'],
 
         // Measure the sticky top block's height into a CSS var (--report-top-h) so the by-agent
         // column headers pin flush directly beneath it at every scroll position / viewport /
@@ -652,18 +677,33 @@ function agencyReport(cfg) {
         resetView() {
             this.bSort = 'label'; this.bDir = 'asc'; this.aSort = 'name'; this.aDir = 'asc';
             this.resetFilters();
-            this.statusKeys.forEach(k => this.statusOn[k] = true);
+            this.statusKeys.forEach(k => this.statusOn[k] = this.defaultStatuses.includes(k));
             this.closeDrill();
             // Default period is "this month". If we're on any other period (or a custom range),
             // reload the report at its default URL so the server-rendered period resets too.
-            if (this.currentPreset !== 'this_month' || this.hasCustomDates) {
+            if (this.currentPreset !== 'this_month' || this.hasCustomDates || /[?&]status/.test(window.location.search)) {
                 window.location.href = this.defaultUrl;
             }
         },
 
         // ---- #6 deal-status toggles ----
         statusKeys: ['pending', 'granted', 'registered', 'declined'],
-        statusOn: { pending: true, granted: true, registered: true, declined: true },
+        // The ticks are the server's selection (?status[]=…; absent = Pending+Granted+Registered). The server
+        // builds EVERY deal-based figure from it — tiles, headline, cards, tables, drilldown, print, for both
+        // periods — so a tick reloads the page at the same address with the new selection in the URL: the
+        // screen, a copied link and Print can never disagree.
+        statusOn: Object.fromEntries(['pending', 'granted', 'registered', 'declined'].map(k => [k, (cfg.statusSelected || ['pending', 'granted', 'registered']).includes(k)])),
+        applyStatuses() {
+            const url = new URL(window.location.href);
+            [...url.searchParams.keys()].filter(k => k === 'status' || k === 'status[]').forEach(k => url.searchParams.delete(k));
+            const picked = this.statusKeys.filter(k => this.statusOn[k]);
+            const isDefault = picked.length === this.defaultStatuses.length && picked.every(k => this.defaultStatuses.includes(k));
+            if (!isDefault) {
+                if (picked.length === 0) url.searchParams.append('status[]', 'none');
+                else picked.forEach(k => url.searchParams.append('status[]', k));
+            }
+            window.location.href = url.toString();
+        },
         get hasDealStatus() { return !!this.companyStatus; },
         allStatusesOn() { return this.statusKeys.every(k => this.statusOn[k]); },
         toggleAll(on) { this.statusKeys.forEach(k => this.statusOn[k] = on); },

@@ -373,8 +373,10 @@ final class ProspectStatusTest extends TestCase
             'street_number'          => preg_replace('/\D+/', '', explode(' ', $address)[0] ?? '0') ?: '0',
             'street_name'            => trim(preg_replace('/^\S+\s*/', '', $address)),
             'suburb'                 => $suburb,
+            'suburb_normalised'      => strtolower($suburb),
             'latitude'               => $lat,
             'longitude'              => $lng,
+            'geo_confidence'         => 'exact', // a geocoded pin: property identity (spec §5.1) trusts only exact / high pins
             'promoted_to_property_id'=> $promotedTo,
             'promoted_at'            => now(),
             'status'                 => 'promoted',

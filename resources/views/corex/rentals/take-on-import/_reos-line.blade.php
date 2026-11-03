@@ -41,7 +41,7 @@
 
             @if($imported)
                 <span class="ds-badge ds-badge-success" data-test="row-imported">{{ $row->result_action === 'updated' ? 'Updated' : 'Imported' }}</span>
-                @if($row->target_lease_id)<a href="{{ route('corex.leases.show', $row->target_lease_id) }}" class="underline">Open lease</a>@endif
+                @if($row->target_lease_id)@feature('rental-leases')<a href="{{ route('corex.leases.show', $row->target_lease_id) }}" class="underline">Open lease</a>@endfeature @endif
             @elseif($failed)
                 <span class="ds-badge ds-badge-danger" data-test="row-failed" data-chip>Failed</span>
             @elseif($needs)
@@ -58,7 +58,7 @@
                 @if($row->import_error)<div class="text-red-600" data-test="import-error">{{ $row->import_error }}</div>@endif
                 @foreach($blockers as $b)<div class="text-red-600" data-test="blocker" data-blocker-code="{{ $b['code'] }}">{{ $b['message'] }}</div>@endforeach
                 @if($archived && $row->existing_lease_id)
-                    <a href="{{ route('corex.leases.show', $row->existing_lease_id) }}" class="underline">Open the lease</a>
+                    @feature('rental-leases')<a href="{{ route('corex.leases.show', $row->existing_lease_id) }}" class="underline">Open the lease</a>@endfeature
                 @elseif($hard)
                     <a href="{{ route('corex.rentals.take-on-import.index') }}" class="underline">Back to batches to upload the corrected file</a>
                 @endif

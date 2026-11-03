@@ -30,6 +30,20 @@ final class AddressOnlyComposeTest extends TestCase
 {
     use RefreshDatabase;
 
+    /** road-to-sold.md 23.25 / 23.11: the opt-out banner the Contact step shows carries the one-click off-ramp - only where the agent has a Road to Sold record (rts_prospect on the address). */
+    public function test_the_opt_out_banner_offers_the_contact_step_off_ramp_only_inside_a_road_to_sold_record(): void
+    {
+        [$agencyId, $userId] = $this->seedAgency();
+        $this->seedDefaultTemplate($agencyId);
+        $contact = $this->seedContactWithAddress($agencyId);
+        $contact->forceFill(['messaging_opt_out_at' => now()])->save();
+
+        $inside = $this->actingAs(User::find($userId))->get(route('seller-outreach.composer.show', ['contact' => $contact, 'rts_prospect' => 4242, 'embed' => 1]));
+        $inside->assertOk()->assertSee('Contact has opted out')->assertSee('data-qa="optout-offramp"', false)->assertSee('Cannot make contact - opted out: stop here');
+
+        $this->actingAs(User::find($userId))->get(route('seller-outreach.composer.show', $contact))->assertOk()->assertSee('Contact has opted out')->assertDontSee('data-qa="optout-offramp"', false);
+    }
+
     /** 1 — contact with a captured address but no linked property: composer OPENS in address-only mode. */
     public function test_composer_opens_in_address_only_mode_when_contact_has_address_but_no_property(): void
     {

@@ -1,6 +1,7 @@
 {{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 --}}
 @extends('layouts.corex')
 
+@if(\App\Support\Embed::on())@section('suppress-flash-toast', '1')@endif
 @section('corex-content')
 <div class="w-full space-y-5"
      x-data="composerState({
@@ -19,7 +20,9 @@
          contactUrl: @js(route('corex.contacts.show', $contact)),
      })">
 
-    {{-- Header --}}
+    @php $inPopup = \App\Support\Embed::on(); @endphp
+    {{-- Header (the pitch popup has its own title and step bar) --}}
+    @unless($inPopup)
     <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
@@ -32,12 +35,16 @@
             <div class="flex flex-wrap items-center gap-2">
                 {{-- AT-121 — guided-tour "?" launcher (flat neutral header → surface variant). --}}
                 @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
+                @unless(\App\Support\Embed::on())
                 <a href="{{ route('corex.contacts.show', $contact) }}" class="corex-btn-outline text-xs no-underline">
                     ← Back to {{ trim(($contact->first_name ?? '') . ' ' . ($contact->last_name ?? '')) ?: 'contact' }}
                 </a>
+                @endunless
             </div>
         </div>
     </div>
+
+    @endunless
 
     {{-- Flash --}}
     @if(session('error'))
@@ -79,9 +86,38 @@
         </div>
     @else
 
+        @if($inPopup)
+            <h1 class="text-base font-bold" style="color: var(--text-primary);" data-qa="step-heading">Contact</h1>
+        @endif
+
+        {{-- road-to-sold.md 23.30: the old Pitch step is the top of Contact - who to contact (one seller = one preselected line; more = one click selects) --}}
+        @if($inPopup && !empty($property))
+            @include('seller-outreach._seller-chooser', ['property' => $property, 'contact' => $contact])
+        @endif
+
+        {{-- The property this pitch is about; a click shows its MIC card (road-to-sold.md 23.23) --}}
+        @if(!empty($property))
+            @php $__peek = app(\App\Services\Prospecting\MicWork\PitchCardResolver::class)->peekAttributes(null, (int) $property->id); @endphp
+            <div class="rounded-md {{ $inPopup ? 'p-3' : 'p-4' }}" style="background: var(--surface); border: 1px solid var(--border);" data-qa="listing-header" {!! $__peek !!}>
+                <div class="text-[10px] uppercase tracking-wider font-semibold mb-1 flex items-center justify-between" style="color: var(--text-muted);">
+                    <span>About</span>
+                    @if($__peek !== '')<span data-peek-hint style="color: var(--brand-icon, #0ea5e9); text-transform: none; letter-spacing: 0; font-size: .75rem;">What is this property? ▾</span>@endif
+                </div>
+                <div class="font-semibold text-sm" style="color: var(--text-primary);">
+                    @if(!empty($advertAddress)){{ $advertAddress }}@else{{ $property->address ?: $property->title ?: ('Property #' . $property->id) }}{{ !empty($property->suburb) ? ', ' . $property->suburb : '' }}@endif
+                </div>
+                <div class="text-xs mt-1" style="color: var(--text-muted);">
+                    @if(!empty($property->price))R {{ number_format((float) $property->price, 0, '.', ',') }} · @endif
+                    {{ $property->property_type ?? 'property' }}
+                    @if(!empty($property->beds)) · {{ $property->beds }} beds @endif
+                    @if(!empty($property->baths)) · {{ $property->baths }} baths @endif
+                </div>
+            </div>
+        @endif
+
         {{-- Two-column composer (60/40 on lg+) --}}
         <div class="grid grid-cols-1 lg:grid-cols-5 gap-5">
-            <div class="lg:col-span-3">
+            <div class="{{ $inPopup ? 'lg:col-span-5' : 'lg:col-span-3' }}">
                 @include('seller-outreach._compose-form', [
                     'contact'            => $contact,
                     'property'           => $property,
@@ -91,11 +127,17 @@
                     'context'            => $context,
                     'propertyStatuses'   => $propertyStatuses ?? [],
                     'addressOnly'        => $addressOnly ?? false,
+                    'phoneTab'           => $phoneTab ?? false,
+                    'phoneCall'          => $phoneCall ?? null,
+                    'inPopup'            => $inPopup,
                 ])
             </div>
+            {{-- the demand and tracking panels are the page's; the popup is for doing the contact --}}
+            @unless($inPopup)
             <div class="lg:col-span-2" data-tour="oc-facts">
-                @include('seller-outreach._compose-facts', ['context' => $context])
+                @include('seller-outreach._compose-facts', ['context' => $context, 'addressOnly' => $addressOnly ?? false])
             </div>
+            @endunless
         </div>
     @endif
 </div>
@@ -201,7 +243,11 @@ function composerState(init) {
                     // No client URL (e.g. email) — close the blank WA tab we opened.
                     waTab.close();
                 }
-                window.location.href = this.sentUrlBase + '/' + data.send_id;
+                // Road to Sold pop-up context (embed, the prospect, the stage) rides along so the Done bar still knows the prospect
+                const carry = new URLSearchParams();
+                const here = new URLSearchParams(window.location.search);
+                ['embed', 'rts_prospect', 'rts_stage'].forEach(k => { if (here.get(k)) carry.set(k, here.get(k)); });
+                window.location.href = this.sentUrlBase + '/' + data.send_id + (carry.toString() ? '?' + carry.toString() : '');
             } catch (e) {
                 if (waTab) waTab.close();
                 alert('Network error — try again.');
@@ -283,4 +329,9 @@ function propertyPickerCollision(init) {
     };
 }
 </script>
+@include('layouts.partials._pitch-popup')
+@include('layouts.partials._pitch-result')
+@if(!empty($bookUrl))
+<script>window.addEventListener('load', function () { if (window.corexPitchBook) { window.corexPitchBook(@js($bookUrl)); } });</script>
+@endif
 @endsection

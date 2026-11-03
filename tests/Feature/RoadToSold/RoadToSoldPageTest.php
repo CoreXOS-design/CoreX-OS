@@ -22,7 +22,7 @@ use Illuminate\Support\Str;
 use Tests\TestCase;
 
 /**
- * AT-454 (lane 3) - the Road to Sold page and the "Contacted client" capture over HTTP.
+ * AT-454 (lane 3) - the Road to Sold page and the "Log contact" capture over HTTP.
  * Spec: .ai/specs/road-to-sold.md section 10.5.
  *
  * Paths proven: the day's list renders (address, price, days on market, listing agency, why, owner +
@@ -126,8 +126,10 @@ final class RoadToSoldPageTest extends TestCase
         $res->assertSee('Seeff Margate')->assertSee('Price dropped 8% in 10 days')->assertSee('On the market 120 days');
         $res->assertSee('Pieter van der Merwe')->assertSee('0825512345');
         $res->assertSee('Find the owner')->assertSee(route('seller-outreach.entry.from-tracked-property', $noOwner->id), false);
-        $res->assertSee('0 of 2')->assertSee('Contacted client');
-        $this->assertSame(2, substr_count($res->getContent(), 'data-tp='));
+        // Belt v2 (3 Nov): a Today's work row has ONE button (Find owner) + Swap; Log contact is inside the popup's Contact step
+        $res->assertSee('0 of 2');
+        $this->assertSame(0, substr_count($res->getContent(), 'data-qa="log-contact"'));
+        $this->assertSame(2, substr_count($res->getContent(), 'data-qa="swap-open"'), 'each loaded row can be swapped');
     }
 
     public function test_search_status_and_view_filters(): void
@@ -140,15 +142,17 @@ final class RoadToSoldPageTest extends TestCase
         $this->item($this->agent, $b, ['position' => 2, 'status' => 'worked']);
 
         $get = fn (array $q) => $this->actingAs($this->agent)->get(route('road-to-sold.index', $q));
+        // The list's own rows - "do this next" names the first open property whatever filter the list is on.
+        $rows = fn (array $q) => collect($get($q)->viewData('rows')->items())->pluck('street')->map(fn ($v) => preg_replace('/^\d+\s+/', '', $v))->values()->all();
 
-        $get([])->assertSee('Marine Drive')->assertDontSee('Ocean View Road');                       // open only by default
-        $get(['status' => 'all'])->assertSee('Marine Drive')->assertSee('Ocean View Road');
-        $get(['status' => 'worked'])->assertDontSee('Marine Drive')->assertSee('Ocean View Road');
-        $get(['status' => 'all', 'q' => 'ocean'])->assertSee('Ocean View Road')->assertDontSee('Marine Drive');
-        $get(['status' => 'all', 'q' => 'Shelly'])->assertSee('Ocean View Road')->assertDontSee('Marine Drive');   // town
-        $get(['status' => 'all', 'q' => '0731112222'])->assertSee('Marine Drive')->assertDontSee('Ocean View Road'); // owner phone
-        $get(['status' => 'all', 'q' => 'Sipho'])->assertSee('Marine Drive')->assertDontSee('Ocean View Road');      // owner name
-        $get(['status' => 'all', 'view' => 'no_owner'])->assertSee('Ocean View Road')->assertDontSee('Marine Drive');
+        $this->assertSame(['Marine Drive'], $rows([]));                                                  // open only by default
+        $this->assertEqualsCanonicalizing(['Marine Drive', 'Ocean View Road'], $rows(['status' => 'all']));
+        $this->assertSame(['Ocean View Road'], $rows(['status' => 'worked']));
+        $this->assertSame(['Ocean View Road'], $rows(['status' => 'all', 'q' => 'ocean']));
+        $this->assertSame(['Ocean View Road'], $rows(['status' => 'all', 'q' => 'Shelly']));              // town
+        $this->assertSame(['Marine Drive'], $rows(['status' => 'all', 'q' => '0731112222']));             // owner phone
+        $this->assertSame(['Marine Drive'], $rows(['status' => 'all', 'q' => 'Sipho']));                  // owner name
+        $this->assertSame(['Ocean View Road'], $rows(['status' => 'all', 'view' => 'no_owner']));
         $get(['status' => 'all', 'selection' => 'price_drops'])->assertSee('Marine Drive');
         $get(['status' => 'all', 'q' => 'zzz-nothing'])->assertSee('Nothing matches this search.');
         $get(['sort' => 'address', 'dir' => 'desc', 'status' => 'all'])->assertOk();
@@ -192,9 +196,9 @@ final class RoadToSoldPageTest extends TestCase
         $page = $this->actingAs($this->agent)->get(route('road-to-sold.index', ['status' => 'all']));
         $page->assertSee('No answer')->assertSee('1 of 1');
 
-        // The "No answer" view finds it any day (owner phones back) and still offers Contacted client.
+        // The "No answer" view finds it any day (owner phones back) and still offers Log contact.
         $this->actingAs($this->agent)->get(route('road-to-sold.index', ['view' => 'no_answer', 'date' => '2026-11-30']))
-            ->assertSee('Marine Drive')->assertSee('Contacted client');
+            ->assertSee('Marine Drive')->assertSee('Log contact');
     }
 
     public function test_wrong_number_view_lists_the_tagged_property(): void
@@ -257,7 +261,7 @@ final class RoadToSoldPageTest extends TestCase
         PermissionService::clearCache();
         $res = $this->actingAs($manager)->get(route('road-to-sold.index', ['agent' => $this->other->id]));
         $res->assertOk()->assertSee('Marine Drive')->assertSee('Bheki Other');
-        $res->assertDontSee('data-tp=', false);   // looking at someone else's list is read-only: no Contacted client buttons
+        $res->assertDontSee('data-tp=', false);   // looking at someone else's list is read-only: no Log contact buttons
     }
 
     public function test_a_second_agencys_list_never_shows(): void

@@ -137,7 +137,8 @@ final class LeaseActionsMenuTest extends TestCase
         $response = $this->actingAs($this->agent)->get(route('corex.leases.show', $lease->fresh()));
 
         $response->assertOk();
-        $response->assertDontSee('Lease actions');
+        // Scoped to the menu button (leases.md §3.8): the page also carries the guided-tour definition, which names "Lease actions".
+        $response->assertDontSee('Lease actions &#9662;', false);
     }
 
     public function test_the_notice_dialogs_post_to_the_notice_cases_route_and_the_other_dialogs_to_their_renewal_routes(): void

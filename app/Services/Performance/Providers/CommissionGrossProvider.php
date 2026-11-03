@@ -2,6 +2,8 @@
 
 namespace App\Services\Performance\Providers;
 
+use App\Services\Performance\DealStatusBreakdownService;
+use App\Services\Performance\DealStatusSelection;
 use App\Services\Performance\Period;
 use Illuminate\Support\Facades\DB;
 
@@ -18,7 +20,7 @@ use Illuminate\Support\Facades\DB;
  * show Gross / Agent share / Company share per agent without re-deriving the
  * split (deal_money_lines already carries both sides of every money line).
  */
-class CommissionGrossProvider implements MetricProvider
+class CommissionGrossProvider implements MetricProvider, DealStatusAware
 {
     public function key(): string { return 'commission_gross_ex_vat'; }
 
@@ -36,14 +38,46 @@ class CommissionGrossProvider implements MetricProvider
         return $out;
     }
 
+    /** Agent share of the commission on deals in the ticked status buckets only. */
+    public function forUsersWithStatuses(array $userIds, Period $period, DealStatusSelection $statuses): array
+    {
+        $out = [];
+        foreach ($this->forUsersWithCompanyShare($userIds, $period, $statuses) as $uid => $r) {
+            $out[$uid] = $r['agent'];
+        }
+        return $out;
+    }
+
     /**
+     * @param  ?DealStatusSelection  $statuses  null / every bucket = all deals (the original SQL sum);
+     *   otherwise only money lines on deals whose status bucket is ticked count.
      * @return array<int, array{agent: float, company: float}> per-user agent_gross_ex_vat
      *   and company_gross_ex_vat sums, both COALESCE(SUM(...),0).
      */
-    public function forUsersWithCompanyShare(array $userIds, Period $period): array
+    public function forUsersWithCompanyShare(array $userIds, Period $period, ?DealStatusSelection $statuses = null): array
     {
         $out = array_fill_keys($userIds, ['agent' => 0.0, 'company' => 0.0]);
         if (empty($userIds)) {
+            return $out;
+        }
+
+        if ($statuses !== null && !$statuses->isEverything()) {
+            // Row level, because a deal's status bucket is derived from several columns
+            // (DealStatusBreakdownService::dr1Bucket) and cannot be expressed as one SQL sum.
+            $lines = DB::table('deal_money_lines as ml')
+                ->join('deals as d', 'd.id', '=', 'ml.deal_id')
+                ->whereNull('ml.deleted_at')
+                ->whereNull('d.deleted_at')
+                ->whereIn('ml.user_id', $userIds)
+                ->whereNotNull('d.deal_date')
+                ->whereBetween('d.deal_date', [$period->start->toDateString(), $period->end->toDateString()])
+                ->get(['ml.user_id as uid', 'ml.agent_gross_ex_vat as agent_v', 'ml.company_gross_ex_vat as company_v',
+                       'd.accepted_status', 'd.registration_date', 'd.granted_at']);
+            foreach ($lines as $r) {
+                if (!$statuses->has(DealStatusBreakdownService::dr1Bucket($r))) continue;
+                $out[(int) $r->uid]['agent']   += (float) $r->agent_v;
+                $out[(int) $r->uid]['company'] += (float) $r->company_v;
+            }
             return $out;
         }
 

@@ -1,0 +1,160 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Tests\Feature\MarketIntelligence;
+
+use App\Models\Agency;
+use App\Models\Branch;
+use App\Models\MicAgencySetting;
+use App\Models\User;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
+use Tests\Feature\RoadToSold\Concerns\RtsFixtures;
+use Tests\TestCase;
+
+/** mic-work-tab.md section 9 (step 6.5): the MIC Settings page - per agency, validated, and read back by the Work tab and the other lanes' accessors. */
+final class MicSettingsPageTest extends TestCase
+{
+    use RefreshDatabase, RtsFixtures;
+
+    private User $admin;
+    private Agency $b;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+        $this->setUpAgency();
+        $this->b = Agency::create(['name' => 'Agency B ' . uniqid(), 'slug' => 'b-' . uniqid()]);
+        Branch::create(['agency_id' => $this->b->id, 'name' => 'B Main']);
+        $this->admin = User::factory()->create(['agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'role' => 'admin', 'is_admin' => true, 'is_active' => true]);
+    }
+
+    private function payload(array $over = []): array
+    {
+        return array_replace_recursive([
+            'refresh_interval_days' => 5, 'gone_tile_days' => 20, 'neighbour_months' => 4, 'neighbour_each_side' => 6,
+            'detail_pages_per_session' => 30, 'area_agency_pages_per_run' => 8, 'area_street_pages_per_run' => 120,
+            'tiles_shown' => [1, 2, 4, 8],
+            'weights' => ['seller' => 40, 'buyer' => 20, 'pocket' => 15, 'known' => 15, 'reachable' => 10],
+        ], $over);
+    }
+
+    public function test_page_renders_with_defaults_and_the_matching_summary_and_has_a_tab(): void
+    {
+        $this->actingAs($this->admin)->get(route('market-intelligence.settings'))->assertOk()
+            ->assertSee('data-qa="mic-settings-form"', false)->assertSee('data-qa="matching-summary"', false)->assertSee('Opportunity score weights', false);
+        $this->actingAs($this->admin)->get(route('market-intelligence.work'))->assertOk()->assertSee(route('market-intelligence.settings'), false);
+    }
+
+    public function test_saving_stores_per_agency_values_that_the_accessors_and_the_tile_row_read_back(): void
+    {
+        $this->actingAs($this->admin)->put(route('market-intelligence.settings.update'), $this->payload())->assertRedirect(route('market-intelligence.settings'));
+
+        $s = MicAgencySetting::for($this->agency->id);
+        $this->assertSame(5, MicAgencySetting::refreshIntervalDays($this->agency->id));
+        $this->assertSame(4, MicAgencySetting::neighbourMonths($this->agency->id));
+        $this->assertSame(6, MicAgencySetting::neighbourEachSide($this->agency->id));
+        $this->assertSame(20, MicAgencySetting::goneTileDays($this->agency->id));
+        $this->assertSame(30, $s->detailPagesPerSession());
+        $this->assertSame(120, MicAgencySetting::areaStreetPagesPerRun($this->agency->id));
+        $this->assertSame(40, $s->scoreWeights()['seller']);
+        $this->assertSame([1, 2, 4, 8], $s->tilesShown());
+        $this->assertFalse($s->optOutRegistryCheck(), 'the opt-out registry switch is OFF unless ticked');
+        $this->assertSame(7, MicAgencySetting::refreshIntervalDays($this->b->id), 'another agency keeps the default');
+        $this->assertSame(0, DB::table('mic_agency_settings')->where('agency_id', $this->b->id)->count());
+
+        $html = $this->actingAs($this->admin)->get(route('market-intelligence.work'))->getContent();
+        $this->assertStringContainsString('data-qa="tile-8"', $html);
+        $this->assertStringNotContainsString('data-qa="tile-3"', $html, 'a tile the agency switched off is not shown');
+    }
+
+    public function test_mandate_length_is_saved_read_back_validated_and_an_older_form_does_not_reset_it(): void
+    {
+        $page = $this->actingAs($this->admin)->get(route('market-intelligence.settings'))->assertOk();
+        $page->assertSee('name="mandate_length_days"', false)->assertSee('Mandate length (days)', false)->assertSee('value="90"', false);
+
+        $this->actingAs($this->admin)->put(route('market-intelligence.settings.update'), $this->payload(['adverts_present' => 1, 'mandate_length_days' => 120]))->assertRedirect(route('market-intelligence.settings'));
+        $this->assertSame(120, MicAgencySetting::mandateLengthDaysFor($this->agency->id));
+        $this->assertSame(90, MicAgencySetting::mandateLengthDaysFor($this->b->id), 'another agency keeps the default');
+
+        $this->actingAs($this->admin)->put(route('market-intelligence.settings.update'), $this->payload(['adverts_present' => 1, 'mandate_length_days' => 800]))->assertSessionHasErrors('mandate_length_days');
+        $this->assertSame(120, MicAgencySetting::mandateLengthDaysFor($this->agency->id), 'a rejected value changes nothing');
+
+        $this->actingAs($this->admin)->put(route('market-intelligence.settings.update'), $this->payload())->assertRedirect(route('market-intelligence.settings'));
+        $this->assertSame(120, MicAgencySetting::mandateLengthDaysFor($this->agency->id), 'a form without the Adverts group does not reset it');
+    }
+
+    public function test_a_mandate_word_without_sole_or_exclusive_is_refused_with_a_plain_message(): void
+    {
+        $this->actingAs($this->admin)->put(route('market-intelligence.settings.update'), $this->payload(['adverts_present' => 1, 'mandate_words' => "sole mandate\nopen mandate"]))
+            ->assertSessionHasErrors(['mandate_words' => 'Not saved: "open mandate". A sole-mandate word must have "sole" or "exclusive" next to mandate, agent or agency (for example "sole mandate" or "exclusive agency"), 3 to 60 characters.']);
+        $this->assertSame(0, DB::table('mic_agency_settings')->where('agency_id', $this->agency->id)->count(), 'nothing was saved');
+
+        $this->actingAs($this->admin)->put(route('market-intelligence.settings.update'), $this->payload(['adverts_present' => 1, 'mandate_words' => "Sole Mandate\nexclusive agency\nsole mandate"]))->assertSessionHasNoErrors();
+        $this->assertSame(['sole mandate', 'exclusive agency'], MicAgencySetting::mandateWordsFor($this->agency->id));
+    }
+
+    public function test_weights_must_add_up_to_100_and_at_least_one_tile_must_show(): void
+    {
+        $this->actingAs($this->admin)->put(route('market-intelligence.settings.update'), $this->payload(['weights' => ['seller' => 50]]))->assertSessionHasErrors('weights');
+        $this->actingAs($this->admin)->put(route('market-intelligence.settings.update'), array_diff_key($this->payload(), ['tiles_shown' => 1]))->assertSessionHasErrors('tiles_shown');
+        $this->assertSame(0, DB::table('mic_agency_settings')->where('agency_id', $this->agency->id)->count(), 'nothing saved on a rejected form');
+        $this->actingAs($this->admin)->put(route('market-intelligence.settings.update'), $this->payload(['neighbour_months' => 9]))->assertSessionHasErrors('neighbour_months');
+    }
+
+    public function test_areas_by_exact_name_only(): void
+    {
+        DB::table('p24_suburbs')->insert(['name' => 'Margate', 'slug' => 'margate', 'p24_id' => 987001, 'created_at' => now(), 'updated_at' => now()]);
+        $id = (int) DB::table('p24_suburbs')->where('name', 'Margate')->value('id');
+        $this->actingAs($this->admin)->put(route('market-intelligence.settings.update'), $this->payload(['add_areas' => 'margate, Nowheresville']))
+            ->assertRedirect()->assertSessionHas('status', fn ($m) => str_contains($m, 'Nowheresville'));
+        $this->assertSame([$id], MicAgencySetting::for($this->agency->id)->areas());
+    }
+
+    public function test_count_a_suburb_as_ours_is_saved_read_back_and_an_older_form_without_it_does_not_reset_it(): void
+    {
+        $this->actingAs($this->admin)->put(route('market-intelligence.settings.update'), $this->payload(['working_suburb_min_count' => 5]))->assertRedirect(route('market-intelligence.settings'));
+        $this->assertSame(5, \App\Models\MicAgencySetting::for((int) $this->admin->agency_id)->workingSuburbMinCount());
+        $this->actingAs($this->admin)->get(route('market-intelligence.settings'))->assertOk()->assertSee('Count a suburb as ours from', false);
+
+        $this->actingAs($this->admin)->put(route('market-intelligence.settings.update'), $this->payload())->assertRedirect();
+        $this->assertSame(5, \App\Models\MicAgencySetting::for((int) $this->admin->agency_id)->workingSuburbMinCount(), 'a form that did not post the field leaves it alone');
+
+        $this->actingAs($this->admin)->put(route('market-intelligence.settings.update'), $this->payload(['working_suburb_min_count' => 0]))->assertSessionHasErrors('working_suburb_min_count');
+    }
+
+    public function test_areas_have_a_filter_ticked_first_and_suggestions_come_from_the_one_working_suburbs_source(): void
+    {
+        $country = DB::table('p24_countries')->insertGetId(['p24_id' => 987800, 'name' => 'South Africa', 'created_at' => now(), 'updated_at' => now()]);
+        $prov = DB::table('p24_provinces')->insertGetId(['p24_id' => 987900, 'p24_country_id' => $country, 'name' => 'KwaZulu-Natal', 'created_at' => now(), 'updated_at' => now()]);
+        $cityA = DB::table('p24_cities')->insertGetId(['p24_id' => 987901, 'p24_province_id' => $prov, 'name' => 'Port Shepstone', 'created_at' => now(), 'updated_at' => now()]);
+        $cityB = DB::table('p24_cities')->insertGetId(['p24_id' => 987902, 'p24_province_id' => $prov, 'name' => 'Durban', 'created_at' => now(), 'updated_at' => now()]);
+        $mk = fn ($name, $slug, $pid, $city) => DB::table('p24_suburbs')->insertGetId(['name' => $name, 'slug' => $slug, 'p24_id' => $pid, 'p24_city_id' => $city, 'created_at' => now(), 'updated_at' => now()]);
+        $zulu = $mk('ZULU BAY', 'zulu-bay', 987101, $cityA);
+        $alpha = $mk('Alpha Beach', 'alpha-beach', 987102, $cityA);
+        $busy = $mk('Glenmore', 'glenmore-a', 987103, $cityA);
+        $twin = $mk('Glenmore', 'glenmore-b', 987104, $cityB);
+        $quiet = $mk('Quiet Bay', 'quiet-bay', 987105, $cityA);
+        // cc4's WorkingSuburbs::counts(): stock = the agency's own files in the suburb (mic_file_stats.own_stock), qualifies at 3 together
+        foreach ([[$busy, 3], [$twin, 4], [$quiet, 1]] as [$sub, $n]) {
+            for ($i = 0; $i < $n; $i++) {
+                DB::table('mic_file_stats')->insert(['agency_id' => $this->agency->id, 'tracked_property_id' => 900000 + $sub * 10 + $i, 'p24_suburb_id' => $sub, 'own_stock' => 1, 'computed_at' => now()]);
+            }
+        }
+        \App\Models\MicAgencySetting::saveValues($this->agency->id, ['areas' => [$zulu, $alpha]]);
+
+        $html = $this->actingAs($this->admin)->get(route('market-intelligence.settings'))->assertOk()->getContent();
+        $text = preg_replace('/\s+/', ' ', $html);
+        $this->assertStringContainsString('data-qa="areas-filter"', $html);
+        $this->assertStringContainsString('data-qa="suggested-areas"', $html);
+        $this->assertStringContainsString('Glenmore (Port Shepstone) (3 stock · 0 claims · 0 leads)', $text);
+        $this->assertStringContainsString('Glenmore (Durban) (4 stock · 0 claims · 0 leads)', $text, 'same name twice = the town after the name');
+        $this->assertStringContainsString('Quiet Bay (1 stock', $text, 'one stock is enough: the min-3 rule was replaced by the 4.11 ruling (stock, claims, a named search or a ticked Area)');
+        $this->assertStringContainsString('Tick suggested', $html);
+        $this->assertLessThan(strpos($html, 'value="' . $busy . '"'), strpos($html, 'value="' . $alpha . '"'), 'ticked suburbs come first');
+        $this->assertStringContainsString('Zulu Bay', $html, 'suburbs print in title case');
+        $this->assertSame(array_column((new \App\Services\Prospecting\MicWork\WorkingSuburbs())->counts($this->agency->id), 'stock', 'suburb_id')[$twin], 4, 'same figures as cc4\'s own list');
+    }
+}
+

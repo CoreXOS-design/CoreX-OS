@@ -135,7 +135,7 @@ change explicitly does not do. Each needs its own ticket and decision:
 
 ## 8. User flow
 
-1. Agent opens Real Estate → sees 7 items.
+1. Agent opens Real Estate → sees 7 hub items (plus Road to Sold's own manager links — Review captures, Level sign-offs, Team funnel — and "Budgets & Targets" when they may manage targets or settings: Johan, 23 Oct 2026, AT-454).
 2. Clicks **Buyers** → lands on Buyer pipeline (or the first Buyers tab they may open).
 3. Tab bar across the top: Buyer pipeline · Core Matches · Portal leads · Viewing packs. Clicking a
    tab opens that screen exactly as it looks today, with the same bar on top and that tab active.
@@ -143,7 +143,7 @@ change explicitly does not do. Each needs its own ticket and decision:
 
 ## 9. Acceptance criteria
 
-1. Real Estate shows at most 7 items for a user with every permission and feature; fewer when features
+1. Real Estate shows at most 7 hub items for a user with every permission and feature (plus the permission-gated Road to Sold manager links and "Budgets & Targets", AT-454); fewer when features
    or permissions remove whole hubs.
 2. For every role in the default role set, the set of screens reachable from the menu (hub + tabs) is
    **identical** to the set reachable before. Proven by a test that enumerates the old sidebar gates and

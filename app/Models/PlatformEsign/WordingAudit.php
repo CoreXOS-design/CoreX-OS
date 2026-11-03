@@ -2,12 +2,15 @@
 
 namespace App\Models\PlatformEsign;
 
+use App\Models\Concerns\StampsOnBehalfOf;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
 
 /** Who changed the Subscription Agreement wording, and when (spec §11.14). Append-only. */
 class WordingAudit extends Model
 {
+    use StampsOnBehalfOf;
+
     protected $table = 'platform_esign_wording_audit';
     public $timestamps = false;
     protected $fillable = ['template_id', 'version_id', 'action', 'user_id', 'detail', 'created_at'];

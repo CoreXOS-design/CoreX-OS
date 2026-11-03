@@ -146,7 +146,7 @@ final class LaneOneIntegrationTest extends TestCase
 
         $r = app(ListBuilderService::class)->closePastDays($this->agent, '2026-10-14');
 
-        $this->assertSame(['missed' => 0, 'rolled' => 1], $r);
+        $this->assertSame(['missed' => 0, 'rolled' => 1], \Illuminate\Support\Arr::only($r, ['missed', 'rolled']));
         $this->assertSame('rolled', $old->fresh()->status);
 
         // a second agency that never touched the setting still gets the default (missed, not rolled)
@@ -157,7 +157,7 @@ final class LaneOneIntegrationTest extends TestCase
             'agency_id' => $other->id, 'user_id' => $capeAgent->id, 'list_date' => '2026-10-12', 'track' => 'sales',
             'tracked_property_id' => 4243, 'selection' => 'long_on_market', 'origin' => 'auto', 'position' => 1, 'status' => 'open',
         ]);
-        $this->assertSame(['missed' => 1, 'rolled' => 0], app(ListBuilderService::class)->closePastDays($capeAgent, '2026-10-14'));
+        $this->assertSame(['missed' => 1, 'rolled' => 0], \Illuminate\Support\Arr::only(app(ListBuilderService::class)->closePastDays($capeAgent, '2026-10-14'), ['missed', 'rolled']));
         $this->assertSame('missed', $capeOld->fresh()->status);
     }
 }

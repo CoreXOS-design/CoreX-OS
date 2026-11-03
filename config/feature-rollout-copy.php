@@ -85,6 +85,7 @@ return [
         'knowledge-base' => "The Knowledge Base is a searchable collection of your agency's articles, procedures and reference material.\n\nWhen someone asks how something is done, the answer can live here.",
         'training' => "Training is the learning centre: courses, help guides and the tools to manage them.\n\nNew and existing staff learn at their own pace, and progress is tracked.",
         'guided-tours' => "Guided Tours are short, interactive walkthroughs that show you how to use each part of CoreX, step by step on the real screen.\n\nWhenever something new switches on, its tour is the quickest way to learn it.",
+        'narrated-tours' => "Narrated guided tours put a \"Guide me\" button on key screens.\n\nA friendly voice tells your agents what to do and why, and the tour waits until they have done each step.",
 
         // ── Tools & calculators ─────────────────────────────────────────────
         'calculators' => "The Calculators are quick tools for everyday sums: commission, deposit interest and related figures.\n\nThey give fast, consistent answers without a spreadsheet.",

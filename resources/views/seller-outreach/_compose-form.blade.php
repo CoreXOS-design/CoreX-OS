@@ -1,6 +1,6 @@
 {{-- props: $contact, $property, $linkedProperties, $channel, $availableTemplates, $context, $propertyStatuses, $addressOnly --}}
 
-@php $addressOnly = $addressOnly ?? false; @endphp
+@php $addressOnly = $addressOnly ?? false; $inPopup = $inPopup ?? false; $phoneTab = $phoneTab ?? false; @endphp
 
 @php
     // A.3.4 — collision badges. Map each prospect-status to a label + tint
@@ -47,8 +47,8 @@
             To make a property-specific pitch, link or create a property on the contact first.
         </p>
     </div>
-    @else
-    {{-- Property picker --}}
+    @elseif(! $inPopup)
+    {{-- Property picker (never inside the pitch popup: there the property is the one the popup is about, named once, above) --}}
     <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);" data-tour="oc-property"
          x-data="propertyPickerCollision({
             statuses: @js(collect($statuses)->map(fn ($s) => $s['status'] ?? 'available')),
@@ -111,10 +111,24 @@
                        color: {{ $channel === 'email' ? '#ffffff' : 'var(--text-muted)' }};">
             Email
         </button>
+        @if($phoneTab)
+        <button type="button" @click="switchChannel('phone')" data-qa="tab-phone"
+                class="px-4 py-2 text-sm font-semibold"
+                style="background: {{ $channel === 'phone' ? 'var(--brand-icon, #0ea5e9)' : 'var(--surface)' }};
+                       color: {{ $channel === 'phone' ? '#ffffff' : 'var(--text-muted)' }};">
+            Phone call
+        </button>
+        @endif
     </div>
 
-    {{-- Template selector --}}
-    @if($availableTemplates->isNotEmpty())
+    @if($channel === 'phone' && $phoneCall)
+        @include('seller-outreach._phone-call-form', ['phoneCall' => $phoneCall, 'contact' => $contact, 'property' => $property])
+    @endif
+
+    {{-- Template selector (the pitch popup always uses the agency's default template for the channel; choosing another is a job for the page) --}}
+    @if($channel === 'phone')
+    @elseif($availableTemplates->isNotEmpty())
+    @if(! $inPopup)
     <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);" data-tour="oc-template">
         <label class="block text-xs font-semibold mb-1" style="color: var(--text-secondary);">
             Template
@@ -129,6 +143,7 @@
             @endforeach
         </select>
     </div>
+    @endif
     @else
     {{-- Empty state — no template for this channel. Prevents a silent blank
          composer (the body/subject would otherwise render empty with no cue). --}}
@@ -152,6 +167,22 @@
              style="background: color-mix(in srgb, var(--ds-crimson) 18%, transparent); border: 1px solid var(--ds-crimson); color: var(--text-primary);">
             <div class="font-semibold" style="color: var(--ds-crimson);">Contact has opted out</div>
             <div class="mt-1">This contact has been opted out of messaging. No further pitches can be sent until they re-consent.</div>
+            {{-- road-to-sold.md 23.25 / 23.11: "Cannot make contact - opted out" is the Contact step's one-click off-ramp (only where the agent has a Road to Sold record on this property) --}}
+            @if(request()->query('rts_prospect'))
+                <div class="mt-2" x-data="{ busy: false, err: '' }" data-qa="optout-offramp">
+                    <button type="button" class="px-3 py-1.5 text-xs font-bold rounded-md" style="border: 1px solid var(--ds-crimson); color: var(--text-primary); background: var(--surface);" :disabled="busy"
+                            @click="busy = true; err = '';
+                                    fetch(@js(route('seller-outreach.entry.pitch-offramp.store')), { method: 'POST', credentials: 'same-origin',
+                                        headers: { 'Accept': 'application/json', 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest', 'X-CSRF-TOKEN': document.querySelector('meta[name=csrf-token]')?.content || '' },
+                                        body: JSON.stringify({ prospect: @js((int) request()->query('rts_prospect')), step: 4, reason: 'opted_out' }) })
+                                      .then(r => r.json().then(j => ({ ok: r.ok && j.ok, j })))
+                                      .then(x => { if (!x.ok) { busy = false; err = (x.j && x.j.message) || 'It could not be saved. Try again.'; return; }
+                                          try { sessionStorage.setItem('cxOffRamp', x.j.message); } catch (e) {}
+                                          if (window.parent !== window) { window.parent.postMessage({ rts: 'done' }, window.location.origin); } else { window.location.reload(); } })
+                                      .catch(() => { busy = false; err = 'It could not be saved. Try again.'; })">Cannot make contact - opted out: stop here</button>
+                    <span class="text-xs ml-2" style="color: var(--ds-crimson);" x-text="err"></span>
+                </div>
+            @endif
         </div>
     @endif
 
@@ -167,8 +198,11 @@
     </div>
     @endif
 
+    {{-- Inside the pitch popup (23.23 drop 5) the agent first sees the message as the recipient will, with the send button under it; the editable text (which
+         holds the {tokens} the sender fills in) opens with "Edit message". On the page it is always open. --}}
+    <div x-data="{ editing: {{ $inPopup ? 'false' : 'true' }} }" class="space-y-4">
     {{-- Body editor --}}
-    <div>
+    <div x-show="editing" @if($inPopup) x-cloak @endif>
         <div class="flex items-center justify-between mb-1 flex-wrap gap-2">
             <label class="block text-xs font-semibold" style="color: var(--text-secondary);">
                 Message body
@@ -191,9 +225,13 @@
         <div class="text-xs font-semibold mb-1" style="color: var(--text-secondary);">
             Preview — what the recipient sees
         </div>
-        <div class="w-full px-3 py-2 text-sm rounded-md whitespace-pre-wrap"
-             style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);"
+        <div class="w-full px-3 py-2 text-sm rounded-md whitespace-pre-wrap" data-qa="message-preview"
+             style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);{{ $inPopup ? ' max-height: 11rem; overflow-y: auto;' : '' }}"
              x-text="previewBody()"></div>
+    </div>
+    @if($inPopup)
+        <div><button type="button" class="text-xs font-semibold underline" style="color: var(--text-secondary);" data-qa="edit-message" @click="editing = !editing" x-text="editing ? 'Done editing' : 'Edit message'"></button></div>
+    @endif
     </div>
 
     {{-- Validation issues (no phone / no email / no tracking link) --}}
@@ -235,15 +273,18 @@
             </span>
             <span x-show="sending" x-cloak>Recording…</span>
         </button>
+        @unless($inPopup)
         <a href="{{ route('corex.contacts.show', $contact) }}"
            class="text-sm" style="color: var(--text-muted);">
             Cancel
         </a>
+        @endunless
     </div>
 
     {{-- AT-117 — Add to the outreach queue (ready immediately). Available any time,
          including outside the send-window (prepare now); sending from the queue is
          gated by the send-window. The send-now button above is window-disabled. --}}
+    @unless($inPopup)
     <div class="pt-3 mt-3" data-tour="oc-queue" style="border-top: 1px solid var(--border);">
         <button type="button" @click="addToQueue()" :disabled="queuing"
                 class="corex-btn-outline text-sm">
@@ -254,6 +295,7 @@
             Saves the prepared message to your Outreach Queue — work the list and tap Send during the send-window.
         </p>
     </div>
+    @endunless
 
     @endif {{-- if $context --}}
 </div>

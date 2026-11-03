@@ -8,15 +8,23 @@
     <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
+                @if(\App\Support\Embed::on())
+                {{-- the pitch popup's one heading for this step (23.23 drop 6) --}}
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);" data-qa="step-heading">Owner</h1>
+                <p class="text-xs" style="color: var(--text-muted);">Who owns this property? Link the deed and capture the owner. Nothing is sent from this step.</p>
+                @else
                 <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Compose pitch about this property</h1>
                 <p class="text-xs" style="color: var(--text-muted);">
                     Capture the seller's contact info first. We'll dedupe against existing contacts before creating a new one.
                 </p>
+                @endif
             </div>
             <div class="flex flex-wrap items-center gap-2">
+                @unless(\App\Support\Embed::on())
                 <a href="{{ url()->previous() }}" class="corex-btn-outline text-xs no-underline">
                     ← Back
                 </a>
+                @endunless
             </div>
         </div>
     </div>
@@ -27,6 +35,14 @@
             @foreach($errors->all() as $err)
                 <div>{{ $err }}</div>
             @endforeach
+        </div>
+    @endif
+
+    {{-- road-to-sold.md 23.23 drop 5: the owner is on the file but the deed record is not (the belt's one gate, 23.6): say what is missing and where to get it --}}
+    @if(request('need') === 'deed')
+        <div class="rounded-md px-4 py-3 text-sm" data-qa="need-deed"
+             style="background: color-mix(in srgb, var(--ds-amber, #f59e0b) 12%, transparent); border:1px solid color-mix(in srgb, var(--ds-amber, #f59e0b) 40%, var(--border)); color: var(--text-primary);">
+            <strong>The owner is on the file, but the deed record is not.</strong> Link a deed below (or capture it from the deeds office), then the pitch and the call log open.
         </div>
     @endif
 
@@ -45,9 +61,11 @@
          extends the view to render either context; the form below posts to
          the matching store route. --}}
     @if(!empty($trackedProperty))
-        <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
-            <div class="text-[10px] uppercase tracking-wider font-semibold mb-1" style="color: var(--text-muted);">
-                Tracked Property
+        @php($__peek = app(\App\Services\Prospecting\MicWork\PitchCardResolver::class)->peekAttributes(null, null, (int) $trackedProperty->id))
+        <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);" data-qa="listing-header" {!! $__peek !!}>
+            <div class="text-[10px] uppercase tracking-wider font-semibold mb-1 flex items-center justify-between" style="color: var(--text-muted);">
+                <span>Tracked Property</span>
+                @if($__peek !== '')<span data-peek-hint style="color: var(--brand-icon, #0ea5e9); text-transform: none; letter-spacing: 0; font-size: .75rem;">What is this property? ▾</span>@endif
             </div>
             <div class="font-semibold text-sm" style="color: var(--text-primary);">
                 {{ $trackedProperty->displayAddress() }}
@@ -61,9 +79,11 @@
             </div>
         </div>
     @elseif(!empty($property))
-        <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
-            <div class="text-[10px] uppercase tracking-wider font-semibold mb-1" style="color: var(--text-muted);">
-                Property — in agency stock
+        @php($__peek = app(\App\Services\Prospecting\MicWork\PitchCardResolver::class)->peekAttributes(null, (int) $property->id))
+        <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);" data-qa="listing-header" {!! $__peek !!}>
+            <div class="text-[10px] uppercase tracking-wider font-semibold mb-1 flex items-center justify-between" style="color: var(--text-muted);">
+                <span>Property — in agency stock</span>
+                @if($__peek !== '')<span data-peek-hint style="color: var(--brand-icon, #0ea5e9); text-transform: none; letter-spacing: 0; font-size: .75rem;">What is this property? ▾</span>@endif
             </div>
             <div class="font-semibold text-sm" style="color: var(--text-primary);">
                 {{ $property->address ?: $property->title ?: 'Property #' . $property->id }}{{ !empty($property->suburb) ? ', ' . $property->suburb : '' }}
@@ -79,9 +99,11 @@
             </div>
         </div>
     @elseif(!empty($listing))
-        <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
-            <div class="text-[10px] uppercase tracking-wider font-semibold mb-1" style="color: var(--text-muted);">
-                Listing from {{ strtoupper((string) ($listing->portal_source ?? 'portal')) }}
+        @php($__peek = app(\App\Services\Prospecting\MicWork\PitchCardResolver::class)->peekAttributes((int) $listing->id))
+        <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);" data-qa="listing-header" {!! $__peek !!}>
+            <div class="text-[10px] uppercase tracking-wider font-semibold mb-1 flex items-center justify-between" style="color: var(--text-muted);">
+                <span>Listing from {{ strtoupper((string) ($listing->portal_source ?? 'portal')) }}</span>
+                @if($__peek !== '')<span data-peek-hint style="color: var(--brand-icon, #0ea5e9); text-transform: none; letter-spacing: 0; font-size: .75rem;">What is this property? ▾</span>@endif
             </div>
             <div id="listing-header-address" class="font-semibold text-sm" style="color: var(--text-primary);"
                  data-original-address="{{ $listing->address ?? '(no address)' }}{{ !empty($listing->suburb) ? ', ' . $listing->suburb : '' }}">
@@ -95,6 +117,25 @@
             </div>
         </div>
     @endif
+
+    {{-- Road to Sold (22.10 step 1): nobody found for this property. Records the "No owner found" outcome on the prospect (its own form: the
+         capture form below is for finding someone). Shown only when this screen was opened from a prospect's row. --}}
+    @feature('road-to-sold')
+    @if (request()->filled('rts_prospect'))
+        <form method="POST" action="{{ route('road-to-sold.prospects.no-owner', ['prospect' => (int) request()->input('rts_prospect')]) }}"
+              class="mb-4 flex items-center justify-between gap-3 flex-wrap rounded-md p-3"
+              style="background: var(--surface); border: 1px solid var(--border);">
+            @csrf
+            @foreach (\App\Services\RoadToSold\PitchPathService::CARRY as $__carryKey)
+                @if (request()->filled($__carryKey))
+                    <input type="hidden" name="{{ $__carryKey }}" value="{{ request()->input($__carryKey) }}">
+                @endif
+            @endforeach
+            <span class="text-sm" style="color: var(--text-secondary);">Cannot find the owner? Say so and Road to Sold brings this property back for another try.</span>
+            <button type="submit" class="corex-btn-secondary">No owner found</button>
+        </form>
+    @endif
+    @endfeature
 
     {{-- Contact form — SEARCH & link an existing contact, OR capture a new one.
          Both modes post to the store route matching the source; the controller
@@ -144,11 +185,54 @@
               // ── Manual 'Link a deed' modal ──
               showDeedModal: false,
               deedSearch: '',
+              // Spec 13.21 - the picker is LIVE: nothing baked into the page; fetched when it opens and on each keystroke (debounced).
               deeds: @js($deeds ?? []),
+              deedsUrl: @js($deedsUrl ?? null),
+              deedsAny: @js($deedsAny ?? false),
+              deedsTodayCount: @js($deedsTodayCount ?? 0),
+              deedsLoading: false,
+              deedsFailed: false,
+              deedsFor: '',        // what the empty answer names: what was typed, else the property's street
+              deedsSuburb: '',
+              _deedsSeq: 0,
+              _deedsTimer: null,
+              openDeedPicker() {
+                  this.showDeedModal = true;
+                  this.loadDeeds();
+              },
+              onDeedSearch() {
+                  clearTimeout(this._deedsTimer);
+                  this._deedsTimer = setTimeout(() => this.loadDeeds(), 250);
+              },
+              async loadDeeds() {
+                  if (!this.deedsUrl) return;
+                  const seq = ++this._deedsSeq;       // a slower, older answer never overwrites a newer one
+                  this.deedsLoading = true;
+                  this.deedsFailed = false;
+                  try {
+                      const url = this.deedsUrl + (this.deedsUrl.includes('?') ? '&' : '?') + 'q=' + encodeURIComponent(this.deedSearch.trim());
+                      const res = await fetch(url, { headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' }, credentials: 'same-origin' });
+                      if (!res.ok) throw new Error('HTTP ' + res.status);
+                      const d = await res.json();
+                      if (seq !== this._deedsSeq) return;
+                      this.deeds = d.deeds || [];
+                      this.deedsTodayCount = d.today_count || 0;
+                      this.deedsFor = d.for || '';
+                      this.deedsSuburb = d.suburb_label || '';
+                      if (this.deeds.length) this.deedsAny = true;
+                  } catch (e) {
+                      if (seq === this._deedsSeq) this.deedsFailed = true;
+                  } finally {
+                      if (seq === this._deedsSeq) this.deedsLoading = false;
+                  }
+              },
+              deedGroupLabel(g) {
+                  return { just_now: 'Captured just now · by you', likely: 'Likely match for this property', same_complex: 'Same complex, another unit', same_suburb: this.deedsSuburb ? 'Other deeds in ' + this.deedsSuburb : 'Other deeds in this suburb', nearby: 'Nearby deeds', elsewhere: 'Matches elsewhere in your agency' }[g] || '';
+              },
               linkDeedUrl: @js($linkDeedUrl ?? null),
               // FIX 2 — live deed state (reactive), initialised from the server render and refreshed
               // by polling so a scrape auto-surfaces without a full reload (form state preserved).
-              deed: { owners: @js($deedLink['owners'] ?? []), candidates: @js($deedLink['candidates'] ?? []) },
+              deed: { tracked_property_id: @js($deedLink['tracked_property_id'] ?? null), owners: @js($deedLink['owners'] ?? []), candidates: @js($deedLink['candidates'] ?? []) },
               deedPollUrl: @js($deedPollUrl ?? null),
               _deedTimer: null,
               startDeedPoll() {
@@ -177,9 +261,15 @@
                       // while this poll was in flight — its result is newer than this snapshot.
                       // Applying it now would clobber the newer state with a stale one.
                       if (this._stateSeq !== seqAtStart) return;
+                      this.deed.tracked_property_id = d.tracked_property_id || null;
                       this.deed.owners = d.owners || [];
                       this.deed.candidates = d.candidates || [];
-                      if (Array.isArray(d.deeds)) this.deeds = d.deeds;
+                      if (typeof d.today_count === 'number') {
+                          // a scrape that lands while the tab is open: the banner says so, and an open picker refreshes itself
+                          const grew = d.today_count > this.deedsTodayCount;
+                          this.deedsTodayCount = d.today_count;
+                          if (grew) { this.deedsAny = true; if (this.showDeedModal) this.loadDeeds(); }
+                      }
                       // Multi-seller (Part A) + TVA (Part B) + reversibility (R1/R2) live state.
                       if (d.sellers) this.sellers = d.sellers;
                       if (d.tva) this.tva = d.tva;
@@ -231,7 +321,15 @@
                   this.sellerBusy = true;
                   try {
                       const res = await fetch(this.deadEndSellerUrl, { method: 'POST', headers: this._postHeaders(), body: JSON.stringify({ contact_id: contactId, reason: reason || 'not_in_tva' }) });
-                      if (res.ok) this.applySellerState(await res.json());
+                      if (res.ok) {
+                          const d = await res.json();
+                          this.applySellerState(d);
+                          // road-to-sold.md 23.25: nobody left to reach = the property stops here (the step-2 off-ramp); the popup closes and the page shows it
+                          if (d.offramp) {
+                              try { sessionStorage.setItem('cxOffRamp', d.offramp); } catch (e) { /* no storage */ }
+                              if (window.parent !== window) { window.parent.postMessage({ rts: 'done' }, window.location.origin); } else { window.location.reload(); }
+                          }
+                      }
                   } catch (e) { /* ignore */ } finally { this.sellerBusy = false; }
               },
               async clearSellerDeadEnd(contactId) {
@@ -298,7 +396,7 @@
                   } catch (e) { /* ignore */ } finally { this.sellerBusy = false; }
               },
               waUrl(v) { return 'https://wa.me/' + (v || '').replace(/[^0-9]/g, '').replace(/^0/, '27'); },
-              async linkSeller(owner) {
+              async linkSeller(owner, deedTrackedPropertyId) {
                   if (!this.linkSellerUrl || this.sellerBusy) return;
                   // Prefer the contact already resolved off the deed (a director OR the company entity):
                   // links the exact contact, no SA ID required. An entity with no contact yet keys on its
@@ -314,6 +412,8 @@
                       window.alert('This owner has no SA ID or registration number on the deed — cannot link as a distinct seller.');
                       return;
                   }
+                  // The deed this owner was read off (the confirmed match or the possible match the agent clicked on): linking the seller from it links that deed to the record too
+                  if (deedTrackedPropertyId) body.deed_tracked_property_id = deedTrackedPropertyId;
                   this.sellerBusy = true;
                   try {
                       const res = await fetch(this.linkSellerUrl, { method: 'POST', headers: this._postHeaders(), body: JSON.stringify(body) });
@@ -356,9 +456,7 @@
                   } catch (e) { /* ignore */ } finally { this.sellerBusy = false; }
               },
               filteredDeeds() {
-                  const q = this.deedSearch.trim().toLowerCase();
-                  if (!q) return this.deeds;
-                  return this.deeds.filter(d => (d.search || '').includes(q));
+                  return this.deeds;   // already filtered by the server for the words typed
               },
               async pickDeed(deed) {
                   this.showDeedModal = false;
@@ -387,6 +485,12 @@
                   ? route('seller-outreach.entry.store-from-property', $property->id)
                   : route('seller-outreach.entry.store-from-prospecting', $listing->id)) }}">
         @csrf
+        {{-- Road to Sold pop-up context (22.9 / 22.10): kept through the save so the composer, the Done bar and the stage know the prospect --}}
+        @foreach (\App\Services\RoadToSold\PitchPathService::CARRY as $__carryKey)
+            @if (request()->filled($__carryKey))
+                <input type="hidden" name="{{ $__carryKey }}" value="{{ request()->input($__carryKey) }}">
+            @endif
+        @endforeach
 
         {{-- R1 — explicit LINKED-DEED state + unlink. When a deed is selected the sellers panel +
              property address follow it; ✕ Unlink reverts to auto-match (confirm-on-click). --}}
@@ -440,7 +544,7 @@
                         </div>
                         <div class="shrink-0 flex flex-col gap-1">
                             <template x-if="!isSellerLinked(owner)">
-                                <button type="button" @click="linkSeller(owner)" :disabled="sellerBusy"
+                                <button type="button" @click="linkSeller(owner, deed.tracked_property_id)" :disabled="sellerBusy"
                                         class="px-3 py-1.5 text-xs font-semibold rounded-md border-0"
                                         style="background: var(--brand-icon, #0ea5e9); color:#fff; cursor:pointer;"
                                         x-text="owner.is_entity ? '+ Link company as seller' : '+ Link as seller'"></button>
@@ -492,7 +596,7 @@
                                 </div>
                                 <div class="shrink-0 flex flex-col gap-1">
                                     <template x-if="!isSellerLinked(owner)">
-                                        <button type="button" @click="linkSeller(owner)" :disabled="sellerBusy"
+                                        <button type="button" @click="linkSeller(owner, cand.tracked_property_id)" :disabled="sellerBusy"
                                                 class="px-3 py-1.5 text-xs font-semibold rounded-md"
                                                 style="background: transparent; color: var(--text-primary); border:1px solid var(--ds-amber, #f59e0b); cursor:pointer;"
                                                 x-text="owner.is_entity ? '+ Link company as seller' : '+ Link as seller'"></button>
@@ -607,14 +711,17 @@
 
         {{-- Manual "Link a deed" fallback — ALWAYS available so the agent can pick the right deed
              when auto-match doesn't fire (P24 marketing address vs deeds-office scheme address). --}}
-        <div x-show="deeds.length" x-cloak class="flex items-center justify-between gap-3 flex-wrap mb-4 rounded-md p-3"
+        <div x-show="deedsAny" x-cloak class="flex items-center justify-between gap-3 flex-wrap mb-4 rounded-md p-3"
                  style="background: var(--surface); border: 1px dashed var(--border);">
                 <div class="text-xs" style="color: var(--text-muted);">
-                    <span x-show="!deed.owners.length && !deed.candidates.length">No deed auto-matched to this property — </span>
-                    <span x-show="deed.owners.length || deed.candidates.length">Not the right owner? </span>
-                    pick the scraped deed yourself.
+                    <span x-show="deedsTodayCount > 0" data-qa="deeds-today"><b x-text="deedsTodayCount"></b> <span x-text="deedsTodayCount === 1 ? 'deed' : 'deeds'"></span> captured today — pick one.</span>
+                    <span x-show="deedsTodayCount === 0">
+                        <span x-show="!deed.owners.length && !deed.candidates.length">No deed auto-matched to this property — </span>
+                        <span x-show="deed.owners.length || deed.candidates.length">Not the right owner? </span>
+                        pick the scraped deed yourself.
+                    </span>
                 </div>
-                <button type="button" @click="showDeedModal = true"
+                <button type="button" @click="openDeedPicker()"
                         class="shrink-0 px-3 py-1.5 text-xs font-semibold rounded-md border-0"
                         style="background: var(--brand-default, #0b2a4a); color:#fff; cursor:pointer;">
                     🔍 Link a deed
@@ -906,16 +1013,20 @@
                             style="color: var(--text-muted); background:none;border:0;cursor:pointer;">✕</button>
                 </div>
                 <div class="px-4 py-3" style="border-bottom:1px solid var(--border);">
-                    <input type="text" x-model="deedSearch" placeholder="Search address, owner, erf, suburb…" autocomplete="off"
+                    <input type="text" x-model="deedSearch" @input="onDeedSearch()" placeholder="Search address, owner, erf, suburb…" autocomplete="off" data-qa="deed-search"
                            class="w-full px-3 py-2 text-sm rounded-md"
                            style="background: var(--surface-2); border:1px solid var(--border); color: var(--text-primary);">
                 </div>
                 <div class="overflow-y-auto px-2 py-2" style="min-height: 120px;">
-                    <template x-for="deed in filteredDeeds()" :key="deed.tracked_property_id">
+                    <template x-for="(deed, i) in filteredDeeds()" :key="deed.tracked_property_id">
+                      <div>
+                        <template x-if="i === 0 || filteredDeeds()[i - 1].group !== deed.group">
+                            <div class="px-2 pt-2 pb-1 text-xs font-semibold" style="color: var(--text-muted);" data-qa="deed-group" x-text="deedGroupLabel(deed.group)"></div>
+                        </template>
                         <button type="button" @click="pickDeed(deed)"
                                 class="w-full text-left px-3 py-2 rounded-md mb-1 block"
                                 style="background: var(--surface-2); border:1px solid var(--border); cursor:pointer;">
-                            <div class="text-sm font-semibold" style="color: var(--text-primary);" x-text="deed.address || '(no address)'"></div>
+                            <div class="text-sm font-semibold" style="color: var(--text-primary);"><span x-text="deed.address || '(no address)'"></span><template x-if="deed.likely_match"><span class="text-xs font-semibold" style="color: var(--brand-icon, #0ea5e9);" data-qa="deed-likely"> · likely match</span></template></div>
                             <div class="text-xs mt-0.5" style="color: var(--text-muted);">
                                 <template x-if="deed.erf"><span>Erf <span x-text="deed.erf"></span> · </span></template>
                                 <span x-text="deed.suburb || ''"></span>
@@ -923,10 +1034,23 @@
                                 <template x-if="deed.sold_date"><span> · <span x-text="deed.sold_date"></span></span></template>
                             </div>
                             <div class="text-xs mt-0.5 font-medium" style="color: var(--brand-icon, #0ea5e9);" x-text="deed.owner_names"></div>
+                            <template x-if="deed.captured_ago"><div class="text-xs mt-0.5" style="color: var(--text-muted);">Captured <span x-text="deed.captured_ago"></span></div></template>
                         </button>
+                      </div>
                     </template>
-                    <div x-show="filteredDeeds().length === 0" class="px-3 py-6 text-center text-sm" style="color: var(--text-muted);">
-                        No deeds match “<span x-text="deedSearch"></span>”.
+                    <div x-show="deedsLoading && filteredDeeds().length === 0" class="px-3 py-6 text-center text-sm" style="color: var(--text-muted);">Looking for deeds…</div>
+                    <div x-show="deedsFailed" class="px-3 py-3 text-center text-sm" style="color: var(--text-muted);">Could not load the deeds. <button type="button" @click="loadDeeds()" style="background:none;border:0;cursor:pointer;color:var(--brand-icon,#0ea5e9);text-decoration:underline;">Try again</button></div>
+                    <div x-show="!deedsLoading && !deedsFailed && filteredDeeds().length === 0" class="px-3 py-6 text-center text-sm" style="color: var(--text-muted);" data-qa="deed-none">
+                        No deed on file for <span x-text="deedSearch.trim() !== '' ? deedSearch.trim() : (deedsFor || 'this property')"></span> &mdash;
+                        @if(auth()->user()->hasPermission('deeds_capture.access'))
+                            @feature('deeds-capture')
+                            capture it from CMA Info: <a href="{{ route('corex.deeds-capture.index') }}" target="_blank" rel="noopener" class="font-semibold no-underline" style="color: var(--brand-icon, #0ea5e9);" data-qa="deed-capture-link">Open Deeds Capture &rarr;</a>
+                            @else
+                            capture it from CMA Info.
+                            @endfeature
+                        @else
+                            capture it from CMA Info.
+                        @endif
                     </div>
                 </div>
                 <div class="px-4 py-2 text-xs" style="border-top:1px solid var(--border); color: var(--text-muted);">
@@ -936,4 +1060,9 @@
         </div>
     </form>
 </div>
+@include('layouts.partials._pitch-popup')
+@include('layouts.partials._pitch-result')
+@if(!empty($claimedNotice))
+<script>window.addEventListener('load', function () { if (window.corexPitchResult) { window.corexPitchResult('claimed', @js($claimedNotice['address']), @js($claimedNotice['days'] . ' working days')); } });</script>
+@endif
 @endsection

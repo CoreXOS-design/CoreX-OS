@@ -265,8 +265,10 @@
             @if ($finishedAwaitingAgent)
                 <p data-contractor-finished-waiting><strong>Thank you - you have told us the work is finished.</strong> The agency will check it and close the job. You can still send your invoice above.</p>
             @else
-            <form method="POST" action="{{ route('rentals.secure-link.mark-done', $token) }}">
+            <form method="POST" action="{{ route('rentals.secure-link.mark-done', $token) }}" enctype="multipart/form-data" data-contractor-done-form>
                 @csrf
+                <label for="cd-photos" style="display:block;font-size:13px;font-weight:600;margin:10px 0 4px;">Photos of the finished work <span style="font-weight:400;color:#5a6472;">(optional)</span></label>
+                <input id="cd-photos" type="file" name="photos[]" accept="image/*" capture="environment" multiple>
                 @include('rentals._report-back-fields', ['workOrder' => $workOrder])
                 <button class="btn btn-ok" type="submit">Work finished</button>
             </form>
@@ -275,22 +277,15 @@
 
         @elseif (in_array($response, ['accepted', 'quote_uploaded'], true))
         {{-- before the cost is authorised: only the old after-photo and done controls (kept as they were) --}}
-        <div class="card" data-contractor-photos>
-            <h2>Upload after photos</h2>
-            <form method="POST" action="{{ route('rentals.secure-link.photo', $token) }}" enctype="multipart/form-data">
-                @csrf
-                <input type="file" name="photo" accept="image/*" capture="environment" required>
-                <button class="btn btn-primary" type="submit">Upload photo</button>
-            </form>
-        </div>
-
         <div class="card" data-contractor-done>
             <h2>The work is finished</h2>
             @if ($finishedAwaitingAgent)
                 <p data-contractor-finished-waiting><strong>Thank you - you have told us the work is finished.</strong> The agency will check it and close the job.</p>
             @else
-            <form method="POST" action="{{ route('rentals.secure-link.mark-done', $token) }}">
+            <form method="POST" action="{{ route('rentals.secure-link.mark-done', $token) }}" enctype="multipart/form-data" data-contractor-done-form>
                 @csrf
+                <label for="cd-photos" style="display:block;font-size:13px;font-weight:600;margin:10px 0 4px;">Photos of the finished work <span style="font-weight:400;color:#5a6472;">(optional)</span></label>
+                <input id="cd-photos" type="file" name="photos[]" accept="image/*" capture="environment" multiple>
                 @include('rentals._report-back-fields', ['workOrder' => $workOrder])
                 <button class="btn btn-ok" type="submit">Work finished</button>
             </form>

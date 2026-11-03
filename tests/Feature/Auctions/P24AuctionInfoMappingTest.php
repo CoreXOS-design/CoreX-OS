@@ -37,10 +37,11 @@ final class P24AuctionInfoMappingTest extends TestCase
 
     public function test_an_auction_property_gets_auction_info_with_date_and_venue(): void
     {
-        $agency = Agency::create(['name' => 'P24 Auction Mapping Agency', 'slug' => 'p24-auction-'.uniqid()]);
+        $agency = Agency::create(['name' => 'P24 Auction Mapping Agency', 'slug' => 'p24-auction-'.uniqid(), 'p24_agency_id' => '123']);
         $branch = Branch::create(['agency_id' => $agency->id, 'name' => 'Main']);
         $agent = User::factory()->create(['agency_id' => $agency->id, 'branch_id' => $branch->id]);
-        $property = $this->makeProperty($agency, $branch, $agent, ['sale_method' => 'auction']);
+        // A catalogued auction lot's property is 'on_auction' (AuctionLotStatusService::publishCatalogue); a plain 'active' property with no P24 reference is a NewListing.
+        $property = $this->makeProperty($agency, $branch, $agent, ['sale_method' => 'auction', 'status' => 'on_auction']);
 
         $auction = Auction::create([
             'agency_id' => $agency->id, 'branch_id' => $branch->id, 'reference' => 'AUC-P24TEST',
@@ -59,7 +60,7 @@ final class P24AuctionInfoMappingTest extends TestCase
 
     public function test_a_private_treaty_property_never_gets_auction_info(): void
     {
-        $agency = Agency::create(['name' => 'P24 Non-Auction Agency', 'slug' => 'p24-nonauction-'.uniqid()]);
+        $agency = Agency::create(['name' => 'P24 Non-Auction Agency', 'slug' => 'p24-nonauction-'.uniqid(), 'p24_agency_id' => '123']);
         $branch = Branch::create(['agency_id' => $agency->id, 'name' => 'Main']);
         $agent = User::factory()->create(['agency_id' => $agency->id, 'branch_id' => $branch->id]);
         $property = $this->makeProperty($agency, $branch, $agent, ['sale_method' => null]);
@@ -71,7 +72,7 @@ final class P24AuctionInfoMappingTest extends TestCase
 
     public function test_auction_info_omits_venue_when_none_is_set(): void
     {
-        $agency = Agency::create(['name' => 'P24 No-Venue Agency', 'slug' => 'p24-novenue-'.uniqid()]);
+        $agency = Agency::create(['name' => 'P24 No-Venue Agency', 'slug' => 'p24-novenue-'.uniqid(), 'p24_agency_id' => '123']);
         $branch = Branch::create(['agency_id' => $agency->id, 'name' => 'Main']);
         $agent = User::factory()->create(['agency_id' => $agency->id, 'branch_id' => $branch->id]);
         $property = $this->makeProperty($agency, $branch, $agent, ['sale_method' => 'auction']);

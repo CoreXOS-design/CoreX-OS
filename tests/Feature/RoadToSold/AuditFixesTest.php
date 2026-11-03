@@ -182,7 +182,7 @@ final class AuditFixesTest extends TestCase
 
         $r = $this->builder(['settings' => ['rollsOver' => true]])->closePastDays($this->agent, self::WED);
 
-        $this->assertSame(['missed' => 1, 'rolled' => 0], $r);
+        $this->assertSame(['missed' => 1, 'rolled' => 0], \Illuminate\Support\Arr::only($r, ['missed', 'rolled']));
         $this->assertSame('missed', $item->fresh()->status);
         $this->assertSame(0, RtsListItem::query()->where('origin', 'rollover')->count());
     }
@@ -213,7 +213,7 @@ final class AuditFixesTest extends TestCase
     public function test_the_builder_settings_come_from_the_settings_service_with_no_fallback(): void
     {
         DB::table('rts_settings')->insert([
-            'agency_id' => $this->agency->id, 'track' => 'sales', 'owner_known_quantity' => 7, 'add_to_day_max' => 9, 'scan_page_size' => 50,
+            'agency_id' => $this->agency->id, 'track' => 'sales', 'owner_known_quantity' => 7, 'add_to_day_max' => 9,
             'created_at' => now(), 'updated_at' => now(),
         ]);
         SettingsService::forget();
@@ -221,14 +221,15 @@ final class AuditFixesTest extends TestCase
         $s = BuilderSettings::forUser($this->agent);
         $this->assertSame(7, $s->ownerKnownQuantity);
         $this->assertSame(9, $s->addToDayMax);
-        $this->assertSame(50, $s->scanPageSize);
+        // the read window is a config value now, not an agency setting (spec 21.6)
+        $this->assertSame(200, $s->scanPageSize);
         $this->assertSame(['perfect', 'strong'], $s->buyerMatchTiers);
     }
 
     public function test_a_failed_build_on_the_page_shows_a_visible_message_instead_of_an_empty_page(): void
     {
         $this->app->bind(ListBuilderService::class, fn () => new class extends ListBuilderService {
-            public function buildFor(User $user, CarbonInterface|string $date, string $track = 'sales'): \Illuminate\Support\Collection
+            public function buildFor(User $user, CarbonInterface|string $date, string $track = 'sales', ?int $limitNew = null): \Illuminate\Support\Collection
             {
                 throw new \RuntimeException('boom');
             }
@@ -435,7 +436,7 @@ final class AuditFixesTest extends TestCase
         $seen = new \ArrayObject();
         $this->app->bind(ListBuilderService::class, fn () => new class($seen) extends ListBuilderService {
             public function __construct(public \ArrayObject $seen) { parent::__construct(); }
-            public function buildFor(User $user, CarbonInterface|string $date, string $track = 'sales'): \Illuminate\Support\Collection
+            public function buildFor(User $user, CarbonInterface|string $date, string $track = 'sales', ?int $limitNew = null): \Illuminate\Support\Collection
             {
                 $this->seen->append($track);
 

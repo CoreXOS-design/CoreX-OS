@@ -2,6 +2,7 @@
 
 namespace App\Services\RoadToSold;
 
+use App\Models\RoadToSold\RtsListItem;
 use App\Models\RoadToSold\RtsOutcomeDefinition;
 use App\Models\User;
 use App\Services\Performance\Period;
@@ -32,7 +33,7 @@ class ReportService
         'conversations'     => ['Conversations', 'higher_is_better'],
     ];
     public const TAIL = [
-        'evaluations_booked' => ['Evaluations booked', 'higher_is_better'],
+        'evaluations_booked' => ['Appointments booked', 'higher_is_better'],
         'added_worked'      => ['Extra over target', 'higher_is_better'],
         'missed'            => ['Missed / rolled over', 'lower_is_better'],
         'dropped'           => ['Dropped after no-answers', 'lower_is_better'],
@@ -169,7 +170,7 @@ class ReportService
 
         // The day's list.
         $items = DB::table('rts_list_items')
-            ->where('agency_id', $agencyId)->where('track', $track)->whereNull('deleted_at')
+            ->where('agency_id', $agencyId)->where('track', $track)->whereNull('deleted_at')->where('status', '<>', RtsListItem::STATUS_SWAPPED)   // a swapped-out row left the day
             ->whereIn('user_id', $ids)->whereBetween('list_date', [$period->start->toDateString(), $period->end->toDateString()])
             ->groupBy('user_id', 'origin', 'status')->selectRaw('user_id, origin, status, count(*) as n')->get();
         foreach ($items as $r) {
@@ -177,6 +178,12 @@ class ReportService
             if ($r->origin === 'added') {
                 if ($r->status === 'worked') {
                     $out[$u]['added_worked'] = ($out[$u]['added_worked'] ?? 0) + (int) $r->n;
+                }
+                continue;
+            }
+            if ($r->origin === 'follow_up') {      // counted apart from the day's new intake (road-to-sold.md 22.3)
+                if ($r->status === 'worked') {
+                    $out[$u]['followups_worked'] = ($out[$u]['followups_worked'] ?? 0) + (int) $r->n;
                 }
                 continue;
             }

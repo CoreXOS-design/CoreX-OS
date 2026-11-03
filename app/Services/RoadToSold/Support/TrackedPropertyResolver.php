@@ -33,10 +33,10 @@ final class TrackedPropertyResolver
 
             $addr = trim((string) ($listing->address ?? ''));
             $real = $addr !== '' && $addr !== ProspectingListing::ADDRESS_PLACEHOLDER;
-            $streetNumber = $streetName = null;
-            if ($real && preg_match('/^(\d+\w*)\s+(.+)$/', $addr, $m)) {
-                [$streetNumber, $streetName] = [$m[1], $m[2]];
-            }
+            $line = $real ? \App\Services\Address\AddressLineFacts::split($addr, (string) $listing->suburb) : null;
+            $line ??= [];
+            $streetNumber = $line['street_number'] ?? null;
+            $streetName   = $line['street_name'] ?? null;
 
             $tp = app(TrackedPropertyMatchOrCreateService::class)->matchOrCreate(
                 agencyId: $agencyId,
@@ -44,6 +44,8 @@ final class TrackedPropertyResolver
                     'address'                 => $real ? $addr : null,
                     'street_number'           => $streetNumber,
                     'street_name'             => $streetName,
+                    'unit_number'             => $line['unit_number'] ?? null,
+                    'complex_name'            => $line['complex_name'] ?? null,
                     'suburb'                  => $listing->suburb !== '' ? $listing->suburb : null,
                     'property_type'           => $listing->property_type,
                     'bedrooms'                => $listing->bedrooms,

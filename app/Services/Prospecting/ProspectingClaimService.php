@@ -285,6 +285,23 @@ final class ProspectingClaimService
     }
 
     /**
+     * Release a pitch lock by hand (a manager, or Road to Sold giving a property back). Sets released_at and release_reason 'manual_release'
+     * (the value the lock model documents) and leaves the lock row as the audit trail. Idempotent: an already released lock is returned as it is.
+     * Callers decide who may; this does the bookkeeping.
+     */
+    public function releaseLock(int $lockId, ?int $releasedByUserId = null, ?string $note = null): ProspectingPitchLock
+    {
+        return DB::transaction(function () use ($lockId) {
+            $lock = ProspectingPitchLock::withoutGlobalScopes()->lockForUpdate()->findOrFail($lockId);
+            if ($lock->released_at === null) {
+                $lock->forceFill(['released_at' => now(), 'release_reason' => 'manual_release'])->save();
+            }
+
+            return $lock->refresh();
+        });
+    }
+
+    /**
      * MIC funnel phase 2 — BM/admin REASSIGNMENT (anti-poaching: agents never grab stale stock from
      * each other; the BM/admin moves it). Changes the owning agent, resets the staleness timer, and
      * leaves an audit note. Returns [claim, oldUserId] so the caller can warn the losing agent.

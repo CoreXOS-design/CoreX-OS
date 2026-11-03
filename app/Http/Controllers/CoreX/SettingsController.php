@@ -123,6 +123,7 @@ class SettingsController extends Controller
         // Feature Settings tab: Properties
         $data['propCategories']     = PropertySettingItem::group('category')->get();
         $data['propTypes']          = PropertySettingItem::group('property_type')->get();
+        PropertySettingItem::provisionRentalStatusesFor((int) ($user?->effectiveAgencyId() ?: 0));   // a rental agency's Status list carries To Let / Let Out / Rented
         $data['propStatuses']       = PropertySettingItem::group('property_status')->get();
         $data['propMandateTypes']   = PropertySettingItem::group('mandate_type')->get();
         // Build 3 — agency-configurable condition levels with adjustment_pct.

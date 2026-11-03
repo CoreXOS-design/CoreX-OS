@@ -398,7 +398,7 @@ final class AuditGapsTest extends TestCase
         $this->assertSame(['perfect', 'strong'], $s->buyerMatchTiers());
         $this->assertSame(['new', 'warm'], $s->activeBuyerStates());
         $this->assertSame(['active', 'for_sale', 'on_show'], $s->onMarketStatuses());
-        $this->assertSame([100, 200], [$s->addToDayMax(), $s->scanPageSize()]);
+        $this->assertSame([100, 200], [$s->addToDayMax(), $s->scanPageSize()]);   // the 200 is config('road-to-sold.scan_page_size'), not a setting
         $this->assertSame([1, 1, 1], [$s->hotPocketWeightBuyers(), $s->hotPocketWeightLeads(), $s->hotPocketWeightSales()]);
     }
 
@@ -411,7 +411,7 @@ final class AuditGapsTest extends TestCase
             'buyer_match_tiers' => ['', 'perfect', 'strong', 'approximate'],
             'active_buyer_states' => ['', 'warm'],
             'on_market_statuses' => ['', 'active', 'under_offer'],
-            'add_to_day_max' => '40', 'scan_page_size' => '100',
+            'add_to_day_max' => '40',
             'hot_pocket_weight_buyers' => '3', 'hot_pocket_weight_leads' => '2', 'hot_pocket_weight_sales' => '0',
         ])->assertSessionHasNoErrors();
         SettingsService::forget();
@@ -419,7 +419,7 @@ final class AuditGapsTest extends TestCase
         $this->assertSame(['perfect', 'strong', 'approximate'], $s->buyerMatchTiers());
         $this->assertSame(['warm'], $s->activeBuyerStates());
         $this->assertSame(['active', 'under_offer'], $s->onMarketStatuses());
-        $this->assertSame([40, 100, 3, 2, 0], [$s->addToDayMax(), $s->scanPageSize(), $s->hotPocketWeightBuyers(), $s->hotPocketWeightLeads(), $s->hotPocketWeightSales()]);
+        $this->assertSame([40, 3, 2, 0], [$s->addToDayMax(), $s->hotPocketWeightBuyers(), $s->hotPocketWeightLeads(), $s->hotPocketWeightSales()]);
 
         $other = Agency::create(['name' => 'Cape Rentals', 'slug' => 'cape-' . uniqid()]);
         $this->assertSame(['perfect', 'strong'], SettingsService::forAgency($other->id)->buyerMatchTiers());
@@ -433,7 +433,7 @@ final class AuditGapsTest extends TestCase
             ['buyer_match_tiers' => ['', 'bogus']],
             ['on_market_statuses' => ['']],
             ['add_to_day_max' => '0'], ['add_to_day_max' => '501'], ['add_to_day_max' => 'many'],
-            ['scan_page_size' => '5'], ['hot_pocket_weight_buyers' => '-1'],
+            ['hot_pocket_weight_buyers' => '-1'],
         ] as $bad) {
             $this->actingAs($this->admin)->put(route('road-to-sold.settings.general.update'), $bad)->assertSessionHasErrors();
         }

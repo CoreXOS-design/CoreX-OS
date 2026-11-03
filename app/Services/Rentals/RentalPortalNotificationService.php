@@ -76,6 +76,50 @@ class RentalPortalNotificationService
         return ['sent' => $sent, 'failed' => $failed, 'reason' => null];
     }
 
+    /**
+     * Section 31.2 - the tenant is told the moment their report is in ("we have your fault, your agent has been told"): a phone push always, an email under the
+     * agency's "notify tenant on status change" setting. Once per fault - it is remembered as the step told, so the later steps are not suppressed or doubled.
+     */
+    public function notifyTenantFaultReceived(RentalFaultReport $faultReport): void
+    {
+        \App\Events\Rentals\RentalTenantFaultStatusChanged::dispatch($faultReport, 'sent_to_agent');
+        if (! RentalPortalSetting::notifyTenantOnStatusChangeFor($faultReport->agency_id)) {
+            return;
+        }
+        $lease = $faultReport->lease;
+        if (! $lease) {
+            return;
+        }
+        foreach ($lease->tenantContacts() as $tenant) {
+            if ($tenant->email) {
+                Mail::to($tenant->email)->send(new \App\Mail\Rentals\RentalTenantFaultReceivedMail($faultReport, $tenant->first_name ?? '', $tenant));
+            }
+        }
+    }
+
+    /**
+     * Section 31.4 - the tenant is told when the job goes to a contractor or crew. Once per fault, and not after the fault has moved on (a resend of the link later is
+     * not news). A phone push always, an email under the "notify tenant on status change" setting; neutral words only.
+     */
+    public function notifyTenantJobSent(RentalFaultReport $faultReport, bool $crew, ?string $name = null): void
+    {
+        $fresh = RentalFaultReport::withoutGlobalScopes()->find($faultReport->id) ?? $faultReport;
+        if (! in_array($fresh->tenant_progress_notified, [null, 'sent_to_agent', 'sent_to_owner', 'owner_approved'], true)) {
+            return;
+        }
+        RentalFaultReport::withoutGlobalScopes()->whereKey($fresh->id)->update(['tenant_progress_notified' => 'sent_to_contractor']);
+        \App\Events\Rentals\RentalTenantFaultStatusChanged::dispatch($fresh, 'sent_to_contractor');
+        if (! RentalPortalSetting::notifyTenantOnStatusChangeFor($fresh->agency_id) || ! $fresh->lease) {
+            return;
+        }
+        $who = $crew ? 'our maintenance team' : ($name ?: 'a contractor');
+        foreach ($fresh->lease->tenantContacts() as $tenant) {
+            if ($tenant->email) {
+                Mail::to($tenant->email)->send(new \App\Mail\Rentals\RentalTenantRepairArrangedMail($fresh, $tenant->first_name ?? '', $who, $tenant));
+            }
+        }
+    }
+
     /** The steps the tenant is told about (Johan, 8 Oct 2026) - the appointment has its own mail; "work completed - please check" is the completion-check mail. */
     public const TENANT_STEPS = ['sent_to_owner', 'owner_approved', 'not_approved', 'completed'];
 

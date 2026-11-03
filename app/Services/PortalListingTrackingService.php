@@ -79,7 +79,11 @@ class PortalListingTrackingService
         $observedFields = $this->buildObservedFields($item);
 
         // Find or create the portal listing
-        $listing = PortalListing::where('source_site', $sourceSite)
+        // The capture's own agency, explicitly: this also runs in queued jobs where no agency scope applies.
+        $agencyId = (int) $capture->agency_id;
+        $listing = PortalListing::withoutGlobalScope(\App\Models\Scopes\AgencyScope::class)
+            ->where('agency_id', $agencyId)
+            ->where('source_site', $sourceSite)
             ->where('portal_listing_id', $portalListingId)
             ->first();
 
@@ -93,6 +97,7 @@ class PortalListingTrackingService
         if ($isNew) {
             // New listing
             $listing = PortalListing::create([
+                'agency_id'           => $agencyId,
                 'source_site'         => $sourceSite,
                 'portal_listing_id'   => $portalListingId,
                 'canonical_url'       => $item['url'] ?? null,
@@ -131,6 +136,7 @@ class PortalListingTrackingService
 
         // Always create an observation record (for audit trail)
         PortalListingObservation::create([
+            'agency_id'            => $agencyId,
             'portal_listing_id'    => $listing->id,
             'capture_id'           => $capture->id,
             'observed_at'          => $observedAt,

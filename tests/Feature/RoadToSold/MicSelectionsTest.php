@@ -71,27 +71,31 @@ final class MicSelectionsTest extends TestCase
         $c = BuyerSourcingSelection::mine()->candidates($this->ctx(), 50);
 
         $this->assertSame([$forBoth, $forMine], $this->listingIds($c), 'two of my buyers beats one; mate\'s, lost, cold, weak, dismissed are out');
-        $this->assertStringContainsString('2 of your buyers are looking', $c[0]->reason);
-        $this->assertStringContainsString('1 of your buyers is looking', $c[1]->reason);
+        $this->assertMatchesRegularExpression('/^for Buyer · 2 buyers$/', $c[0]->reason, '23.14: "for Piet · 3 buyers"');
+        $this->assertSame('for Buyer', $c[1]->reason);
     }
 
-    public function test_agency_buyers_sourcing_uses_every_agents_active_buyers(): void
+    public function test_colleagues_buyers_sourcing_uses_the_other_agents_active_buyers_never_mine(): void
     {
         $mine = $this->buyer($this->agent->id);
         $mate = $this->buyer($this->mate->id);
         $noAgent = $this->buyer($this->agent->id, 'new');
         $noAgent->forceFill(['agent_id' => null])->save();
 
-        $a = $this->listing();
-        $b = $this->listing();
-        $this->buyerMatch($a, $mine->id);
-        $this->buyerMatch($a, $mate->id);
-        $this->buyerMatch($b, $noAgent->id);
+        $onlyMine = $this->listing();
+        $theirs = $this->listing();
+        $both = $this->listing();
+        $noOne = $this->listing();
+        $this->buyerMatch($onlyMine, $mine->id);
+        $this->buyerMatch($theirs, $mate->id);
+        $this->buyerMatch($both, $mine->id);
+        $this->buyerMatch($both, $mate->id);
+        $this->buyerMatch($noOne, $noAgent->id);
 
         $c = BuyerSourcingSelection::agency()->candidates($this->ctx(), 50);
 
-        $this->assertSame([$a, $b], $this->listingIds($c));
-        $this->assertStringContainsString('2 active buyers are looking', $c[0]->reason);
+        $this->assertEqualsCanonicalizing([$theirs, $both], $this->listingIds($c), 'a colleague\'s buyer only: my own buyers are source 1, a buyer with no agent has no one to name');
+        $this->assertMatchesRegularExpression('/^for Buyer \(.+\)$/', $c[0]->reason, '23.14: "for Sanet (Mia Manager)" - the buyer\'s agent named');
     }
 
     public function test_buyers_of_another_agency_never_count(): void
@@ -142,8 +146,8 @@ final class MicSelectionsTest extends TestCase
         $c = (new PriceDropSelection())->candidates($this->ctx(), 50);
 
         $this->assertSame([$recent, $bigger], $this->listingIds($c), 'most recent drop first');
-        $this->assertStringContainsString('Price dropped 5% on 12 Oct', $c[0]->reason);
-        $this->assertStringContainsString('R 2,000,000 to R 1,900,000', $c[0]->reason);
+        $this->assertSame('Price drop R100k on 12 Oct', $c[0]->reason);
+        $this->assertSame(5.0, (float) $c[0]->facts['pct']);
     }
 
     public function test_price_drop_window_is_the_agency_setting(): void
@@ -185,9 +189,9 @@ final class MicSelectionsTest extends TestCase
         foreach ([$stale, $oldReal, $seenOld] as $never) {
             $this->assertNotContains($never, $ids);
         }
-        $this->assertSame('Listed 1 day ago', $c[0]->reason);
-        $this->assertSame('First seen by us 2 days ago (listed date not known)', $c[1]->reason);
-        $this->assertSame('Listed 4 days ago', $c[2]->reason);
+        $this->assertSame('New on market 1 day', $c[0]->reason);
+        $this->assertSame('New on market 2 days (first seen by us)', $c[1]->reason);
+        $this->assertSame('New on market 4 days', $c[2]->reason);
     }
 
     public function test_new_on_market_window_is_the_agency_setting(): void
@@ -210,8 +214,8 @@ final class MicSelectionsTest extends TestCase
         $c = (new LongOnMarketSelection())->candidates($this->ctx(), 50);
 
         $this->assertSame([$realOld, $seenOld], $this->listingIds($c));
-        $this->assertSame('On the market for 166 days', $c[0]->reason);
-        $this->assertStringContainsString('at least 135 days (first seen by us; listed date not known)', $c[1]->reason);
+        $this->assertSame('Long on market 166 days', $c[0]->reason);
+        $this->assertStringContainsString('Long on market at least 135 days (first seen by us)', $c[1]->reason);
     }
 
     public function test_long_on_market_window_is_the_agency_setting(): void
@@ -238,7 +242,7 @@ final class MicSelectionsTest extends TestCase
         $p1 = $this->listing([], $this->tp(['owner_contact_id' => $this->contact()]));
         // path 2 — a tracked_property_owners row with a contact
         $tp2 = $this->tp();
-        DB::table('tracked_property_owners')->insert(['tracked_property_id' => $tp2->id, 'contact_id' => $this->contact(), 'name' => 'O', 'created_at' => now(), 'updated_at' => now()]);
+        DB::table('tracked_property_owners')->insert(['agency_id' => DB::table('tracked_properties')->where('id', $tp2->id)->value('agency_id'), 'tracked_property_id' => $tp2->id, 'contact_id' => $this->contact(), 'name' => 'O', 'created_at' => now(), 'updated_at' => now()]);
         $p2 = $this->listing([], $tp2);
         // path 3 — a seller on the CoreX property a pitch created
         $prop = $this->property($this->agent->id, ['status' => 'not_selling']);   // the agent's own pitch (another agent's would be theirs, never offered)
@@ -246,13 +250,13 @@ final class MicSelectionsTest extends TestCase
         $p3 = $this->listing(['matched_property_id' => $prop]);
         // path 4 — an owner on the deed the agent linked
         $deedTp = $this->tp(['capture_kind' => 'deeds_capture']);
-        DB::table('tracked_property_owners')->insert(['tracked_property_id' => $deedTp->id, 'contact_id' => $this->contact(), 'name' => 'D', 'created_at' => now(), 'updated_at' => now()]);
+        DB::table('tracked_property_owners')->insert(['agency_id' => DB::table('tracked_properties')->where('id', $deedTp->id)->value('agency_id'), 'tracked_property_id' => $deedTp->id, 'contact_id' => $this->contact(), 'name' => 'D', 'created_at' => now(), 'updated_at' => now()]);
         $p4 = $this->listing(['linked_deed_tracked_property_id' => $deedTp->id]);
         // none
         $this->listing();
         // owner row WITHOUT a contact does not count
         $tpNo = $this->tp();
-        DB::table('tracked_property_owners')->insert(['tracked_property_id' => $tpNo->id, 'contact_id' => null, 'name' => 'Unmatched', 'created_at' => now(), 'updated_at' => now()]);
+        DB::table('tracked_property_owners')->insert(['agency_id' => DB::table('tracked_properties')->where('id', $tpNo->id)->value('agency_id'), 'tracked_property_id' => $tpNo->id, 'contact_id' => null, 'name' => 'Unmatched', 'created_at' => now(), 'updated_at' => now()]);
         $this->listing([], $tpNo);
 
         $ids = $this->listingIds((new OwnerKnownSelection())->candidates($this->ctx(settings: ['ownerKnownQuantity' => 50]), 50));

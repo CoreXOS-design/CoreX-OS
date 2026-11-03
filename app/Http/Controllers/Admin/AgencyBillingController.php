@@ -67,6 +67,8 @@ class AgencyBillingController extends Controller
         }
 
         return view('admin.billing.index', [
+            'priceList' => \App\Models\Billing\BillingPriceList::asOf(),
+            'scheduledLists' => \App\Models\Billing\BillingPriceList::scheduled(),
             'rows'    => $rows,
             'totals'  => $this->totals($rows),
         ]);
@@ -155,5 +157,27 @@ class AgencyBillingController extends Controller
             'on_bands'      => count(array_filter($quotes, fn (BillingQuote $q) => $q->usesBands)),
             'on_quotation'  => count(array_filter($quotes, fn (BillingQuote $q) => $q->onQuotation)),
         ];
+    }
+
+    /** A new price list with an effective-from date (today or later). Earlier lists stay as they were: history is never rewritten. */
+    public function savePrices(Request $request)
+    {
+        abort_unless($request->user()?->isOwnerRole(), 403);
+        $data = $request->validate([
+            'effective_from' => 'required|date|after_or_equal:today',
+            'bands' => 'required|array|min:1|max:20', 'bands.*.from' => 'required|integer|min:1', 'bands.*.to' => 'required|integer|min:1|gte:bands.*.from',
+            'bands.*.amount' => 'required|numeric|min:0|max:100000000', 'branch_rate' => 'required|numeric|min:0|max:100000000',
+        ]);
+        $bands = collect($data['bands'])->map(fn ($b) => ['from' => (int) $b['from'], 'to' => (int) $b['to'], 'amount' => (float) $b['amount']])->sortBy('from')->values()->all();
+        $expected = 1;
+        foreach ($bands as $b) {
+            if ($b['from'] !== $expected) {
+                return back()->withInput()->withErrors(['bands' => 'The bands must follow on from each other starting at 1 agent, with no gaps or overlaps.']);
+            }
+            $expected = $b['to'] + 1;
+        }
+        \App\Models\Billing\BillingPriceList::create(['effective_from' => $data['effective_from'], 'bands' => $bands, 'branch_rate' => $data['branch_rate'], 'created_by' => $request->user()->id]);
+
+        return redirect()->route('admin.billing.index')->with('success', 'Price list saved. It applies from ' . \Illuminate\Support\Carbon::parse($data['effective_from'])->format('j M Y') . '; earlier months keep the price they had.');
     }
 }

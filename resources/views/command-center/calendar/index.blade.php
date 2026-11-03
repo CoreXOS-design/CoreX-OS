@@ -111,7 +111,34 @@
     };
 @endphp
 
-<div class="flex flex-col h-full overflow-hidden -m-4 lg:-m-6" x-data="calendarPage()" x-init="initPanel(); restoreCreateEventState(); restoreEventDetailState(); if ({{ $autoOpenFeedbackEventId ?? 'null' }}) openFeedbackModal({{ $autoOpenFeedbackEventId ?? 'null' }}); handlePrefill(); window.addEventListener('beforeunload', () => { persistCreateEventState(); persistEventDetailState(); }); $watch('showCreateEvent', open => { if (open) { this.panelOpen = false; } if (!open) { this.pendingCreateDate = null; sessionStorage.removeItem('corex.calendar.createEventState'); this.clearStalePickerState(); } }); $watch('panelOpen', open => { if (open) { this.showCreateEvent = false; } if (!open) sessionStorage.removeItem('corex.calendar.eventDetailState'); });" @keydown.window="handleShortcut($event)" @mouseup.window="dragEnd()">
+@php
+    // road-to-sold.md 23.25 step 7: inside the pitch popup the Capture Feedback form is the whole screen, in the popup's own wording ("appointment", not "evaluation")
+    $feedbackPopup = request()->filled('capture_feedback') && \App\Support\Embed::on();
+    $feedbackResultPost = $feedbackPopup && request()->filled('rts_prospect') ? route('road-to-sold.prospects.popup-result', ['prospect' => (int) request('rts_prospect'), 'embed' => 1, 'rts_stage' => request('rts_stage')]) : null;
+    $feedbackAfterSave = $feedbackPopup && request()->filled('rts_prospect') ? route('road-to-sold.prospects.results-path', ['prospect' => (int) request('rts_prospect'), 'embed' => 1, 'rts_stage' => request('rts_stage')]) : null;
+@endphp
+<div data-qa="cal-root" class="flex flex-col h-full overflow-hidden -m-4 lg:-m-6" x-data="calendarPage()" x-init="initPanel(); restoreCreateEventState(); restoreEventDetailState(); if ({{ $autoOpenFeedbackEventId ?? 'null' }}) openFeedbackModal({{ $autoOpenFeedbackEventId ?? 'null' }}); handlePrefill(); window.addEventListener('beforeunload', () => { persistCreateEventState(); persistEventDetailState(); }); $watch('showCreateEvent', open => { if (open) { this.panelOpen = false; } if (!open) { this.pendingCreateDate = null; sessionStorage.removeItem('corex.calendar.createEventState'); this.clearStalePickerState(); } }); $watch('panelOpen', open => { if (open) { this.showCreateEvent = false; } if (!open) sessionStorage.removeItem('corex.calendar.eventDetailState'); });" @keydown.window="handleShortcut($event)" @mouseup.window="dragEnd()">
+
+    @if($feedbackPopup)
+    <style>
+        html, body { overflow: hidden !important; }
+        [data-qa="cal-root"] { visibility: hidden !important; }
+        [data-qa="feedback-modal"], [data-qa="feedback-modal"] * { visibility: visible !important; }
+        [data-qa="feedback-modal"] { position: fixed !important; inset: 0 !important; padding: 0 !important; align-items: stretch !important; justify-content: stretch !important; }
+        [data-qa="feedback-modal"] > [data-qa="feedback-backdrop"] { display: none !important; }
+        [data-qa="feedback-panel"] { max-width: none !important; max-height: none !important; width: 100% !important; height: 100% !important; border: 0 !important; border-radius: 0 !important; box-shadow: none !important; }
+        [data-qa="feedback-panel"] [data-qa="feedback-close"], [data-qa="feedback-panel"] [data-qa="feedback-cancel"] { display: none !important; }
+    </style>
+    @endif
+    @if(request()->boolean('pitch_book') && \App\Support\Embed::on())
+    {{-- road-to-sold.md 23.23 drop 4: the pitch popup's Book evaluation step is the calendar's own New Event form and nothing else: it fills the popup,
+         the calendar is not behind it and there is no way to close it into an empty calendar (the popup's step bar and Done are the way out) --}}
+    <style>
+        aside[data-tour="cal-event-form"] { position: fixed !important; inset: 0 0 3.6rem 0 !important; width: auto !important; max-width: none !important; z-index: 55 !important; transform: none !important; }
+        aside[data-tour="cal-event-form"] > div:first-child button,
+        aside[data-tour="cal-event-form"] > div:last-child .corex-btn-outline { display: none !important; }
+    </style>
+    @endif
 
     @once
     <style>
@@ -1466,17 +1493,17 @@
     </div>
 
     {{-- ══════ FEEDBACK CAPTURE MODAL ══════ --}}
-    <div x-show="feedbackOpen" x-cloak
+    <div x-show="feedbackOpen" x-cloak data-qa="feedback-modal"
          class="fixed inset-0 z-50 flex items-center justify-center p-4">
-        <div class="absolute inset-0 bg-black/50" @click="feedbackOpen = false"></div>
-        <div class="relative w-full max-w-2xl max-h-[90vh] flex flex-col rounded-md shadow-2xl"
+        <div class="absolute inset-0 bg-black/50" data-qa="feedback-backdrop" @click="feedbackOpen = false"></div>
+        <div data-qa="feedback-panel" class="relative w-full max-w-2xl max-h-[90vh] flex flex-col rounded-md shadow-2xl"
              style="background: var(--surface); border: 1px solid var(--border);">
 
             {{-- Header --}}
             <div class="px-6 py-4 flex items-center justify-between" style="border-bottom: 1px solid var(--border);">
                 <div>
-                    <h2 class="text-lg font-semibold" style="color: var(--text-primary);">Capture Feedback</h2>
-                    <p class="text-xs mt-0.5" style="color: var(--text-muted);" x-text="feedbackData.event?.title + ' — ' + feedbackData.event?.date"></p>
+                    <h2 class="text-lg font-semibold" style="color: var(--text-primary);" data-qa="feedback-heading">{{ $feedbackPopup ? 'Appointment feedback' : 'Capture Feedback' }}</h2>
+                    <p class="text-xs mt-0.5" style="color: var(--text-muted);" x-text="{!! $feedbackPopup ? "String(feedbackData.event?.title || '').replace(/^Evaluation:\\s*/i, 'Appointment: ')" : 'feedbackData.event?.title' !!} + ' — ' + feedbackData.event?.date"></p>
                     {{-- Multi-property step indicator --}}
                     <template x-if="feedbackData.is_multi_property && feedbackData.properties.length > 1">
                         <div class="mt-1.5 flex items-center gap-2">
@@ -1487,7 +1514,7 @@
                         </div>
                     </template>
                 </div>
-                <button type="button" @click="feedbackOpen = false" class="text-xl leading-none px-2" style="color: var(--text-muted);">&times;</button>
+                <button type="button" data-qa="feedback-close" @click="feedbackOpen = false" class="text-xl leading-none px-2" style="color: var(--text-muted);">&times;</button>
             </div>
 
             {{-- Body --}}
@@ -1618,7 +1645,16 @@
                             <div class="rounded-md p-4" style="background: var(--surface-2); border: 1px solid var(--border);">
                                 <h3 class="text-sm font-semibold mb-3" style="color: var(--text-primary);" x-text="item.label"></h3>
 
-                                <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
+                                {{-- v4 (road-to-sold.md 23.10): an evaluation says what happened first. Held asks for the outcome; no show and rescheduled ask for nothing more. --}}
+                                <div class="mb-3" x-show="feedbackData.is_evaluation" data-qa="eval-status">
+                                    <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">What happened?</label>
+                                    <div class="flex flex-wrap gap-4 text-sm" style="color: var(--text-primary);">
+                                        <label class="flex items-center gap-1.5"><input type="radio" value="held" x-model="feedbackForm['prop:' + item.property_id].eval_status"> {{ $feedbackPopup ? 'The appointment was held' : 'The evaluation was held' }}</label>
+                                        <label class="flex items-center gap-1.5"><input type="radio" value="no_show" x-model="feedbackForm['prop:' + item.property_id].eval_status"> The seller was not there (no-show)</label>
+                                        <label class="flex items-center gap-1.5"><input type="radio" value="rescheduled" x-model="feedbackForm['prop:' + item.property_id].eval_status"> It was moved to another day</label>
+                                    </div>
+                                </div>
+                                <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3" x-show="!feedbackData.is_evaluation || (feedbackForm['prop:' + item.property_id].eval_status || 'held') === 'held'">
                                     {{-- Outcome --}}
                                     <div>
                                         <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Outcome</label>
@@ -1630,6 +1666,12 @@
                                                 <option :value="o" x-text="o"></option>
                                             </template>
                                         </select>
+                                        {{-- the pitch popup's ONE form: Undecided comes back on a day, as the Result form asked --}}
+                                        <div class="mt-2" x-show="resultNeedsDate(item)" x-cloak data-qa="feedback-revisit">
+                                            <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Bring it back on</label>
+                                            <input type="date" x-model="feedbackForm['prop:' + item.property_id].revisit_on" class="rounded-md px-3 py-2 text-sm"
+                                                   style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                                        </div>
                                     </div>
                                     {{-- Mandate type — seller-facing classes only (listing presentation /
                                          property evaluation). No mandate concept for a buyer-facing
@@ -1771,9 +1813,9 @@
                     </template>
                 </div>
                 <div class="flex items-center gap-2">
-                    <button type="button" @click="feedbackOpen = false" class="corex-btn-outline">Cancel</button>
+                    <button type="button" data-qa="feedback-cancel" @click="feedbackOpen = false" class="corex-btn-outline">Cancel</button>
                     <template x-if="feedbackData.can_edit !== false && (!feedbackData.is_multi_property || feedbackPropertyStep >= feedbackData.properties.length - 1)">
-                        <button type="button" @click="saveFeedback()" :disabled="feedbackSaving"
+                        <button type="button" @click="saveFeedback()" :disabled="feedbackSaving || !resultReady()" data-qa="feedback-save"
                                 class="corex-btn-primary disabled:opacity-50">
                             <span x-show="!feedbackSaving">Save Feedback</span>
                             <span x-show="feedbackSaving" x-cloak>Saving…</span>
@@ -1848,7 +1890,7 @@
 
     {{-- Header --}}
     <div class="px-6 py-4 flex items-center justify-between flex-shrink-0" style="border-bottom: 1px solid var(--border);">
-        <h2 class="text-lg font-semibold" style="color: var(--text-primary);" x-text="editMode ? 'Edit Event' : 'New Event'"></h2>
+        <h2 class="text-lg font-semibold" style="color: var(--text-primary);" x-text="editMode ? 'Edit Event' : '{{ request()->boolean('pitch_book') && \App\Support\Embed::on() ? 'Appointment' : 'New Event' }}'" data-qa="step-heading"></h2>
         <button type="button" @click="showCreateEvent = false" class="text-xl leading-none px-2" style="color: var(--text-muted); background: none; border: none; cursor: pointer;">&times;</button>
     </div>
 
@@ -1866,6 +1908,12 @@
           class="flex-1 overflow-y-auto px-6 py-4 space-y-4"
           @submit="onFormSubmit($event)">
         @csrf
+        {{-- road-to-sold.md 23.23 drop 4: inside the pitch popup's Book evaluation step, store() sends the agent to the "Evaluation booked" page and records the call --}}
+        @if(request()->boolean('pitch_book'))
+            @foreach(['pitch_book', 'pitch_outcome', 'pitch_when', 'pitch_note', 'pitch_channel', 'rts_prospect', 'rts_stage', 'embed'] as $__pb)
+                @if(request()->filled($__pb))<input type="hidden" name="{{ $__pb }}" value="{{ request()->input($__pb) }}">@endif
+            @endforeach
+        @endif
         <template x-if="editMode"><input type="hidden" name="_method" value="PUT"></template>
 
         {{-- Title --}}
@@ -3526,13 +3574,16 @@ function calendarPage() {
 
             this.$nextTick(() => {
                 const today = new Date().toISOString().slice(0, 10);
+                // road-to-sold.md 23.30: inside the pitch popup the server names the next working slot (never a time that has gone)
+                const slot = @js($pitchBookSlot ?? null);
                 this.form = {
-                    title: '',
+                    // road-to-sold.md 23.23 drop 4: the pitch popup's Book evaluation step names the evaluation after the property
+                    title: params.get('prefill_title') || '',
                     category: prefillClass || 'viewing',
-                    startDate: today,
-                    startTime: prefillClass === 'viewing' ? '14:00' : '09:00',
-                    endDate: today,
-                    endTime: prefillClass === 'viewing' ? '15:00' : '10:00',
+                    startDate: slot ? slot.start.date : today,
+                    startTime: slot ? slot.start.time : (prefillClass === 'viewing' ? '14:00' : '09:00'),
+                    endDate: slot ? slot.end.date : today,
+                    endTime: slot ? slot.end.time : (prefillClass === 'viewing' ? '15:00' : '10:00'),
                     description: '',
                     allDay: false,
                     sendReminder: true, reminderOffset: 60, reminderPopup: true, reminderEmail: false,
@@ -4065,7 +4116,7 @@ function calendarPage() {
 
         async openFeedbackModal(eventId) {
             try {
-                const r = await fetch('/corex/command-center/calendar/' + eventId + '/feedback', {
+                const r = await fetch('/corex/command-center/calendar/' + eventId + '/feedback' + @js($feedbackResultPost ? '?embed=1&rts_prospect=' . (int) request('rts_prospect') : ''), {
                     headers: { 'Accept': 'application/json' }, credentials: 'same-origin',
                 });
                 if (!r.ok) {
@@ -4087,7 +4138,9 @@ function calendarPage() {
                     is_multi_property: !!data.is_multi_property,
                     outcomes: data.outcomes || [],
                     concerns: data.concerns || [],
+                    is_evaluation: !!data.is_evaluation,
                     lp_outcomes: data.lp_outcomes || [],
+                    result_options: data.result_options || [],
                     lp_mandate_types: data.lp_mandate_types || [],
                     lp_concerns: data.lp_concerns || [],
                     can_edit: data.can_edit === undefined ? true : !!data.can_edit,
@@ -4114,7 +4167,9 @@ function calendarPage() {
                     this.feedbackData.items.forEach(it => {
                         const kd = it.kind_data || {};
                         this.feedbackForm['prop:' + it.property_id] = {
+                            eval_status:    kd.eval_status || 'held',
                             outcome:        kd.outcome || '',
+                            revisit_on:     '',
                             mandate_type:   kd.mandate_type || '',
                             concern_ids:    Array.isArray(kd.concern_ids) ? kd.concern_ids.map(String) : [],
                             seller_notes:   kd.seller_notes || '',
@@ -4139,6 +4194,16 @@ function calendarPage() {
             } catch (e) {
                 console.warn('openFeedbackModal failed:', e);
             }
+        },
+        // The pitch popup's ONE form (road-to-sold.md 23.25 step 7): once the appointment was held the answer (Won / Undecided) is part of this same form.
+        popupResultItem() { return (this.feedbackData.result_options || []).length > 0 && this.feedbackData.is_evaluation ? (this.feedbackData.items || [])[0] : null; },
+        resultOption(item) { const f = item ? this.feedbackForm['prop:' + item.property_id] : null; return f ? (this.feedbackData.result_options || []).find(o => o.label === f.outcome) : null; },
+        resultNeedsDate(item) { const f = this.feedbackForm['prop:' + item.property_id]; const o = this.resultOption(item); return !!o && o.needs_date && !!f && (f.eval_status || 'held') === 'held'; },
+        resultReady() {
+            const item = this.popupResultItem();
+            if (!item) return true;
+            const f = this.feedbackForm['prop:' + item.property_id];
+            return !f || (f.eval_status || 'held') !== 'held' || !!this.resultOption(item);
         },
         getCurrentFeedbackPropertyId() {
             if (!this.feedbackData.is_multi_property || !this.feedbackData.properties.length) {
@@ -4175,6 +4240,7 @@ function calendarPage() {
                         .map(([k, f]) => ({
                             property_id: parseInt(k.slice('prop:'.length)),
                             kind_specific_data: {
+                                eval_status:    this.feedbackData.is_evaluation ? (f.eval_status || 'held') : undefined,
                                 outcome:        f.outcome || null,
                                 mandate_type:   f.mandate_type || null,
                                 concern_ids:    (f.concern_ids || []).map(Number),
@@ -4242,7 +4308,19 @@ function calendarPage() {
                 const r = await this.submitFeedbackPayload(payload);
                 if (r.ok) {
                     this.feedbackOpen = false;
-                    window.location.reload();
+                    // inside the pitch popup the answer rides on the same Save: held + Won / Undecided posts the result, anything else goes to where the record now is
+                    @if($feedbackAfterSave)
+                    const item = this.popupResultItem(), o = this.resultOption(item), f = item ? this.feedbackForm['prop:' + item.property_id] : null;
+                    if (item && o && (f.eval_status || 'held') === 'held') {
+                        const form = document.createElement('form');
+                        form.method = 'POST'; form.action = @js($feedbackResultPost);
+                        [['_token', document.querySelector('meta[name="csrf-token"]').content], ['result_key', o.key], ['revisit_on', o.needs_date ? (f.revisit_on || '') : ''], ['note', '']]
+                            .forEach(([n, v]) => { const i = document.createElement('input'); i.type = 'hidden'; i.name = n; i.value = v; form.appendChild(i); });
+                        document.body.appendChild(form); form.submit();
+                        return;
+                    }
+                    window.location.href = @js($feedbackAfterSave);
+                    @else window.location.reload(); @endif
                 } else {
                     this.feedbackError = r.message;
                 }

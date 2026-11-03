@@ -119,9 +119,9 @@ final class SentIsSentAt503Test extends TestCase
         $this->property(['title' => 'In range']);
         $match->mintShareLink($this->agent->id)->confirmSent(ContactMatchShare::CHANNEL_EMAIL);
 
-        // 10% over the stated ceiling: inside the relaxed +/-30% band, so the buyer's link and every
-        // send include it. The board used to score it with no band and never count it as new.
-        $nearMiss = $this->property(['title' => 'Slightly over budget', 'price' => 2_750_000]);
+        // 4% over the stated ceiling: inside the agency's price tolerance (default 10%, spec 13.15 - it was a fixed 30% band), so the
+        // buyer's link and every send include it. The board used to score it with no band and never count it as new.
+        $nearMiss = $this->property(['title' => 'Slightly over budget', 'price' => 2_600_000]);
 
         $unsent = app(CoreMatchShareHistoryService::class)->neverSentProperties($match);
         $this->assertTrue($unsent->contains('id', $nearMiss->id), 'precondition: the send set includes the near-miss');

@@ -143,3 +143,70 @@ this feature doesn't need to touch that method's contract. Instead:
 - Unequal-length ranges are stated plainly in the header.
 - `php -l` clean, blade compiles, single most relevant test passes (or the
   pre-existing test-DB grant gap is stated plainly if blocked).
+
+## 8. Deal-status ticks drive the whole page (AT-535, 2026-11-02, Johan — QA1 only)
+
+**Bug.** The Deal-status ticks (All / Pending / Granted / Registered / Declined) only recomputed the four tiles. The
+headline sentence and the 13 metric cards (and their deltas) were built server-side over ALL deals including Declined,
+so declined deals were counted as commission "earned", and the comparison showed only the delta, never the previous
+period's actual figure. The company deal numbers also counted a joint deal once per agent on it, so the page said 15
+deals where the Deal Register lists 11.
+
+**Rulings (all Johan's).**
+
+- **A. The ticks drive the whole page.** Tiles, headline, and every deal-derived figure (Deals created, Deals
+  registered, Commission gross/agent/company, the branch and agent columns, the drilldown lists, Print) count only
+  deals in the ticked statuses, for the main AND the comparison period, so every delta compares like with like.
+  Non-deal metrics (contacts, properties, presentations, portal views, buyers, viewings, appointments, outreach, FICA,
+  MIC claims) are untouched.
+- **B. Declined is out by default.** First load = Pending + Granted + Registered ticked. Ticking All ticks all four.
+  Same ticks, same tiles, same cards as before; nothing rebuilt.
+- **C. Every comparison shows the previous period's actual figure** beside the delta:
+  `R 490,397.53 · ▲ +R 270,682.92 (+123.2%) · 2026-09-01 → 2026-09-30: R 219,714.61`. Headline sentence and all 13
+  cards; the Commission card shows Gross, Agent share and Company share each with their own previous figure
+  (the card's big number is Gross, so its delta is on Gross). Money to the cent when a previous figure is shown.
+- **D. Print and a copied link show the same figures as the screen.** The selection travels in the URL
+  (`?status[]=pending&status[]=granted…`; absent = the default in B; `status[]=none` = nothing ticked; `status[]=all`).
+  The server is the single source: **a tick reloads the page at the same address with the new selection** (no client-side
+  recompute; that is the choice made, so the screen, a pasted link and Print cannot disagree). Print also carries the
+  custom dates, the comparison, and shows the counting line, headline and the same comparison lines.
+- **E. "Unequal-length ranges" warning unchanged.**
+- **F. Scoping unchanged.** OWN / BRANCH / AGENCY is resolved first (cohort + ceiling); the ticks only filter rows inside
+  it. Proven by tests (an agent asking for All statuses plus a colleague / another branch still sees only their own).
+- **G. Deal date, not captured date.** Every deal-derived figure goes by the DEAL DATE so the report agrees with the
+  Deal Register for the same month on the same ticks:
+  - DR1 (`deals`): `deal_date` (NOT NULL, so there is no fallback); DR2 unlinked (`deals_v2`): `offer_date` (NOT NULL; DR2's
+    deal date). `created_at` / the `period` month tag are never used. Deals registered is the one exception by design:
+    it has its own date, `registration_date` (DR2 `actual_registration`), and counts deals registered in the period.
+  - **A joint deal counts once** in a branch's and in the company's deal numbers (qty and value), however many agents are on
+    it. An agent's own row still shows every deal they are on. Commission is each agent's own money line, summed, so it is
+    unaffected. Consequence: agent rows can add up to more than the company deal count when deals are joint.
+
+**Status buckets** (unchanged rule, `DealStatusBreakdownService`): Declined > Registered (registration date or R) >
+Granted (granted date or G) > Pending. DR2 `completed` / `active` fall into Pending unless they carry an actual
+registration date (reported to Johan; not changed here).
+
+**Files.** `DealStatusSelection` (new; parsing, default, URL form), `AgencyPerformanceReportService::build(…, $statuses)`,
+`Providers/{DealStatusAware,CountsDistinctDeals}` (new), `AbstractDealMetricProvider`, `CommissionGrossProvider`,
+`DealStatusBreakdownService` (exposes the deals behind each agent's row), `ReportPeriodComparator` (Gross + Company share
+comparisons), `PerformanceDrilldownService`, `AgencyPerformanceReportController` (index/print/drilldown),
+`components/performance-delta`, `agency-report/index` + `print-company`.
+Tests: `tests/Feature/Performance/AgencyReportDealStatusTicksTest.php`.
+
+**Follow-on (same day, same bug):** the branch page, the agent page and the agent print now follow the same `?status[]` selection
+(same default, same "Counting …" line), for both the period and the preceding period they compare to; links from the company
+report (branch / agent rows) carry the period, custom dates and the ticks, and so do Back, the agent Print link, the agent
+links on the branch page and the period selector (hidden `status[]` fields). The Buyer-activity tiles on the company report
+show the previous period's actual figure beside the delta (ruling C, same component). The commission column / agent
+card on the branch, agent and company tables is headed **"Commission (agent share, ex-VAT)"** because the number it holds is
+the agent's own money line (`CommissionGrossProvider::forUsers`); the card keeps "Commission (gross ex-VAT)" because its
+big number is Gross. The basis itself is NOT changed (open with Johan).
+
+**Not changed (reported, with Johan):** the headline "the agency earned" uses the agent share of commission while the
+Commission card's big number is Gross (agent + company); DR2 `completed`/`active` fall into Pending; agent rows can add up
+to more than the company deal count on joint deals.
+
+### Build log
+
+- 2026-11-02 — AT-535: rulings A–G built on QA1. See above.
+- 2026-11-02 — AT-535 follow-on: branch / agent pages + agent print follow the ticks; buyer-activity tiles show the previous figure; commission column headed "agent share" (basis unchanged); previous-period labels ("Previous: …", "Same period last year: …") now name that window's own dates (they repeated the current period's label).

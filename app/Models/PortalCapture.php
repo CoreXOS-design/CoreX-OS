@@ -3,13 +3,15 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use App\Models\Concerns\BelongsToAgency;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 class PortalCapture extends Model
 {
-    use HasFactory, SoftDeletes;
+    use HasFactory, SoftDeletes, BelongsToAgency;
     protected $fillable = [
+        'agency_id',
         'user_id',
         'presentation_id',
         'source_site',
@@ -28,6 +30,16 @@ class PortalCapture extends Model
         'jsonld_json',
         'found_image_urls_json',
     ];
+
+    protected static function booted(): void
+    {
+        // A capture belongs to the agency of the user who made it (BelongsToAgency has already stamped a signed-in user's agency).
+        static::creating(function (self $capture) {
+            if (empty($capture->agency_id) && $capture->user_id) {
+                $capture->agency_id = \App\Models\User::withoutGlobalScopes()->whereKey($capture->user_id)->value('agency_id');
+            }
+        });
+    }
 
     protected $casts = [
         'captured_at'            => 'datetime',

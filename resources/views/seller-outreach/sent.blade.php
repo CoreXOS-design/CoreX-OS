@@ -17,6 +17,7 @@
         answered: {{ $isWhatsapp ? 'false' : 'true' }},
         result: @js($isWhatsapp ? null : 'sent'),
         sentConfirm: { open: {{ $isWhatsapp ? 'true' : 'false' }} },
+        logNote: @js(session('contact_message')),
         async confirmSent(didSend) {
             this.sentConfirm.open = false;
             this.answered = true;
@@ -28,11 +29,16 @@
                 ? @js(route('seller-outreach.composer.mark-sent', ['contact' => $contact->id, 'send' => $send->id]))
                 : @js(route('seller-outreach.composer.not-sent', ['contact' => $contact->id, 'send' => $send->id]));
             try {
-                await fetch(url, {
+                const res = await fetch(url, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-CSRF-TOKEN': @js(csrf_token()), 'X-Requested-With': 'XMLHttpRequest' },
                     body: '{}'
                 });
+                // Yes = a pitch went out: the popup says so on Done, and the contact is on the Road to Sold record (or why it could not be)
+                if (didSend) {
+                    try { const d = await res.json(); if (d && d.contact_message) { this.logNote = d.contact_message; } } catch (e) { /* no body */ }
+                    if (window.corexPitchResult) { window.corexPitchResult('pitched', @js($address ?? ''), 'WhatsApp'); }
+                }
             } catch (e) { /* keep local state; server is source of truth on next load */ }
         }
      }">
@@ -109,11 +115,14 @@
         </div>
 
         <div class="mt-6 flex items-center justify-center gap-3 flex-wrap">
+            {{-- in the pitch popup (road-to-sold.md 23.23) the page's own Done bar is the way out --}}
+            @unless(\App\Support\Embed::on())
             <a href="{{ route('corex.contacts.show', $contact) }}"
                class="px-4 py-2 text-sm font-semibold rounded"
                style="background: #00d4aa; color: #003a2f;">
                 Back to contact
             </a>
+            @endunless
             <a href="{{ route('seller-outreach.composer.show', $contact) }}"
                class="px-4 py-2 text-sm rounded"
                style="background: var(--surface-2); color: var(--text-primary); border: 1px solid var(--border);">
@@ -122,9 +131,15 @@
         </div>
     </div>
 
+    <p class="text-xs text-center mt-3" x-show="logNote" x-cloak style="color: var(--ds-amber, #b45309);" x-text="logNote"></p>
+    @unless($isWhatsapp)
+        <script>window.addEventListener('load', function () { if (window.corexPitchResult) { window.corexPitchResult('pitched', @js($address ?? ''), 'Email'); } });</script>
+    @endunless
+
     {{-- AT-323 — SHARED confirm modal (identical component to the contact quick-send). --}}
     @if($isWhatsapp)
         @include('partials.whatsapp-send-confirm-modal')
     @endif
 </div>
+@include('layouts.partials._pitch-result')
 @endsection

@@ -237,9 +237,9 @@ final class RentalStatusAndIncompleteDataMatchingTest extends TestCase
 
     public function test_a_property_just_over_budget_survives_as_a_decayed_near_miss(): void
     {
-        // R11 500 against a R10 000 ceiling: inside the +30% band, so spec
-        // §5.1 says surface it with a decayed score, not delete it.
-        $property = $this->rental(['price' => 11500]);
+        // R10 600 against a R10 000 ceiling: inside the agency's price tolerance (default 10%, spec 13.15 - was a fixed 30% band
+        // before), so it is surfaced with a decayed score, not deleted.
+        $property = $this->rental(['price' => 10600]);
 
         $resolved = $this->resolve($this->wishlist());
 

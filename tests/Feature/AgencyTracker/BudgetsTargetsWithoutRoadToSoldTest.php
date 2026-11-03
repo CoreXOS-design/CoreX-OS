@@ -69,7 +69,7 @@ final class BudgetsTargetsWithoutRoadToSoldTest extends TestCase
             ->assertOk()->assertSee('Retha Kelly');
 
         $this->actingAs($this->admin)->get(route('road-to-sold.settings.targets.index'))
-            ->assertOk()->assertSee('Monthly targets')->assertSee('Retha Kelly')->assertDontSee('Daily call targets');
+            ->assertOk()->assertSee('Monthly targets')->assertSee('Retha Kelly')->assertDontSee('Stock loaded per agent per day');
     }
 
     public function test_with_road_to_sold_off_a_monthly_target_saves(): void
@@ -105,10 +105,19 @@ final class BudgetsTargetsWithoutRoadToSoldTest extends TestCase
         $this->roadToSold(true);
 
         $this->actingAs($this->admin)->get(route('road-to-sold.settings.targets.index'))
-            ->assertOk()->assertSee('Monthly targets')->assertSee('Daily call targets');
+            ->assertOk()->assertSee('Monthly targets')->assertSee('Stock loaded per agent per day');
         $this->actingAs($this->admin)->get(route('road-to-sold.settings.index'))->assertOk();
 
-        $keys = collect(\App\Http\Controllers\RoadToSold\SettingsController::tabsFor($this->admin, 'general'))->pluck('key')->all();
-        $this->assertSame(['general', 'areas', 'budgets', 'targets'], $keys);
+        // The list is derived, not frozen: tabs are added as screens land (Recipe, Task targets, Training & flags, Points ...). What must hold is that
+        // the call list's own tabs open the strip, Budgets and Targets are still there in that order, and nothing else is hiding behind the off switch.
+        $on = collect(\App\Http\Controllers\RoadToSold\SettingsController::tabsFor($this->admin, 'general'))->pluck('key')->all();
+        $this->roadToSold(false);
+        $off = collect(\App\Http\Controllers\RoadToSold\SettingsController::tabsFor($this->admin, 'targets'))->pluck('key')->all();
+
+        $this->assertSame(['general', 'areas'], array_slice($on, 0, 2), 'the call list\'s own tabs come first');
+        $this->assertSame(['budgets', 'targets'], $off);
+        $this->assertSame([], array_diff($off, $on), 'every tab that survives the switch is also there when it is on');
+        $this->assertSame($off, array_values(array_intersect($on, $off)), 'Budgets and Targets keep their order');
+        $this->assertContains('points', $on, 'the Points tab is part of the call list\'s strip');
     }
 }

@@ -150,9 +150,9 @@ final class PropagateCmaToProperty
             // The match-or-create service runs token-overlap fallback on $facts['address'],
             // so passing the raw free-text address is enough. Parsing street_number/name
             // is best-effort and the service tolerates nulls.
-            if (preg_match('/^(\d+\w*)\s+(.+)$/', trim((string) $fields['subject.address']), $m)) {
-                $facts['street_number'] = $m[1];
-                $facts['street_name']   = $m[2];
+            $line = \App\Services\Address\AddressLineFacts::split((string) $fields['subject.address'], $fields['subject.suburb'] ?? null);
+            if ($line !== null) {
+                $facts = array_merge($facts, array_filter($line, fn ($v) => $v !== null && $v !== ''));
             }
         }
 

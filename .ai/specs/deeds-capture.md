@@ -991,3 +991,8 @@ byte-for-byte unchanged. The gate sits entirely in front of them in
 ### 9.9 Deliberately NOT in the wizard
 No new agency setting — the pre-check is unconditional behaviour, not a configurable
 toggle. CLAUDE.md #10a does not apply.
+
+## 10. Claim on capture (lane C, C2, 29 Oct 2026)
+
+When a capture resolves, with at least the agency's confidence bar (default "high"), to a property already in Market Intelligence, that property is claimed for the capturing agent and counts in Road to Sold. A new property, a weaker match (kept as a possible match), or a property another agent already holds claims nothing. No new agency setting beyond the bar. Full text: `property-identity.md` section 15.2.
+

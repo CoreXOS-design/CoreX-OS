@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\User;
 use App\Services\Performance\AgencyPerformanceReportService;
 use App\Services\Performance\BuyerActivityService;
+use App\Services\Performance\DealStatusSelection;
 use App\Services\Performance\Period;
 use App\Services\Performance\PeriodResolver;
 use App\Services\Performance\PerformanceDrilldownService;
@@ -42,7 +43,12 @@ class AgencyPerformanceReportController extends Controller
         // HierarchyResolver, so the screen, the comparison period, the buyer
         // rollup and every figure below can only ever contain entitled agents.
         $scope  = $scopes->resolve($user, $branchId, $userId);
-        $report = $service->build($scope, $period);
+
+        // Deal-status ticks (?status[]=…, absent = Pending+Granted+Registered). One selection drives every
+        // deal-based figure below, for the main AND the comparison period, so deltas compare like with like.
+        // It filters rows inside $scope's cohort; it never widens it.
+        $statuses = DealStatusSelection::fromRequest($request);
+        $report = $service->build($scope, $period, $statuses);
 
         // AT-366-E — company-level buyer-activity summary (period-scoped).
         $buyerActivity = $buyers->rollup($scope, $period);
@@ -57,7 +63,7 @@ class AgencyPerformanceReportController extends Controller
         $buyerComparison = null;
         $comparisonMeta = null;
         if ($comparePeriod !== null) {
-            $prevReport = $service->build($scope, $comparePeriod);
+            $prevReport = $service->build($scope, $comparePeriod, $statuses);
             $comparison = $comparator->build($report, $prevReport);
 
             $prevBuyer = $buyers->rollup($scope, $comparePeriod);
@@ -65,6 +71,9 @@ class AgencyPerformanceReportController extends Controller
 
             $comparisonMeta = [
                 'period'         => $comparePeriod->toArray(),
+                // The comparison period's real dates, whatever the mode ("Previous: …" labels name the
+                // CURRENT range), so every comparison can show which period the previous figure belongs to.
+                'range'          => $comparePeriod->start->toDateString() . ' → ' . $comparePeriod->end->toDateString(),
                 'mode'           => $compareMode,
                 'unequal_length' => $period->lengthInDays() !== $comparePeriod->lengthInDays(),
                 'period_days'    => $period->lengthInDays(),
@@ -100,7 +109,26 @@ class AgencyPerformanceReportController extends Controller
             'comparison'       => $comparison,
             'buyerComparison'  => $buyerComparison,
             'comparisonMeta'   => $comparisonMeta,
+            'statuses'         => $statuses,
+            // Everything a link to this same screen (Print, drilldown) must carry so it shows the same figures.
+            'viewQuery'        => $this->viewQuery($request, $statuses),
         ]);
+    }
+
+    /**
+     * The query-string that reproduces this screen: period (+ custom dates), comparison (+ custom dates),
+     * branch/agent narrowing and the deal-status ticks. Print and the drilldown are built from it, so what
+     * prints is what is on screen.
+     */
+    private function viewQuery(Request $request, DealStatusSelection $statuses, bool $company = true): array
+    {
+        // The branch and agent pages have no comparison selector or branch/agent narrowing of their own (they always compare to the
+        // preceding period), so they carry only the period and the ticks.
+        $keys = $company ? ['period', 'start', 'end', 'compare', 'compare_start', 'compare_end', 'branch_id', 'user_id'] : ['period', 'start', 'end'];
+        $q = array_filter($request->only($keys),
+            fn ($v) => $v !== null && $v !== '' && !is_array($v));
+
+        return $q + $statuses->toQuery();
     }
 
     /**
@@ -194,8 +222,10 @@ class AgencyPerformanceReportController extends Controller
         $ceiling = $scopes->ceiling($actor);
 
         [$period, $preset] = $this->resolvePeriod($request, $periods);
+        // The company report's deal-status ticks follow the reader onto the branch and agent pages (same ?status[]).
+        $statuses = DealStatusSelection::fromRequest($request);
 
-        $report = $service->branchJourney((int) $agencyId, $branch, $period, $ceiling);
+        $report = $service->branchJourney((int) $agencyId, $branch, $period, $ceiling, $statuses);
         abort_if($report['branch'] === null, 404);
 
         // AT-366-E — this branch's buyer-activity summary, pulled from the same
@@ -210,6 +240,8 @@ class AgencyPerformanceReportController extends Controller
             ],
             'preset'  => $preset,
             'presets' => PeriodResolver::PRESETS,
+            'statuses' => $statuses,
+            'viewQuery' => $this->viewQuery($request, $statuses, false),
         ]);
     }
 
@@ -229,8 +261,9 @@ class AgencyPerformanceReportController extends Controller
         abort_unless($scopes->canViewAgent($actor, (int) $user->id), 403);
 
         [$period, $preset] = $this->resolvePeriod($request, $periods);
+        $statuses = DealStatusSelection::fromRequest($request);
 
-        $journey = $service->agentJourney((int) $agencyId, (int) $user->id, $period, $scopes->ceiling($actor));
+        $journey = $service->agentJourney((int) $agencyId, (int) $user->id, $period, $scopes->ceiling($actor), $statuses);
         abort_if($journey['agent'] === null, 404);
 
         // AT-366-E — the agent's full period-scoped buyer-activity picture (Q7).
@@ -241,6 +274,8 @@ class AgencyPerformanceReportController extends Controller
             'buyer'   => $buyerActivity,
             'preset'  => $preset,
             'presets' => PeriodResolver::PRESETS,
+            'statuses' => $statuses,
+            'viewQuery' => $this->viewQuery($request, $statuses, false),
         ]);
     }
 
@@ -248,22 +283,40 @@ class AgencyPerformanceReportController extends Controller
      * AT-366 (cc1 frontend #8) — whole-company printable: the full report, chrome-free,
      * with a company header. Same agency-scoped build() as index(); print-optimised view.
      */
-    public function print(Request $request, PeriodResolver $periods, AgencyPerformanceReportService $service, BuyerActivityService $buyers, PerformanceReportScopeResolver $scopes)
+    public function print(Request $request, PeriodResolver $periods, AgencyPerformanceReportService $service, BuyerActivityService $buyers, PerformanceReportScopeResolver $scopes, ReportPeriodComparator $comparator)
     {
         $user     = $request->user();
         $agencyId = $user?->effectiveAgencyId();
         abort_if(!$agencyId, 403, 'No agency context for the performance report.');
 
         [$period, $preset] = $this->resolvePeriod($request, $periods);
+        $statuses = DealStatusSelection::fromRequest($request);
 
         // Scope-report fix (2026-10-07): the printable is built from the
         // viewer's own ceiling — an agent prints their own figures, a branch
         // manager their branch, agency roles the whole agency.
         $scope  = $scopes->ceiling($user);
-        $report = $service->build($scope, $period);
+        $report = $service->build($scope, $period, $statuses);
         $buyerActivity = $buyers->rollup($scope, $period);
 
+        // Same comparison the screen shows (when the link carries one), on the same status ticks.
+        [$comparePeriod, $compareMode] = $this->resolveComparisonPeriod($request, $periods, $period);
+        $comparison = null;
+        $comparisonMeta = null;
+        if ($comparePeriod !== null) {
+            $comparison = $comparator->build($report, $service->build($scope, $comparePeriod, $statuses));
+            $comparisonMeta = ['period' => $comparePeriod->toArray(), 'range' => $comparePeriod->start->toDateString() . ' → ' . $comparePeriod->end->toDateString(), 'mode' => $compareMode, 'phrase' => match ($compareMode) {
+                'previous'       => 'vs previous period',
+                'same_last_year' => 'vs same period last year',
+                'custom'         => 'vs ' . $comparePeriod->label,
+                default          => 'vs comparison period',
+            }];
+        }
+
         return view('performance.agency-report.print-company', [
+            'statuses' => $statuses,
+            'comparison' => $comparison,
+            'comparisonMeta' => $comparisonMeta,
             'report' => $report,
             'buyer'  => ['metrics' => $buyerActivity['metrics'], 'aggregate' => $buyerActivity['company']],
             'agency' => \App\Models\Agency::withoutGlobalScopes()->find((int) $agencyId),
@@ -284,11 +337,13 @@ class AgencyPerformanceReportController extends Controller
         abort_unless($scopes->canViewAgent($actor, (int) $user->id), 403); // see agent()
 
         [$period, $preset] = $this->resolvePeriod($request, $periods);
+        $statuses = DealStatusSelection::fromRequest($request);
 
-        $journey = $service->agentJourney((int) $agencyId, (int) $user->id, $period, $scopes->ceiling($actor));
+        $journey = $service->agentJourney((int) $agencyId, (int) $user->id, $period, $scopes->ceiling($actor), $statuses);
         abort_if($journey['agent'] === null, 404);
 
         return view('performance.agency-report.print-agent', [
+            'statuses' => $statuses,
             'journey' => $journey,
             'agency'  => \App\Models\Agency::withoutGlobalScopes()->find((int) $agencyId),
             'preset'  => $preset,
@@ -323,8 +378,12 @@ class AgencyPerformanceReportController extends Controller
         $metric   = $map[$metricIn] ?? $metricIn; // accept the short alias OR the full metric/tile key
         abort_unless(in_array($metric, PerformanceDrilldownService::METRICS, true), 422, 'Unknown metric.');
 
-        $status = $request->filled('status') ? (string) $request->query('status') : null;
-        abort_if($status !== null && !in_array($status, ['pending', 'granted', 'registered', 'declined', 'all'], true), 422, 'Unknown status.');
+        // The page's deal-status ticks (?status[]=…, absent = the default three) decide which deals the list
+        // holds, so a clicked card lists exactly the deals it counted. A single ?status=declined|…|all still works.
+        $rawStatus = $request->query('status');
+        abort_if(is_string($rawStatus) && $rawStatus !== '' && !in_array($rawStatus, ['pending', 'granted', 'registered', 'declined', 'all', 'none'], true), 422, 'Unknown status.');
+        $statuses = DealStatusSelection::fromRequest($request);
+        $status = null;
         // The "deals registered" tile/column is the deals list forced to the registered bucket.
         if ($metricIn === 'deals_registered') $status = 'registered';
 
@@ -346,10 +405,10 @@ class AgencyPerformanceReportController extends Controller
         // The ceiling is ANDed onto the cohort too, so even the company-level
         // drill-down (and an unknown level) can only list entitled agents' rows.
         $cohort   = $drill->cohort($agencyId, $branchId, $agentId, $scopes->ceiling($actor));
-        $res      = $drill->rows($metric, $cohort, $period, $agencyId, $metric === 'deals' ? $status : null);
+        $res      = $drill->rows($metric, $cohort, $period, $agencyId, $metric === 'deals' ? $status : null, $statuses);
 
         return response()->json([
-            'title'   => $this->drilldownTitle($metric, $status, $level, $id, $period, $res['count']),
+            'title'   => $this->drilldownTitle($metric, $status, $level, $id, $period, $res['count'], $statuses),
             'total'   => $res['count'],
             'columns' => $this->drilldownColumns($metric),
             'rows'    => array_map(fn ($r) => $this->drilldownRow($metric, $r), $res['rows']),
@@ -443,10 +502,12 @@ class AgencyPerformanceReportController extends Controller
         };
     }
 
-    private function drilldownTitle(string $metric, ?string $status, string $level, ?int $id, Period $period, int $total): string
+    private function drilldownTitle(string $metric, ?string $status, string $level, ?int $id, Period $period, int $total, ?DealStatusSelection $statuses = null): string
     {
         $noun = ['deals' => 'deals', 'contacts_created' => 'contacts', 'properties_created' => 'properties', 'fica_submissions' => 'FICA submissions', 'buyers_added' => 'buyers', 'viewings' => 'viewings', 'mic_claims' => 'MIC claims', 'presentations_created' => 'presentations', 'portal_views' => 'viewed listings', 'appointments' => 'appointments', 'outreach_messages' => 'outreach messages', 'commission' => 'commission lines'][$metric] ?? $metric;
         $statusWord = ($metric === 'deals' && $status && $status !== 'all') ? ($status . ' ') : '';
+        $counting = (in_array($metric, ['deals', 'commission'], true) && $statuses !== null && !$statuses->isEverything() && $status === null)
+            ? ' (' . $statuses->label() . ')' : '';
         $who = 'Company';
         if ($level === 'agent' && $id) {
             $who = (string) (DB::table('users')->where('id', $id)->value('name') ?? 'Agent');
@@ -454,7 +515,7 @@ class AgencyPerformanceReportController extends Controller
             $who = (string) (DB::table('branches')->where('id', $id)->value('name') ?? 'Branch');
         }
 
-        return trim("{$total} {$statusWord}{$noun}") . " — {$who} · " . $period->label;
+        return trim("{$total} {$statusWord}{$noun}") . $counting . " — {$who} · " . $period->label;
     }
 
     private function resolvePeriod(Request $request, PeriodResolver $periods): array

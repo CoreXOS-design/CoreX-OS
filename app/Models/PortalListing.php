@@ -2,14 +2,25 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\BelongsToAgency;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use App\Models\Concerns\HasCanonicalPortalRef;
+use App\Support\Property\PortalRef;
 
 class PortalListing extends Model
 {
-    use SoftDeletes;
+    use SoftDeletes, BelongsToAgency;
+    use HasCanonicalPortalRef;
+
+    /** @return array<string, ?string> */
+    public function canonicalRefValues(): array
+    {
+        return ['canonical_ref' => PortalRef::normalise($this->portal_listing_id, PortalRef::portal($this->source_site))];
+    }
 
     protected $fillable = [
+        'agency_id',
         'source_site',
         'portal_listing_id',
         'canonical_url',

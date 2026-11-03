@@ -125,3 +125,14 @@ tests `tests/Unit/CdsDocumentLookTest.php`, `tests/Unit/CdsTableGeometryTest.php
 ## Fidelity to the Word source (26 Oct 2026)
 
 Structure is drawn in both looks: paragraph blocks inside cells, hanging list numbers, pictures, the running page header / footer, hard page breaks, column widths (including the empty grid columns of a row that starts columns in). The "Match source document" look adds what the source styled: table / cell borders (`data-src-bt/br/bb/bl`, only for a table the importer marked `data-src-borders`) and shaded cells (`data-src-band`, light grey). Cell alignment is the source's (never justified unless the source is). Full table of classes, limits and tests: `cds-reimport-from-word.md` section 10.
+
+## Mega Defect Disclosure v2 - answers per row, data only (2 Nov 2026, QA1 templates 82 / 83)
+
+The Word file's defect and fixtures tables had a YES / NO / N/A (and Included / Excluded / Negotiable) column per row, blanked on import with nothing to answer them. No code was changed: template 83 now uses the EXISTING disclosure checklist (the Mandatory Disclosure mechanism, `corex-disclosure-checklist`): fixed YES / NO / N/A, the landlord (owner party) picks one per row at signing, the agent and tenant see the answers read-only, every row must be answered before the landlord can sign (PPA s70 lock and gate unchanged).
+- **Defects:** the 21 questions as the Word has them, in two checklists of 11 and 10 rows.
+- **Fixtures:** the 35 items reworded as statements ("Carpets are included"; YES = included, NO = not included, N/A = not on the property), in two checklists of 18 and 17 rows, with a one-line answer key above them. "Negotiable" has no equivalent.
+- **Why two checklists each:** the e-sign paginator cannot split one checklist table across pages (one 35-row list made a page 1427 px tall); each chunk fits an A4 page. Row keys are the row's ordinal in the document, so several checklists in one document are safe.
+- **Kept:** the single "Details / condition / defects (all items above)" box under each table; the sizes / rates / specific-defects fields.
+- Also in v2: the terms clauses renumbered 1-8, the lease's letterhead block (logo, Tel, address, Web, E Mail) as the first block of the disclosure, the lease's "a." / "b." LANDLORD / AGENCY MANAGED labels carry a space.
+
+**Later code enhancement (not built, not scheduled):** the checklist should take custom column labels (so a fixtures list can read Included / Excluded / Negotiable) and an optional per-row details field, and it should paginate row by row like the imported box tables so one list can run over several pages. Until then the limits above stand.

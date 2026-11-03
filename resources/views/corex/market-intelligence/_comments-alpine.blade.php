@@ -24,6 +24,10 @@ document.addEventListener('alpine:init', () => {
         commentsModalHtml: '',
         async openCommentsModal(trackedPropertyId) {
             this.commentsModalOpen = true;
+            await this.loadComments(trackedPropertyId);
+        },
+        // Loads the comments fragment into commentsModalHtml WITHOUT opening the modal (the Adverts card shows it in its own anchored popover).
+        async loadComments(trackedPropertyId) {
             this.commentsModalLoading = true;
             this.commentsModalHtml = '';
             try {

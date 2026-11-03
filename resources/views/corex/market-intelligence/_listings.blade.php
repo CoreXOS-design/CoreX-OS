@@ -20,7 +20,7 @@
     $showProspectedBadge = $_micAgencyId
         ? (bool) (\App\Models\Agency::where('id', $_micAgencyId)->value('show_prospected_badge') ?? true)
         : true;
-    $sortBy = request('sort', 'last_seen_at');
+    $sortBy = request('sort', \App\Services\Prospecting\MicWork\MicWorkList::hasScores() ? 'score' : 'last_seen_at');
     $sortDir = request('dir', 'desc');
 
     // Preserve all other filters when changing sort.
@@ -33,12 +33,15 @@
     };
 
     $sortOptions = [
+        'score'         => 'Opportunity score',
         'last_seen_at'  => 'Last seen',
         'first_seen_at' => 'First seen',
         'price'         => 'Price',
         'suburb'        => 'Suburb',
         'buyer_matches' => 'Buyer demand',
     ];
+
+    if (! \App\Services\Prospecting\MicWork\MicWorkList::hasScores()) { unset($sortOptions['score']); }
 
     // ── Trust strip (display-only) ───────────────────────────────────────
     // Two numbers on this page can legitimately disagree because they dedupe
@@ -92,68 +95,23 @@
          (Johan 2026-08-19) — now rendered in the empty band above the list,
          see work.blade.php's #mic-slot-buyer-legend include. --}}
 
-    {{-- Result-count + sort header strip --}}
-    <div style="display: flex; align-items: flex-start; justify-content: space-between; padding: 4px 0 10px; gap: 12px; flex-wrap: wrap;">
-        <div style="min-width: 0;">
-            <div style="font-size: 0.8125rem; color: var(--text-secondary);"
-                 title="Rows shown: the actual list below, grouped by matched development — not the same dedupe basis as the suburb filter badge on the left (that counts distinct addresses). See the line below when they differ.">
-                <strong style="color: var(--text-primary);">{{ number_format($micRowsShown) }}</strong>
-                rows shown
-                @if(request('action_preset'))
-                    · preset <em>{{ str_replace('_', ' ', request('action_preset')) }}</em>
+    {{-- The row count joined the KPI line (mic-work-tab.md 13.2b). The trust line below only exists when there is something to explain. --}}
+    @if($micShowTrustLine)
+        <div style="font-size: 0.6875rem; color: var(--text-muted); padding: 2px 0 6px;">
+            @if($micAddressGap)
+                {{ number_format($micLeftFilterCount) }} distinct {{ \Illuminate\Support\Str::plural('address', $micLeftFilterCount) }}
+                → {{ number_format($micRowsShown) }} rows shown
+                @if($micInjectedTotal > 0)
+                    ({{ number_format($micScrapedTotal) }} scraped + {{ number_format($micInjectedTotal) }} our own stock, unlisted)
+                @else
+                    (grouped by matched development)
                 @endif
-                @if(request('suburb'))
-                    · {{ request('suburb') }}
-                @endif
-                @if(request('search'))
-                    · matching "{{ request('search') }}"
-                @endif
-            </div>
-            {{-- Trust strip — states the relationship instead of leaving it to look
-                 like a bug. Only rendered when there's actually something to explain. --}}
-            @if($micShowTrustLine)
-                <div style="font-size: 0.6875rem; color: var(--text-muted); margin-top: 2px;">
-                    @if($micAddressGap)
-                        {{ number_format($micLeftFilterCount) }} distinct {{ \Illuminate\Support\Str::plural('address', $micLeftFilterCount) }}
-                        → {{ number_format($micRowsShown) }} rows shown
-                        @if($micInjectedTotal > 0)
-                            ({{ number_format($micScrapedTotal) }} scraped + {{ number_format($micInjectedTotal) }} our own stock, unlisted)
-                        @else
-                            (grouped by matched development)
-                        @endif
-                    @else
-                        {{ number_format($micRowsShown) }} rows shown
-                        ({{ number_format($micScrapedTotal) }} scraped + {{ number_format($micInjectedTotal) }} our own stock, unlisted)
-                    @endif
-                </div>
+            @else
+                {{ number_format($micRowsShown) }} rows shown
+                ({{ number_format($micScrapedTotal) }} scraped + {{ number_format($micInjectedTotal) }} our own stock, unlisted)
             @endif
         </div>
-        <div style="display: flex; align-items: center; gap: 8px; font-size: 0.75rem; color: var(--text-muted);">
-            <label for="mi-sort-select" style="font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; font-size: 0.625rem;">Sort</label>
-            <select id="mi-sort-select"
-                    onchange="(function(s){
-                        var url = new URL(window.location.href);
-                        var [k, d] = s.value.split('|');
-                        url.searchParams.set('sort', k);
-                        if (d) url.searchParams.set('dir', d); else url.searchParams.delete('dir');
-                        url.searchParams.delete('page');
-                        window.location.href = url.toString();
-                    })(this)"
-                    style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary); padding: 4px 8px; border-radius: 6px; font-size: 0.75rem; cursor: pointer;">
-                @foreach($sortOptions as $key => $label)
-                    @php
-                        $dirOptions = $key === 'price' ? [['desc','↓'], ['asc','↑']] : [[$sortDir === 'asc' ? 'asc' : 'desc', '']];
-                    @endphp
-                    @foreach($dirOptions as [$dir, $marker])
-                    @php $selected = ($sortBy === $key) && ($sortDir === $dir || $marker === ''); @endphp
-                    <option value="{{ $key }}|{{ $dir }}" {{ $selected ? 'selected' : '' }}>
-                        {{ $label }}{{ $marker ? ' ' . $marker : '' }}
-                    </option>
-                    @endforeach
-                @endforeach
-            </select>
-        </div>
-    </div>
+    @endif
 
     {{-- MIC property row comments — .ai/specs/mic-property-row-comments.md.
          AT-363 fix pattern (documented in .ai/CHAT_STARTER.md and used by
@@ -169,6 +127,10 @@
     <div x-data="micRowComments()">
     {{-- Row stack --}}
     @if($listings->isEmpty())
+        @if(!empty($selectedBuyer))
+            {{-- 13.17: with the last property hidden the list is empty, but the buyer banner (and its "N hidden" link) must stay --}}
+            @include('corex.market-intelligence._buyer-banner')
+        @endif
         @php
             // Same distinction the legacy Prospecting page already makes
             // (prospecting/_summary-block.blade.php) but the F.1 redesign left
@@ -180,7 +142,9 @@
             $_micFilterKeys = ['town_id', 'property_type_slug', 'bedroom_segment_id', 'price_band_id', 'buyer_state', 'buyers_since', 'unmapped_only', 'sources', 'suburb_normalised', 'buyer_id'];
             $_micHasFilters = collect($_micFilterKeys)->contains(fn ($k) => request()->filled($k));
         @endphp
-        @if($_micHasFilters)
+        @if(!empty($buyerUpdating))
+            {{-- the buyer's matches are being rebuilt (banner says so); the page reloads with the list --}}
+        @elseif($_micHasFilters)
             @include('prospecting._empty-state', [
                 'kind'        => 'filtered_to_zero',
                 'filters'     => request()->only($_micFilterKeys),
@@ -191,29 +155,17 @@
             @include('prospecting._empty-state', ['kind' => 'no_data'])
         @endif
     @else
-        @if(!empty($selectedBuyer))
-            @php
-                $sbName = trim(($selectedBuyer->first_name ?? '') . ' ' . ($selectedBuyer->last_name ?? ''));
-                $sbName = $sbName !== '' ? $sbName : ($selectedBuyer->email ?? 'this buyer');
-            @endphp
-            <div style="display:flex; align-items:center; gap:10px; padding:10px 12px; margin-bottom:10px; border-radius:6px;
-                        background: color-mix(in srgb, var(--brand-icon) 10%, var(--surface)); border:1px solid color-mix(in srgb, var(--brand-icon) 30%, var(--border));">
-                <span style="font-size:1rem;">🎯</span>
-                <div style="flex:1; min-width:0;">
-                    <div style="font-size:0.8125rem; font-weight:700; color: var(--text-primary);">Prospecting for {{ $sbName }}</div>
-                    <div style="font-size:0.6875rem; color: var(--text-secondary);">
-                        {{ $listings->total() }} propert{{ $listings->total() === 1 ? 'y' : 'ies' }} matching this buyer's wishlist — strongest match first (Core Matches score).
-                    </div>
-                </div>
-                <a href="{{ route('market-intelligence.work', request()->except(['buyer_id','page'])) }}"
-                   class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold no-underline"
-                   style="background: color-mix(in srgb, var(--brand-icon) 14%, transparent); color: var(--brand-icon); border: 1px solid currentColor;">
-                    Clear buyer ×
-                </a>
-            </div>
-        @endif
+        @include('corex.market-intelligence._buyer-banner')
         <div class="mi-row-stack" style="background: var(--surface); border: 1px solid var(--border); border-radius: 6px; overflow: hidden;">
+            @php $_seenFiles = []; @endphp
             @foreach($listings as $listing)
+                @php
+                    // Adverts view: one card per property file (13.3). Two classic rows that are the same file show once.
+                    $_fileKey = ($micViewChoice ?? 'list') === 'adverts' ? (($fileRows ?? [])[$listing->id]['key'] ?? null) : null;
+                    $_dupFile = $_fileKey !== null && isset($_seenFiles[$_fileKey]);
+                    if ($_fileKey !== null) { $_seenFiles[$_fileKey] = true; }
+                @endphp
+                @continue($_dupFile)
                 @php
                     // Build the per-listing state slice. The enricher returns
                     // its result keyed by category at the top level (pitches /
@@ -238,6 +190,7 @@
                         'display_address' => $displayAddressByListingId[(int) $_lid] ?? null,
                     ];
                 @endphp
+                <div x-data="{ card: false, loaded: false, html: '', intel: false }" data-qa="row-wrap">
                 @include('corex.market-intelligence._listing-row', [
                     'listing'   => $listing,
                     'state'     => $_state,
@@ -249,7 +202,16 @@
                     'selectedScore' => $listing->selected_buyer_score ?? null,
                     'commentCounts' => $commentCounts ?? [],
                     'canViewComments' => $canViewComments ?? false,
+                    'source' => ($sourceByListingId ?? [])[$_lid] ?? null,
+                    'extras' => ($rowExtras ?? [])[$_lid] ?? null,
+                    'rowMode' => ($micViewChoice ?? 'list') === 'adverts' ? 'advert' : 'row',
+                    'adv' => ($fileRows ?? [])[$_lid] ?? null,
                 ])
+                {{-- Record card (mic-work-tab.md 2.1 E): fetched on first "Card" click, so the list itself stays as light as it was. --}}
+                <div x-show="card" x-cloak data-qa="record-card-host" style="border-bottom: 1px solid var(--border);">
+                    <div x-html="html || '<div style=&quot;padding:10px 14px; font-size:.75rem; color:var(--text-muted);&quot;>Loading the record…</div>'"></div>
+                </div>
+                </div>
             @endforeach
         </div>
 

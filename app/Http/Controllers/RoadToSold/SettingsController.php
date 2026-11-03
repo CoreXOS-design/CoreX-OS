@@ -55,7 +55,14 @@ class SettingsController extends Controller
 
         $settings = SettingsService::forAgency($agencyId, $this->track());
 
+        // The two "View" panels on "Where the call list comes from" (spec 21.5). Worked out only when asked for, by the same
+        // services the list builder and the training flags use - the view is the explanation, nothing is restated here.
+        $panel = in_array($request->query('view'), ['pockets', 'standards'], true) ? $request->query('view') : null;
+
         return view(Routing::base() . 'index', [
+            'panel'      => $panel,
+            'pockets'    => $panel === 'pockets' ? $this->pockets($user, $agencyId, $settings) : [],
+            'standards'  => $panel === 'standards' ? $this->standards($agencyId, $settings) : null,
             'settings'   => $settings,
             'defaults'   => RtsSetting::SCALAR_DEFAULTS,
             'canManage'  => $user->hasPermission('road_to_sold.manage_settings'),
@@ -70,6 +77,49 @@ class SettingsController extends Controller
         ]);
     }
 
+    /**
+     * The hottest sales pockets exactly as the list builder ranks them today: the same service, the same look-back, weights,
+     * buyer tiers and active buyer states from this agency's settings.
+     *
+     * @return array<string,array<string,mixed>>
+     */
+    private function pockets(\App\Models\User $user, int $agencyId, SettingsService $settings): array
+    {
+        return app(\App\Services\RoadToSold\HotPocketService::class)->rank(
+            $agencyId, $this->track(), now(), $settings->hotPocketLookbackDays(),
+            \App\Services\RoadToSold\Support\BuilderSettings::forUser($user, $this->track())
+        );
+    }
+
+    /**
+     * The agency's own standards the training flags measure against: the median of each funnel ratio over the agents who reach
+     * the minimum sample, in the flag window (FunnelService::snapshot - the same call the Training & flags screen makes).
+     *
+     * @return array{rows:array<int,array{label:string,median:?float,flagged_below:?float,agents:int}>,days:int,min_sample:int,below_pct:int}
+     */
+    private function standards(int $agencyId, SettingsService $settings): array
+    {
+        $funnel = app(\App\Services\RoadToSold\FunnelService::class);
+        $days   = $settings->flagWindowDays();
+        $snap   = $funnel->snapshot($agencyId, $funnel->windowPeriod($days), $this->track(), $settings);
+        $min    = $settings->flagMinSample();
+        $below  = $settings->flagBelowPct();
+
+        $rows = [];
+        foreach (\App\Services\RoadToSold\FunnelService::RATIOS as $key => $def) {
+            $median  = $snap['medians'][$key] ?? null;
+            $agents  = 0;
+            foreach ($snap['computed']['ratios'] as $r) {
+                if (($r[$key]['pct'] ?? null) !== null && $r[$key]['den'] >= $min) {
+                    $agents++;
+                }
+            }
+            $rows[] = ['label' => $def[0], 'median' => $median, 'flagged_below' => $median === null ? null : round($median * $below / 100, 1), 'agents' => $agents];
+        }
+
+        return ['rows' => $rows, 'days' => $days, 'min_sample' => $min, 'below_pct' => $below];
+    }
+
     public function update(Request $request): RedirectResponse
     {
         $user     = $request->user();
@@ -81,7 +131,13 @@ class SettingsController extends Controller
 
         $this->saveFor($request, $agencyId, (int) $user->id);
 
-        return redirect()->route(Routing::base() . 'index')->with('success', 'Road to Sold settings saved.');
+        // The Training & flags tab saves its thresholds through this same writer and comes back to its own tab.
+        $home = $request->input('back_to') === 'flags' && \Illuminate\Support\Facades\Route::has(Routing::base() . 'flags.index') ? 'flags.index' : 'index';
+        if ($request->input('back_to') === 'targets' && \Illuminate\Support\Facades\Route::has(Routing::base() . 'targets.index')) {
+            $home = 'targets.index';   // the belt table on the Targets screen saves its step targets through this same writer
+        }
+
+        return redirect()->route(Routing::base() . $home)->with('success', 'Road to Sold settings saved.');
     }
 
     public function reset(Request $request): RedirectResponse
@@ -166,7 +222,6 @@ class SettingsController extends Controller
             'area_refresh_warn_days'       => ['sometimes', 'integer', 'min:1', 'max:365'],
             'public_holiday_country'       => ['sometimes', 'string', 'size:2', \Illuminate\Validation\Rule::in($this->holidayCountries())],
             'add_to_day_max'               => ['sometimes', 'integer', 'min:1', 'max:500'],
-            'scan_page_size'               => ['sometimes', 'integer', 'min:10', 'max:2000'],
             'min_area_properties'          => ['sometimes', 'integer', 'min:1', 'max:1000'],
             'hot_pocket_weight_buyers'     => ['sometimes', 'integer', 'min:0', 'max:100'],
             'hot_pocket_weight_leads'      => ['sometimes', 'integer', 'min:0', 'max:100'],
@@ -185,6 +240,18 @@ class SettingsController extends Controller
             'hold_days'                    => ['sometimes', 'integer', 'min:1', 'max:365'],
             'summary_green_from_pct'       => ['sometimes', 'integer', 'min:1', 'max:100'],
             'summary_red_below_pct'        => ['sometimes', 'integer', 'min:1', 'max:100'],
+            'summary_ahead_from_pct'       => ['sometimes', 'integer', 'min:100', 'max:500'],
+            'capture_back_date_working_days' => ['sometimes', 'integer', 'min:1', 'max:60'],
+            'expired_competitor_lookback_days' => ['sometimes', 'integer', 'min:1', 'max:365'],
+            'prospect_stall_days'          => ['sometimes', 'integer', 'min:1', 'max:365'],
+            'capture_needs_review'         => ['sometimes', 'boolean'],
+            'levels_signoff_required'      => ['sometimes', 'boolean'],
+            'level_periods_required'       => ['sometimes', 'integer', 'min:1', 'max:52'],
+            'flag_min_sample'              => ['sometimes', 'integer', 'min:1', 'max:1000'],
+            'flag_below_pct'               => ['sometimes', 'integer', 'min:1', 'max:100'],
+            'flag_window_days'             => ['sometimes', 'integer', 'min:7', 'max:366'],
+            'suggest_window_weeks'         => ['sometimes', 'integer', 'min:2', 'max:52'],
+            'suggest_growth_pct'           => ['sometimes', 'integer', 'min:0', 'max:100'],
             'selections'                   => ['sometimes', 'array'],
             'summary_steps'                => ['sometimes', 'array'],
             // The agency's default week: when sent, all seven days are required (0 is fine).
@@ -196,6 +263,47 @@ class SettingsController extends Controller
             'default_monthly.listings'     => ['sometimes', 'integer', 'min:0', 'max:' . RtsSetting::MAX_MONTHLY_COUNT],
             'default_monthly.value'        => ['sometimes', 'numeric', 'min:0', 'max:' . RtsSetting::MAX_MONTHLY_VALUE],
         ];
+        if (RtsSetting::hasAgentStartColumn()) {
+            $rules['agent_start_required'] = ['sometimes', 'boolean'];
+        }
+        if (RtsSetting::hasSourceForColleaguesColumn()) {
+            $rules['source_for_colleagues'] = ['sometimes', 'string', \Illuminate\Validation\Rule::in(array_keys(RtsSetting::COLLEAGUE_SOURCES))];
+        }
+        if (RtsSetting::hasOffRampFlagColumn()) {
+            $rules['flag_offramp_excess_pct'] = ['sometimes', 'integer', 'min:1', 'max:500'];
+        }
+        if (RtsSetting::hasDefaultCallbackColumn()) {
+            $rules['default_callback_days'] = ['sometimes', 'integer', 'min:1', 'max:30'];
+        }
+        if (RtsSetting::hasOwnerRequiresDeedColumn()) {
+            $rules['owner_requires_deed'] = ['sometimes', 'boolean'];
+        }
+        if (RtsSetting::hasClaimHoldColumns()) {
+            $rules['claim_hold_days']          = ['sometimes', 'integer', 'min:1', 'max:365'];
+            $rules['claim_warn_days']          = ['sometimes', 'integer', 'min:0', 'max:60'];
+            $rules['claim_extension_days']     = ['sometimes', 'integer', 'min:1', 'max:365'];
+            $rules['claim_extensions_allowed'] = ['sometimes', 'integer', 'min:0', 'max:10'];
+        }
+        if (RtsSetting::hasConveyorColumns()) {
+            $rules['due_claimed_days']      = ['sometimes', 'integer', 'min:1', 'max:60'];
+            $rules['due_owner_days']        = ['sometimes', 'integer', 'min:1', 'max:60'];
+            $rules['due_contacted_days']    = ['sometimes', 'integer', 'min:1', 'max:90'];
+            $rules['due_held_days']         = ['sometimes', 'integer', 'min:1', 'max:60'];
+            $rules['fill_from_claims_first'] = ['sometimes', 'boolean'];
+        }
+        if (RtsSetting::hasTargetColumns()) {
+            $rules['target_listings_per_month'] = ['sometimes', 'integer', 'min:0', 'max:1000'];
+            $rules['target_window_days']        = ['sometimes', 'integer', 'min:14', 'max:730'];
+            $rules['target_min_sample']         = ['sometimes', 'integer', 'min:1', 'max:5000'];
+            $rules['target_rates']              = ['sometimes', 'array'];
+            $rules['target_overrides']          = ['sometimes', 'array'];
+            foreach (array_keys(\App\Services\RoadToSold\TargetsService::DEFAULT_RATES) as $st) {
+                $rules["target_rates.{$st}"] = ['nullable', 'numeric', 'min:0.1', 'max:100'];
+            }
+            foreach (\App\Services\RoadToSold\TargetsService::CHAIN as $st) {
+                $rules["target_overrides.{$st}"] = ['nullable', 'numeric', 'min:0', 'max:100000'];
+            }
+        }
         // The four tick-lists: at least one choice, only known choices. A posted blank (the hidden marker
         // that lets "everything unticked" reach the server) is dropped before the check.
         foreach (RtsSetting::listChoices() as $field => $choices) {
@@ -281,6 +389,28 @@ class SettingsController extends Controller
             }
             $changes['default_monthly_targets'] = $merged;
         }
+        if (array_key_exists('target_rates', $data)) {
+            // a blank step = the standard rate for that step (23.29); only known steps are kept
+            $rates = [];
+            foreach (array_keys(\App\Services\RoadToSold\TargetsService::DEFAULT_RATES) as $st) {
+                $v = $data['target_rates'][$st] ?? null;
+                if ($v !== null && $v !== '' && (float) $v != \App\Services\RoadToSold\TargetsService::DEFAULT_RATES[$st]) {
+                    $rates[$st] = round((float) $v, 1);
+                }
+            }
+            $changes['target_rates'] = $rates === [] ? null : $rates;
+        }
+        if (array_key_exists('target_overrides', $data)) {
+            // a blank station = derived (23.29)
+            $over = [];
+            foreach (\App\Services\RoadToSold\TargetsService::CHAIN as $st) {
+                $v = $data['target_overrides'][$st] ?? null;
+                if ($st !== 'loaded' && $v !== null && $v !== '') {
+                    $over[$st] = round((float) $v, 1);
+                }
+            }
+            $changes['target_overrides'] = $over === [] ? null : $over;
+        }
         if (array_key_exists('summary_steps', $data)) {
             $changes['summary_steps'] = RtsSetting::normaliseOrderedToggles($data['summary_steps'], RtsSetting::summaryStepCatalogue($this->track()));
         }
@@ -347,10 +477,10 @@ class SettingsController extends Controller
             } elseif ($row->trashed()) {
                 $row->restore();
                 // Coming back from "all defaults": start from the defaults, not from what was archived.
-                foreach (RtsSetting::SCALAR_DEFAULTS as $field => $default) {
+                foreach (RtsSetting::scalarDefaultsAvailable() as $field => $default) {
                     $row->{$field} = $default;
                 }
-                foreach ([...array_keys(RtsSetting::LIST_DEFAULTS), 'selections', 'summary_steps', 'default_weekday_targets', 'default_monthly_targets'] as $field) {
+                foreach ([...array_keys(RtsSetting::LIST_DEFAULTS), 'selections', 'summary_steps', 'default_weekday_targets', 'default_monthly_targets', 'target_rates', 'target_overrides'] as $field) {
                     $row->{$field} = null; // NULL = the code default
                 }
             }
@@ -359,7 +489,7 @@ class SettingsController extends Controller
             }
             // First save of a row: store the full set of defaults for fields never touched, so the row is complete.
             if (! $row->exists) {
-                foreach (RtsSetting::SCALAR_DEFAULTS as $field => $default) {
+                foreach (RtsSetting::scalarDefaultsAvailable() as $field => $default) {
                     if (! array_key_exists($field, $new)) {
                         $row->{$field} = $default;
                     }
@@ -392,7 +522,7 @@ class SettingsController extends Controller
     {
         return RtsSetting::SCALAR_DEFAULTS
             + RtsSetting::LIST_DEFAULTS
-            + ['selections' => null, 'summary_steps' => null, 'default_weekday_targets' => null, 'default_monthly_targets' => null];
+            + ['selections' => null, 'summary_steps' => null, 'default_weekday_targets' => null, 'default_monthly_targets' => null, 'target_rates' => null, 'target_overrides' => null];
     }
 
     /** @return array<string,string> code => display name for every country the holidays table holds */
@@ -434,6 +564,7 @@ class SettingsController extends Controller
             $user->hasPermission('road_to_sold.manage_settings')
             || $user->hasPermission('road_to_sold.manage_areas')
             || $user->hasPermission('road_to_sold.manage_targets')
+            || $user->hasPermission('road_to_sold.manage_recipe')
         );
     }
 
@@ -450,15 +581,23 @@ class SettingsController extends Controller
             ['areas', 'Areas', 'road_to_sold.manage_areas', Routing::base() . 'areas.index'],
             ['budgets', 'Budgets', 'road_to_sold.manage_targets|road_to_sold.manage_settings', Routing::base() . 'budgets.index'],
             ['targets', 'Targets', 'road_to_sold.manage_targets', Routing::base() . 'targets.index'],
+            ['recipe', 'Recipe', 'road_to_sold.manage_recipe', Routing::base() . 'recipe.index'],
+            ['task-targets', 'Task targets', 'road_to_sold.manage_targets', Routing::base() . 'task-targets.index'],
+            ['flags', 'Training & flags', 'road_to_sold.manage_settings', Routing::base() . 'flags.index'],
+            ['points', 'Points', 'road_to_sold.manage_settings', Routing::base() . 'points.index'],
+            ['offramps', 'Stops here', 'road_to_sold.manage_offramp_reasons', Routing::base() . 'offramps.index'],
         ];
 
-        // Budgets and Targets are reachable without the Road to Sold feature; General and Areas are the call list's own.
+        // Budgets and Targets are reachable without the Road to Sold feature; General, Areas and Recipe are the call list's own.
         $rtsOn = \App\Services\RoadToSold\Scope::callListOn($user);
 
         $tabs = [];
         foreach ($defs as [$key, $label, $permission, $route]) {
-            if (! $rtsOn && in_array($key, ['general', 'areas'], true)) {
+            if (! $rtsOn && in_array($key, ['general', 'areas', 'recipe', 'task-targets', 'flags', 'points', 'offramps'], true)) {
                 continue;
+            }
+            if (in_array($key, ['points', 'offramps'], true) && Routing::track() !== 'sales') {
+                continue;   // the belt is the sales ladder
             }
             if (\Illuminate\Support\Facades\Route::has($route) && collect(explode('|', $permission))->contains(fn ($p) => $user->hasPermission($p))) {
                 $tabs[] = ['key' => $key, 'label' => $label, 'href' => route($route), 'active' => $key === $active];
@@ -506,10 +645,38 @@ class SettingsController extends Controller
         'hold_days'               => 'Days an agent keeps a property after an outcome',
         'summary_green_from_pct'  => 'Green from (%)',
         'summary_red_below_pct'   => 'Red below (%)',
+        'summary_ahead_from_pct'  => 'Ahead from (%)',
+        'capture_back_date_working_days' => 'Working days a captured task may be back-dated',
+        'expired_competitor_lookback_days' => 'Days back a competitor\'s withdrawn advert is still offered',
+        'prospect_stall_days'     => 'Days a prospect may sit without moving before it is flagged',
+        'target_listings_per_month' => 'Listings (Active) per agent per month when no target is set',
+        'target_window_days'      => 'Days of belt history the conversion rates are read over',
+        'target_min_sample'       => 'Records through a step before its own rate is trusted',
+        'capture_needs_review'    => 'Captured tasks wait for a manager\'s approval',
+        'agent_start_required'    => 'Agents press Start my Road to Sold before lists load',
+        'source_for_colleagues'   => 'Whose buyers feed an agent\'s stock after their own',
+        'flag_offramp_excess_pct' => 'Flag an agent who loses properties at a station this percent more than the branch',
+        'default_callback_days'   => 'Working days ahead a call-back from a Market Intelligence feedback is set',
+        'owner_requires_deed'     => 'The Owner found station needs a deed record as well as the owner contact',
+        'claim_hold_days'         => 'Working days a claimed property is held while it is not worked',
+        'claim_warn_days'         => 'Working days before the hold ends that the agent is told',
+        'claim_extension_days'    => 'Working days one extension adds to a claim hold',
+        'claim_extensions_allowed' => 'Extensions an agent may take on one claim',
+        'due_claimed_days'        => 'Working days a claimed property may wait for its owner to be found before it is late',
+        'due_owner_days'          => 'Working days an owner found may wait for the first contact before it is late',
+        'due_contacted_days'      => 'Days a contacted property may wait for the appointment to be booked before it is late',
+        'due_held_days'           => 'Working days a held appointment may wait for its result before it is late',
+        'fill_from_claims_first'  => 'Fill an agent\'s day from their own claims first',
+        'levels_signoff_required' => 'A manager signs off each level',
+        'level_periods_required'  => 'Weeks on target before a level is put forward',
+        'flag_min_sample'         => 'Fewest events before a ratio can be flagged',
+        'flag_below_pct'          => 'Flag a ratio below (% of the agency median)',
+        'flag_window_days'        => 'Days the funnel and its flags look back',
+        'suggest_window_weeks'    => 'Weeks a suggested target learns from',
+        'suggest_growth_pct'      => 'Growth a suggested target allows (%)',
         'missed_items_mode'       => 'Missed items',
         'public_holiday_country'  => 'Public holidays of',
         'add_to_day_max'          => 'Most properties one "Add to my day" adds',
-        'scan_page_size'          => 'Properties read per page',
         'min_area_properties'     => 'Smallest number of properties for a working area',
         'hot_pocket_weight_buyers' => 'Hottest pockets - weight of buyers',
         'hot_pocket_weight_leads'  => 'Hottest pockets - weight of leads',

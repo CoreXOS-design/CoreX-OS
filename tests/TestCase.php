@@ -45,5 +45,17 @@ abstract class TestCase extends BaseTestCase
         // pollution, not one instance (BUILD_STANDARD §6). Safe: it only forces the
         // next check to re-read from the (RefreshDatabase-reset) DB.
         \App\Services\PermissionService::clearCache();
+
+        // Several request handlers (PDF splitter, contact import, sold-property import, wet-ink signing...) call
+        // set_time_limit(120|300) so a long web request is not cut off. Under the CLI that call RESTARTS the process
+        // clock with that limit, and it then applies to the whole rest of the run - a long suite died with "Maximum
+        // execution time of 300 seconds exceeded" a few minutes after the first test that touched one. The clock is
+        // lifted at the start of every test (the CLI default is "no limit"); the web handlers are untouched.
+        @set_time_limit(0);
+
+        // AuditContext is process-static: a test that signed in as someone (or a console command that stamped a source) leaves that
+        // user id behind, and the next test's audit rows then point at a user that no longer exists (FK 1452 - swallowed by the
+        // audit writer, so the row silently never appears). Reset it at the start of every test, like the permission cache above.
+        \App\Support\Audit\AuditContext::reset();
     }
 }

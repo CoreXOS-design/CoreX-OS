@@ -86,10 +86,14 @@ final class BidServiceTest extends TestCase
         $this->bidder1 = AuctionBidder::create([
             'agency_id' => $this->agency->id, 'auction_id' => $this->auction->id, 'contact_id' => $contact1->id,
             'status' => 'approved', 'paddle_number' => '001',
+            // Clear the paddle gate (FICA + signed rules, both required by default - BidderGateService / auctions.md 10.2), like makeBidder() does.
+            'fica_status' => 'approved', 'fica_verified_at' => now(), 'rules_signed_at' => now(), 'approved_at' => now(),
         ]);
         $this->bidder2 = AuctionBidder::create([
             'agency_id' => $this->agency->id, 'auction_id' => $this->auction->id, 'contact_id' => $contact2->id,
             'status' => 'approved', 'paddle_number' => '002',
+            // Clear the paddle gate (FICA + signed rules, both required by default - BidderGateService / auctions.md 10.2), like makeBidder() does.
+            'fica_status' => 'approved', 'fica_verified_at' => now(), 'rules_signed_at' => now(), 'approved_at' => now(),
         ]);
 
         $this->lotSvc = new AuctionLotStatusService();
@@ -276,7 +280,7 @@ final class BidServiceTest extends TestCase
 
     public function test_a_bid_outside_the_auto_extend_window_leaves_the_close_time_untouched(): void
     {
-        $originalClose = now()->addHour();
+        $originalClose = now()->addHour()->startOfSecond(); // the column holds whole seconds
         $lot = $this->makeOpenLot(['online_closes_at' => $originalClose]);
         $bidder = $this->makeBidder($lot->auction_id);
 

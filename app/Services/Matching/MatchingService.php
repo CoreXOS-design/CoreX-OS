@@ -43,6 +43,7 @@ class MatchingService
      * band"; it simply was never handed one. Named here so SQL and scorer can
      * never disagree again — BUILD_STANDARD §6 (fix the class).
      */
+    // SUPERSEDED (spec 13.15): no screen uses a fixed 30% band any more; BuyerMatchRules::toleranceFor() (the agency's setting) is the one price rule.
     public const RELAXED_PRICE_BAND = 0.30;
 
     /**
@@ -408,7 +409,14 @@ class MatchingService
         }
         // category / property_type stay loose — half-filled listings still appear.
         if ($category)          $strLoose($query, 'category', $category);
-        if (!empty($propertyTypes)) $strLooseIn($query, 'property_type', $propertyTypes);
+        // Spec 13.15: the type rule is the canonical type (a wishlist "Apartment / Flat" also takes a stored "Apartment"/"Flat"),
+        // the same one score() applies, so this pre-filter can only drop what score() would drop anyway.
+        if (!empty($propertyTypes)) {
+            $rawTypes = $this->rawTypeNamesFor($propertyTypes, $match->agency_id ?: null);
+            $query->where(function (Builder $q2) use ($rawTypes) {
+                $q2->whereNull('property_type')->orWhereRaw("TRIM(property_type) = ''")->orWhereRaw('LOWER(TRIM(property_type)) IN (' . collect($rawTypes)->map(fn ($t) => "'" . addslashes($t) . "'")->implode(',') . ')');
+            });
+        }
 
         // Numeric criteria: a property-side value that is NULL *or 0* means the
         // listing simply hasn't captured that figure, and an incomplete listing
@@ -432,7 +440,8 @@ class MatchingService
         // In relaxed mode the SQL bound is widened into a tolerance band so a
         // near-miss survives to the scoring stage — score() then decays it and
         // the MIN_SCORE_TO_DISPLAY floor drops anything genuinely too far off.
-        $priceTol = $relaxed ? self::RELAXED_PRICE_BAND : 0.0;  // ±30% price band
+        // Spec 13.15: ONE price rule for every screen - the agency's tolerance above the buyer's maximum, the minimum never relaxed.
+        $priceTol = $relaxed ? BuyerMatchRules::toleranceFor($match->agency_id ?: null) : 0.0;
         $countTol = $relaxed ? 1    : 0;    // allow 1 short on beds / baths / garages
         $sizeTol  = $relaxed ? 0.30 : 0.0;  // ±30% floor / erf size band
 
@@ -447,7 +456,7 @@ class MatchingService
                 $q2->whereRaw("({$sql}) IS NULL")->orWhereRaw("({$sql}) {$op} ?", [$val]);
             });
         };
-        if ($priceMin)   $numLoosePrice($query, '>=', (int) floor($priceMin * (1 - $priceTol)));
+        if ($priceMin)   $numLoosePrice($query, '>=', (int) $priceMin);
         if ($priceMax)   $numLoosePrice($query, '<=', (int) ceil($priceMax * (1 + $priceTol)));
         if ($bedsMin)    $numLoose($query, 'beds', '>=', max(0, (int) $bedsMin - $countTol));
         if ($bathsMin)   $numLoose($query, 'baths', '>=', max(0, (int) $bathsMin - $countTol));
@@ -470,7 +479,7 @@ class MatchingService
             ->map(function (Property $p) use ($match, $priceTol) {
                 // $priceTol, not 0.0 — the scorer's price gate must use the same
                 // band the SQL above widened by. See RELAXED_PRICE_BAND.
-                $sc = $this->score($p, $match, $priceTol);
+                $sc = $this->score($p, $match);
                 $p->setAttribute('match_score', $sc);
                 $p->setAttribute('match_tier', self::tierFor($sc));
                 return $p;
@@ -535,7 +544,7 @@ class MatchingService
                     // the gate re-cut at the exact stated ceiling, so a near-miss the buyer's link
                     // and a send DO include was missing here: a never-sent property that the board
                     // never counted as new (the 2026-09-10 drift, in this second copy of the loop).
-                    $sc = $this->score($p, $match, self::RELAXED_PRICE_BAND);
+                    $sc = $this->score($p, $match);
                     $p->setAttribute('match_score', $sc);
                     return $p;
                 })
@@ -614,7 +623,7 @@ class MatchingService
         // Both callers always evaluate in relaxed mode — same as
         // propertiesForMatch()'s default ($overrides['relaxed'] never set by
         // either).
-        $priceTol = self::RELAXED_PRICE_BAND;
+        $priceTol = BuyerMatchRules::toleranceFor($match->agency_id ?: null);
         $countTol = 1;
         $sizeTol  = 0.30;
 
@@ -641,7 +650,8 @@ class MatchingService
         }
 
         $propertyTypes = $match->propertyTypeList();
-        if (!empty($propertyTypes) && $p->property_type !== null && !in_array($p->property_type, $propertyTypes, true)) {
+        if (!empty($propertyTypes) && trim((string) $p->property_type) !== ''
+            && !in_array(strtolower(trim((string) $p->property_type)), $this->rawTypeNamesFor($propertyTypes, $match->agency_id ?: null), true)) {
             return false;
         }
 
@@ -659,7 +669,7 @@ class MatchingService
         // <= 0 as null here too, so an incomplete listing still isn't penalised
         // (matches the NULL-tolerant semantics $numLooseOk already implements).
         $effPrice = $p->effectivePrice() > 0 ? $p->effectivePrice() : null;
-        if ($match->price_min && !$numLooseOk($effPrice, '>=', (int) floor($match->price_min * (1 - $priceTol)))) return false;
+        if ($match->price_min && !$numLooseOk($effPrice, '>=', (int) $match->price_min)) return false;
         if ($match->price_max && !$numLooseOk($effPrice, '<=', (int) ceil($match->price_max * (1 + $priceTol)))) return false;
         if ($match->beds_min && !$numLooseOk($p->beds, '>=', max(0, (int) $match->beds_min - $countTol))) return false;
         if ($match->baths_min && !$numLooseOk($p->baths, '>=', max(0, (int) $match->baths_min - $countTol))) return false;
@@ -813,247 +823,180 @@ class MatchingService
     }
 
     /**
-     * 0-100 score for a (property, match) pair.
+     * 0-100 score for a (property, match) pair. The int every caller has always used; assess() has the detail.
      *
-     * Only criteria the user actually specified contribute to the denominator.
-     * If every specified criterion is fully satisfied, the score is 100.
-     * Missing nice-to-haves (e.g. pool) drag the score down proportionally.
-     * Returns 0 if must-haves are missing, the property-type family mismatches,
-     * or the property is hidden.
+     * @param  float|null  $priceBandPct  null (the normal call) = the agency's "price tolerance above max" setting (spec 13.15);
+     *                                    a number overrides it for ad-hoc callers.
      */
-    public function score(Property $property, ContactMatch $match, float $priceBandPct = 0.0): int
+    public function score(Property $property, ContactMatch $match, ?float $priceBandPct = null): int
     {
-        // Property-type FAMILY hard gate (Johan's ruling — a built-property
-        // buyer must never see vacant land, and vice versa). Placed here, in
-        // the one method every consumer of the engine calls (Core Matches,
-        // MIC's canonicalBestAcross, the property page) — same reasoning as
-        // the must-have gate below: one authoritative place, not a per-caller
-        // bolt-on. Reads propertyTypeList() (the full multi-select array), not
-        // the legacy singular property_type column — a buyer who selected
-        // House+Townhouse+Vacant Land is genuinely open to land. Empty
-        // selection or an unrecognised family on either side = don't gate
-        // (open / unknown, never a false negative).
-        $wantedFamilies = [];
-        foreach ($match->propertyTypeList() as $rawType) {
-            $family = self::propertyTypeFamily($rawType);
-            if ($family !== null) {
-                $wantedFamilies[$family] = true;
-            }
-        }
-        if (!empty($wantedFamilies)) {
-            $propertyFamily = self::propertyTypeFamily($property->property_type);
-            if ($propertyFamily !== null && !isset($wantedFamilies[$propertyFamily])) {
-                return 0;
-            }
-        }
+        return $this->assess($property, $match, $priceBandPct)['score'];
+    }
 
-        // Suburb hard gate (Johan's ruling, 2026-08-11 — Caroline King matched
-        // 100% on a Ramsgate property against her Southbroom wishlist). Reuses
-        // suburbCompatible() — AT-289's existing single source of truth for the
-        // suburb rule, already a hard gate in canonicalBestAcross() and the
-        // demand-claim count — so score() itself is authoritative for every
-        // caller, not just the ones that remember to pre-gate suburb before
-        // calling in. Open wishlist (no suburbs specified) still matches
-        // anywhere — unchanged, never a false-negative exclusion.
-        if (!$this->suburbCompatible($property, $match)) {
-            return 0;
-        }
+    /**
+     * The one verdict on a (property, match) pair (.ai/specs/mic-work-tab.md section 13.15). BuyerMatchRules decides the hard
+     * filters (a failure is 0 and the property is not a match); among the properties that pass, only the criteria the buyer
+     * actually stated count, so a wishlist that states little scores 100 on everything that fits it. A criterion the property
+     * has no value for is skipped and listed in `unverified`, and anything unverified cannot score "strong" (it tops out one
+     * point under TIER_STRONG_MIN), so the agent knows why.
+     *
+     * @return array{score:int, tier:?string, unverified:list<string>, reason:?string}
+     */
+    public function assess(Property $property, ContactMatch $match, ?float $priceBandPct = null): array
+    {
+        $check = $this->rules()->check($property, $match, $priceBandPct);
 
-        // Bedrooms hard gate (Johan's ruling — Vian Lourens's 4-bed-minimum
-        // wishlist matched 95% on a 3-bed property). Only gates when the
-        // PROPERTY actually reports a bed count: 0/null beds means the
-        // listing's data is incomplete, not a mismatch — the same
-        // "incomplete listings shouldn't be penalised" rule used throughout
-        // this method, never a false-negative exclusion on missing data.
-        if ($match->beds_min && (int) $property->beds > 0 && (int) $property->beds < (int) $match->beds_min) {
-            return 0;
-        }
+        return $this->assessFrom($check, $property, $match, $priceBandPct);
+    }
 
-        // Price hard gate (Johan's ruling — Lucille Maxwell's R951,501 ceiling
-        // matched 88-91% on a property ~R130k over budget). Gate boundary is
-        // the SAME tolerance-widened band priceFitRatio() below decays from
-        // (the agency-configurable $priceBandPct — Johan's price-band-width
-        // setting), so a listing just outside the stated range but still
-        // inside the tolerated band keeps matching exactly as before; only a
-        // property genuinely outside the band now excludes instead of merely
-        // losing points. Only gates when the PROPERTY reports a price: 0/null
-        // price is incomplete data, not a mismatch.
-        if (($match->price_min || $match->price_max) && (int) $property->effectivePrice() > 0) {
-            $price   = (int) $property->effectivePrice();
-            $bandPct = max(0.0, $priceBandPct);
-            $min     = (int) ($match->price_min ?: 0);
-            $max     = (int) ($match->price_max ?: 0);
-            $minFull = $min ? (int) floor($min * (1 - $bandPct)) : 0;
-            $maxFull = $max ? (int) ceil($max * (1 + $bandPct)) : 0;
-            if (($minFull && $price < $minFull) || ($maxFull && $price > $maxFull)) {
-                return 0;
-            }
-        }
+    /**
+     * The verdict AND the field-by-field picture for the "Buyer wants vs property has" panel (spec 13.18): one pass of the rules (evaluate, run to the
+     * end), the score worked out from that same pass - the card shows exactly what the filters decided, nothing is calculated twice.
+     *
+     * @return array{score:int, tier:?string, unverified:list<string>, reason:?string, fields:list<array{key:string,label:string,wants:string,has:string,state:string}>,
+     *               must_haves:list<array{label:string,state:string}>, deal_breakers:list<array{label:string,state:string}>}
+     */
+    public function fit(Property $property, ContactMatch $match, ?float $priceBandPct = null): array
+    {
+        $e = $this->rules()->evaluate($property, $match, $priceBandPct, true);
+        $check = ['ok' => $e['reason'] === null, 'reason' => $e['reason'], 'unverified' => $e['reason'] === null ? $e['unverified'] : []];
 
-        // Size hard gate (Johan's ruling, 2026-08-11 — same class of bug as
-        // price/beds: a stated floor/erf size range must actually exclude, not
-        // just lose a few points). Only gates when the PROPERTY reports a real
-        // size (>0) — 0/null size is incomplete listing data, not a mismatch.
-        if (($match->floor_size_min || $match->floor_size_max) && (int) $property->size_m2 > 0) {
-            $size = (int) $property->size_m2;
-            if (($match->floor_size_min && $size < (int) $match->floor_size_min)
-                || ($match->floor_size_max && $size > (int) $match->floor_size_max)) {
-                return 0;
-            }
+        return $this->assessFrom($check, $property, $match, $priceBandPct) + ['fields' => $e['fields'], 'must_haves' => $e['must_haves'], 'deal_breakers' => $e['deal_breakers']];
+    }
+
+    private function rules(): BuyerMatchRules
+    {
+        return $this->rules ??= new BuyerMatchRules($this, app(\App\Services\MarketIntelligence\PropertyTypes\PropertyTypeResolver::class));
+    }
+
+    /** @param array{ok:bool, reason:?string, unverified:list<string>} $check */
+    private function assessFrom(array $check, Property $property, ContactMatch $match, ?float $priceBandPct): array
+    {
+        if (! $check['ok']) {
+            return ['score' => 0, 'tier' => null, 'unverified' => [], 'reason' => $check['reason']];
         }
-        if (($match->erf_size_min || $match->erf_size_max) && (int) $property->erf_size_m2 > 0) {
-            $size = (int) $property->erf_size_m2;
-            if (($match->erf_size_min && $size < (int) $match->erf_size_min)
-                || ($match->erf_size_max && $size > (int) $match->erf_size_max)) {
-                return 0;
-            }
-        }
+        $unverified = $check['unverified'];
+        $skip = array_flip($unverified);
+        $bandPct = $priceBandPct ?? BuyerMatchRules::toleranceFor($match->agency_id ?: ($property->agency_id ?: null));
 
         $mustHaves = $match->must_have_features ?? [];
-        if (!empty($mustHaves)) {
-            // A must-have is a HARD gate — but only against a listing that
-            // actually carries structured feature data to contradict it. A
-            // listing with NO structured features (empty features_json) is
-            // "unknown", not a mismatch: hard-failing it to 0 would silently
-            // drop every good property whose feed simply didn't populate the
-            // feature list. Same rule as category/property_type below
-            // ("incomplete listings shouldn't be penalised"). See the Core
-            // Match zero-results fix — feature tokens are normalised through
-            // canonicalFeature() so `pet_friendly` matches "Pet Friendly"
-            // (P24 string arrays) and "pets_allowed" (native dict keys) alike.
-            if ($this->propertyHasStructuredFeatures($property)) {
-                foreach ($mustHaves as $mh) {
-                    if (!$this->propertyHasFeature($property, (string) $mh)) {
-                        return 0;
-                    }
-                }
-            }
-        }
-
         $components = [];
-
-        // Anti-inflation guardrail (Johan's ruling, 2026-08-11 — "a single
-        // near-blank wishlist can't produce 100% on everything"). SUBSTANTIAL
-        // components are criteria a buyer explicitly stated as a real number
-        // or list (price, suburb, beds, baths, garages, nice-to-haves) —
-        // these are trusted to carry a match on their own. category,
-        // property_type (exact-string), floor_size and erf_size are COSMETIC:
-        // secondary, easy to leave stray/garbage values in (confirmed: the
-        // Caroline King case was a 2,000,000 m² erf_size_max typo, the only
-        // wishlist like it agency-wide, that alone drove a 100% match once it
-        // was the sole component). If NO substantial component is present,
-        // the fallback below treats the wishlist the same as truly blank —
-        // cosmetic-only agreement is never enough to carry a match, closing
-        // this off for whichever cosmetic field the next typo lands in.
+        // Substantial components carry a match on their own; cosmetic ones (category, type, sizes) cannot (Johan, 2026-08-11/12:
+        // a near-blank wishlist must not give 100% on everything, and a wishlist means exactly what it says).
         $hasSubstantialSignal = false;
 
-        if ($match->price_min || $match->price_max) {
-            $components[] = [25, $this->priceFitRatio($property, $match, $priceBandPct)];
+        if (($match->price_min || $match->price_max) && ! isset($skip['price'])) {
+            $components[] = [25, $this->priceFitRatio($property, $match, $bandPct)];
             $hasSubstantialSignal = true;
         }
-        if (!empty($match->p24SuburbIdList())) {
+        if (! empty($match->p24SuburbIdList())) {
             $components[] = [20, $this->suburbFitRatio($property, $match)];
             $hasSubstantialSignal = true;
         }
-        if ($match->beds_min) {
+        if ($match->beds_min && ! isset($skip['bedrooms'])) {
             $components[] = [8, $this->minMetRatio((int) $property->beds, (int) $match->beds_min)];
             $hasSubstantialSignal = true;
         }
-        if ($match->baths_min) {
+        if ($match->baths_min && ! isset($skip['bathrooms'])) {
             $components[] = [7, $this->minMetRatio((int) $property->baths, (int) $match->baths_min)];
             $hasSubstantialSignal = true;
         }
-        if ($match->garages_min) {
+        if ($match->garages_min && ! isset($skip['garages'])) {
             $components[] = [5, $this->minMetRatio((int) $property->garages, (int) $match->garages_min)];
             $hasSubstantialSignal = true;
         }
-        // String criteria: a NULL value on the PROPERTY side means the listing is
-        // incomplete, not a mismatch — "incomplete listings shouldn't be
-        // penalised" (the same rule propertiesForMatch applies in SQL). Skip the
-        // component (neutral) when the property has no value; only a present-but-
-        // different value scores 0. (AT-75 — prospecting listings carry no
-        // category, so without this a category-specifying wishlist was unfairly
-        // dragged down on every canvass listing.) Cosmetic — does not set
-        // $hasSubstantialSignal, see the guardrail note above.
-        if ($match->category && $property->category) {
-            $components[] = [5, $property->category === $match->category ? 1.0 : 0.0];
+        // Category and type already passed the hard rules (a mismatch is excluded, an unknown one is unverified).
+        if ($match->category && ! isset($skip['category'])) {
+            $components[] = [5, 1.0];
         }
-        // 2026-08-19 (Falan, live bug, second face of the same class) — this used
-        // the legacy singular property_type for an EXACT-equality scoring
-        // component. Even after propertiesForMatch()'s SQL correctly fetched
-        // Townhouse/Vacant-Land candidates for a House+Townhouse+Vacant-Land
-        // wishlist, THIS component still scored them 0/5 (property_type
-        // "Townhouse" !== match's legacy singular "House"), which — on a
-        // wishlist with few/no other criteria set — was enough to sink them
-        // below MIN_SCORE_TO_DISPLAY and drop them from the results. Reads the
-        // full propertyTypeList() and normalises case/whitespace on both sides
-        // (never assume the picker's label and however it landed in the DB
-        // agree on casing byte-for-byte) instead of a bare singular ===.
-        $wantedTypes = $match->propertyTypeList();
-        if (!empty($wantedTypes) && $property->property_type) {
-            $norm = fn ($s) => strtolower(trim((string) $s));
-            $propertyTypeNorm = $norm($property->property_type);
-            $wantedTypesNorm  = array_map($norm, $wantedTypes);
-            $components[] = [5, in_array($propertyTypeNorm, $wantedTypesNorm, true) ? 1.0 : 0.0];
+        if (! empty($match->propertyTypeList()) && ! isset($skip['property type'])) {
+            $components[] = [5, 1.0];
         }
-        // Floor/erf size — cosmetic (see guardrail note above): already hard-
-        // gated when violated (above), so a present component here has
-        // already passed the ceiling/floor and can only ever score 1.0. Kept
-        // for score differentiation when combined with a substantial
-        // component; alone it can no longer carry a match to 100%.
-        if ($match->floor_size_min || $match->floor_size_max) {
-            $components[] = [5, $this->rangeFitRatio((int) $property->size_m2, $match->floor_size_min, $match->floor_size_max)];
+        if (($match->floor_size_min || $match->floor_size_max) && ! isset($skip['floor size'])) {
+            $components[] = [5, 1.0];
         }
-        if ($match->erf_size_min || $match->erf_size_max) {
-            $components[] = [5, $this->rangeFitRatio((int) $property->erf_size_m2, $match->erf_size_min, $match->erf_size_max)];
+        if (($match->erf_size_min || $match->erf_size_max) && ! isset($skip['erf size'])) {
+            $components[] = [5, 1.0];
         }
-        $wants = $match->nice_to_have_features ?? [];
-        if (!empty($wants)) {
-            $hits = 0;
-            foreach ($wants as $f) {
-                if ($this->propertyHasFeature($property, (string) $f)) $hits++;
+        if (! isset($skip['features'])) {
+            $wants = $match->nice_to_have_features ?? [];
+            if (! empty($wants) && $this->propertyHasStructuredFeatures($property)) { // no feature list on the property: a wish we cannot check is skipped, not scored 0
+                $hits = 0;
+                foreach ($wants as $f) {
+                    if ($this->propertyHasFeature($property, (string) $f)) {
+                        $hits++;
+                    }
+                }
+                $components[] = [15, $hits / count($wants)];
+                $hasSubstantialSignal = true;
             }
-            $components[] = [15, $hits / count($wants)];
-            $hasSubstantialSignal = true;
+            if (! empty($mustHaves)) {
+                $components[] = [15, 1.0]; // every must-have is present: a missing one already excluded the property
+                $hasSubstantialSignal = true;
+            }
         }
 
-        if (empty($components) || !$hasSubstantialSignal) {
-            // AT-71 — belt-and-braces against the empty-wishlist inflation bug.
-            // Was `$match->isCountable() ? 100 : 0`; isCountable() only requires
-            // ONE criteria group present anywhere on the wishlist — a wishlist
-            // with ONLY a property_type selected (already gated above,
-            // separately, and not itself a $components entry) and nothing else
-            // satisfied it, so a near-blank wishlist scored a flat 100. Via
-            // canonicalBestAcross()'s best-across-all-wishlists selection, that
-            // blank wishlist could then outrank a buyer's real, fully-specified
-            // one and surface a wrong-suburb property at 100%.
-            //
-            // 2026-08-12 (Johan's ruling) — reverted the same-day
-            // "$hasSubstantialSignal" extension that also forced a
-            // COSMETIC-only wishlist (e.g. only erf_size_max/floor_size/
-            // category/property_type present) to this same 0/100 fallback,
-            // ignoring whatever it actually contained. Per Johan: "a wishlist
-            // means exactly what it says — no filter matches all, criteria
-            // filters by criteria, no cleverness." A cosmetic-only wishlist now
-            // scores naturally off its own components below instead of being
-            // silently overridden. The Caroline King incident that motivated
-            // the extension was a DATA problem (a garbage 2,000,000 m²
-            // erf_size_max typo on one wishlist) and was fixed as data, not
-            // as an engine rule — that fix stands on its own and needed no
-            // engine-level override. $components empty still means the
-            // wishlist stated nothing at all (or only must-haves, verified
-            // above): a genuine full match → 100, or truly nothing → 0.
-            return !empty($mustHaves) ? 100 : 0;
+        if (empty($components) || ! $hasSubstantialSignal) {
+            // Nothing the buyer stated can be checked: a wishlist of must-haves alone is a full match; a property we could not
+            // verify anything on is shown at the display floor, never higher; a wishlist that states nothing scores 0 (AT-71).
+            $score = $unverified !== [] ? self::MIN_SCORE_TO_DISPLAY : (! empty($mustHaves) ? 100 : 0);
+        } else {
+            $totalWeight = 0;
+            $earned = 0.0;
+            foreach ($components as [$weight, $fit]) {
+                $totalWeight += $weight;
+                $earned += $weight * $fit;
+            }
+            $score = (int) round(min(100, max(0, $earned / $totalWeight * 100)));
         }
 
-        $totalWeight = 0;
-        $earned      = 0.0;
-        foreach ($components as [$weight, $fit]) {
-            $totalWeight += $weight;
-            $earned      += $weight * $fit;
+        if ($unverified !== [] && $score >= self::TIER_STRONG_MIN) {
+            $score = self::TIER_STRONG_MIN - 1;
         }
 
-        return (int) round(min(100, max(0, $earned / $totalWeight * 100)));
+        return ['score' => $score, 'tier' => self::tierFor($score), 'unverified' => $unverified, 'reason' => null];
+    }
+
+    /**
+     * Every stored spelling of the wishlist's property types, lower-cased: the wishlist's own names plus every raw type the MIC type
+     * map files under the same canonical type (spec 13.15). A wishlist name the map cannot read stays as written (never widened, never
+     * an exclusion of anything else).
+     *
+     * @param  list<string>  $names
+     * @return list<string>
+     */
+    private function rawTypeNamesFor(array $names, ?int $agencyId): array
+    {
+        $resolver = app(\App\Services\MarketIntelligence\PropertyTypes\PropertyTypeResolver::class);
+        $keys = [];
+        $out = [];
+        foreach ($names as $n) {
+            $out[] = strtolower(trim((string) $n));
+            $k = $resolver->keyFor($n, $agencyId);
+            if ($k !== null && $k !== 'other') {
+                $keys[$k] = true;
+            }
+        }
+        foreach ($resolver->map($agencyId) as $raw => $k) {
+            if (isset($keys[$k])) {
+                $out[] = (string) $raw;
+            }
+        }
+
+        return array_values(array_unique($out));
+    }
+
+    private ?BuyerMatchRules $rules = null;
+
+    /** Does the property carry structured feature data at all? (No = every feature rule is "unknown", not a pass or a fail.) */
+    public function featuresKnown(Property $property): bool
+    {
+        return $this->propertyHasStructuredFeatures($property);
+    }
+
+    public function hasFeature(Property $property, string $feature): bool
+    {
+        return $this->propertyHasFeature($property, $feature);
     }
 
     /**

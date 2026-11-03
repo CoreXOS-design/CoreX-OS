@@ -15013,6 +15013,7 @@ What was chosen, item by item (the audit's numbering). Tests: `tests/Feature/Ren
 - **A15 - FICA stays not-prefilled (Johan's ruling).** Only the duplicated find-or-create was merged: `ApplicantFicaLink::submissionFor/urlFor` is the one copy (the applicant's submit hand-off and the approval email both use it; the mail copy used to write a null `requested_by`).
 - **A25 - FICA link life.** The four hard-coded `addDays(14)` are gone; the life is the agency's existing FICA setting `FicaWindows::linkExpiryDays` (Settings -> FICA time windows and the Setup Wizard's Compliance step, default 14), in the one helper above.
 
+
 ## Audit follow-up 2026-10-20 - who may decide when no approver is set up (notices / portal audit, finding 2)
 
 **Ruling (paraphrase, not a quote): Johan, 20 Oct 2026 - while an agency has no approver configured, ONLY an agency administrator may approve or decline an application; everyone else is told an approver must be set up and who can do it.** This replaces the earlier A4/A27 line above that let "whoever reviews the file" decide.
@@ -15022,6 +15023,7 @@ What was chosen, item by item (the audit's numbering). Tests: `tests/Feature/Ren
 - Review screen (`no-authoriser-warning`): an administrator sees "...approved directly by an administrator (no second person checks the decision)"; everyone else sees "Your agency has no approver set up yet, so this application cannot be approved or declined until one is. An agency administrator can choose approvers in Settings -> Rental applications." The "Submit for approval" button and the one-step note are not shown to them (the hand-off is refused anyway: `reason: no_authoriser`).
 - **Permission key.** The authorisation screens (`rental-applications/authorisation/*`: queue, review, documents, marks, assessment, approve, decline, request-more-info) are behind `rental_applications.authorise` (route group middleware; sidebar "Application Authorisation" item). It is a role gate in FRONT of the per-user approver tick, never a substitute for it. In `config/corex-permissions.php` and in the role defaults of every role that holds `rental_applications.view`. Migration `2026_11_26_100000` grants it to every role that holds `rental_applications.view` (same grants as today, so nobody loses a screen) and never restores a soft-deleted (deliberately revoked) row.
 - Tests: `RentalApplicationAuditFixesTest` (agent refused, administrator approves, own file, review-screen wording, route needs the key) and `NoticesPortalAuditFixesTest` (the grant migration).
+
 
 
 

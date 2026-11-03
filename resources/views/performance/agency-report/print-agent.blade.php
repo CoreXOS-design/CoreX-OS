@@ -12,6 +12,9 @@
 </head>
 <body>
     <h2 class="section">{{ $journey['agent']['name'] }} · {{ $journey['agent']['branch_label'] }}</h2>
+    <p class="foot" style="margin:0 0 6px; font-size:11px; color:#444;" data-qa="counting-statuses">
+        Counting {{ $statuses->isEverything() ? 'all deals, including Declined' : $statuses->label() . ' deals' }}{{ in_array('declined', $statuses->buckets(), true) ? '' : ' (Declined excluded)' }}.
+    </p>
 
     <div class="cards">
         @foreach($journey['metrics'] as $m)

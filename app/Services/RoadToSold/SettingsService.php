@@ -274,7 +274,8 @@ class SettingsService
     /** Rows in the first window read while scanning the pool; each further window doubles until the day is full or the pool ends. */
     public function scanPageSize(): int
     {
-        return (int) $this->scalar('scan_page_size');
+        // A config value, not an agency setting (spec 21.6).
+        return max(10, (int) config('road-to-sold.scan_page_size', RtsSetting::SCAN_PAGE_SIZE));
     }
 
     public function hotPocketWeightBuyers(): int
@@ -336,6 +337,212 @@ class SettingsService
     public function summaryRedBelowPct(): int
     {
         return (int) $this->scalar('summary_red_below_pct');
+    }
+
+    /** A task is "ahead" at or above this share of where the agent should be by now (v2 phase 2, spec 11.1). */
+    public function summaryAheadFromPct(): int
+    {
+        return (int) $this->scalar('summary_ahead_from_pct');
+    }
+
+    /** How recently a competitor's advert must have been withdrawn to be offered (road-to-sold.md 22.6). */
+    public function expiredCompetitorLookbackDays(): int
+    {
+        return max(1, (int) $this->scalar('expired_competitor_lookback_days'));
+    }
+
+    /** Days a prospect may sit without moving before the manager's stage view flags it (road-to-sold.md 22.11). */
+    public function prospectStallDays(): int
+    {
+        return max(1, (int) $this->scalar('prospect_stall_days'));
+    }
+
+    /** How many WORKING days back a captured task may be dated (spec 10.5 "Backdated completion", 21.1): weekends and public holidays do not count. */
+    public function captureBackDateWorkingDays(): int
+    {
+        return max(1, (int) $this->scalar('capture_back_date_working_days'));
+    }
+
+    /** 23.15 rts.source_for_colleagues: `off`, `branch` or `agency` (default) - whose buyers feed an agent's stock after their own. A bad stored value is the default. */
+    public function sourceForColleagues(): string
+    {
+        $v = (string) $this->scalar('source_for_colleagues');
+
+        return array_key_exists($v, RtsSetting::COLLEAGUE_SOURCES) ? $v : RtsSetting::SCALAR_DEFAULTS['source_for_colleagues'];
+    }
+
+    // ── The claim hold (23.5): working days, all agency settings ──────────
+
+    public function claimHoldDays(): int
+    {
+        return max(1, (int) $this->scalar('claim_hold_days'));
+    }
+
+    public function claimWarnDays(): int
+    {
+        return max(0, (int) $this->scalar('claim_warn_days'));
+    }
+
+    public function claimExtensionDays(): int
+    {
+        return max(1, (int) $this->scalar('claim_extension_days'));
+    }
+
+    public function claimExtensionsAllowed(): int
+    {
+        return max(0, (int) $this->scalar('claim_extensions_allowed'));
+    }
+
+    // ── The conveyor's next-step windows and the day feed (23.24) ──────────
+
+    /** Working days after the claim to find the owner. */
+    public function dueClaimedDays(): int
+    {
+        return max(1, (int) $this->scalar('due_claimed_days'));
+    }
+
+    /** Working days after the owner is found to make the first contact. */
+    public function dueOwnerDays(): int
+    {
+        return max(1, (int) $this->scalar('due_owner_days'));
+    }
+
+    /** Days (calendar) after the contact to book the evaluation. */
+    public function dueContactedDays(): int
+    {
+        return max(1, (int) $this->scalar('due_contacted_days'));
+    }
+
+    /** Working days after the evaluation to give the result. */
+    public function dueHeldDays(): int
+    {
+        return max(1, (int) $this->scalar('due_held_days'));
+    }
+
+    // ── Belt targets (23.29) ──────────────────────────────────────────────
+
+    /** Listings (Active) per agent per month when nobody set a monthly target. */
+    public function targetListingsPerMonth(): int
+    {
+        return max(0, (int) $this->scalar('target_listings_per_month'));
+    }
+
+    /** Days the step-to-step conversion rates are read over (rolling). */
+    public function targetWindowDays(): int
+    {
+        return max(7, (int) $this->scalar('target_window_days'));
+    }
+
+    /** Records that must have gone through a step before its real rate is trusted. */
+    public function targetMinSample(): int
+    {
+        return max(1, (int) $this->scalar('target_min_sample'));
+    }
+
+    /** Default conversion % from a station to the next, one per step: the agency's own where set, the standard otherwise. @return array<string,float> */
+    public function stepRates(): array
+    {
+        $own = $this->row->target_rates ?? null;
+        $out = TargetsService::DEFAULT_RATES;
+        foreach (is_array($own) ? $own : [] as $k => $v) {
+            if (isset($out[$k]) && is_numeric($v) && (float) $v > 0 && (float) $v <= 100) {
+                $out[$k] = (float) $v;
+            }
+        }
+
+        return $out;
+    }
+
+    /** The per-step overrides: station => monthly target per agent. A missing / blank station is derived. @return array<string,float> */
+    public function stepOverrides(): array
+    {
+        $own = $this->row->target_overrides ?? null;
+        $out = [];
+        foreach (is_array($own) ? $own : [] as $k => $v) {
+            if (in_array($k, TargetsService::CHAIN, true) && $k !== 'loaded' && $v !== null && $v !== '' && is_numeric($v) && (float) $v >= 0) {
+                $out[$k] = (float) $v;
+            }
+        }
+
+        return $out;
+    }
+
+    /** Fill the agent's day from their own claims before any other source? On by default. */
+    public function fillFromClaimsFirst(): bool
+    {
+        return (bool) $this->scalar('fill_from_claims_first');
+    }
+
+    /** 23.12: the training flag fires when an agent's off-ramp rate at a station is this many percent above the branch (or agency) rate. */
+    public function flagOffRampExcessPct(): int
+    {
+        return max(1, (int) $this->scalar('flag_offramp_excess_pct'));
+    }
+
+    /** 23.7: working days ahead the call-back date of a Market Intelligence "contacted" feedback is set. */
+    public function defaultCallbackDays(): int
+    {
+        return max(1, (int) $this->scalar('default_callback_days'));
+    }
+
+    /** 23.6: does the Owner station need a deed record as well as the linked owner contact? On by default. */
+    public function ownerRequiresDeed(): bool
+    {
+        return (bool) $this->scalar('owner_requires_deed');
+    }
+
+    /** 23.13: must an agent press "Start my Road to Sold" before their list loads? On by default. */
+    public function agentStartRequired(): bool
+    {
+        return (bool) $this->scalar('agent_start_required');
+    }
+
+    /** Do captured tasks wait for a manager's approval before they count (spec 10.4 review queue)? Off by default: they count at once. */
+    public function captureNeedsReview(): bool
+    {
+        return (bool) $this->scalar('capture_needs_review');
+    }
+
+    /** Does moving up a level need a manager's sign-off (spec 8.1, 13.1)? On by default; off = the agent advances by themselves. */
+    public function levelsSignoffRequired(): bool
+    {
+        return (bool) $this->scalar('levels_signoff_required');
+    }
+
+    /** Consecutive weeks on target before a level is put forward for sign-off (spec 8.1, 13.1). */
+    public function levelPeriodsRequired(): int
+    {
+        return max(1, (int) $this->scalar('level_periods_required'));
+    }
+
+    /** Fewest events in the denominator before a funnel ratio can be flagged (spec 9.3). */
+    public function flagMinSample(): int
+    {
+        return max(1, (int) $this->scalar('flag_min_sample'));
+    }
+
+    /** A ratio is flagged when it is below this percentage of the agency median (spec 9.3). */
+    public function flagBelowPct(): int
+    {
+        return max(1, (int) $this->scalar('flag_below_pct'));
+    }
+
+    /** The trailing window, in days, the funnel and its flags are read over by default (spec 9.3). */
+    public function flagWindowDays(): int
+    {
+        return max(1, (int) $this->scalar('flag_window_days'));
+    }
+
+    /** How many trailing weeks a suggested target learns from (spec 9.4). */
+    public function suggestWindowWeeks(): int
+    {
+        return max(1, (int) $this->scalar('suggest_window_weeks'));
+    }
+
+    /** The growth a suggested target allows over what the agent really did, in percent (spec 9.4). */
+    public function suggestGrowthPct(): int
+    {
+        return max(0, (int) $this->scalar('suggest_growth_pct'));
     }
 
     /** green at/above the green line, red below the red line, amber between. */

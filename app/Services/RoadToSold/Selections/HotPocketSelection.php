@@ -28,7 +28,7 @@ final class HotPocketSelection extends MicPoolSelection
 
     public function label(): string
     {
-        return 'Hottest sales pockets';
+        return 'Hottest pockets (long on market and reduced)';
     }
 
     /** @return array<string,array> */
@@ -109,6 +109,18 @@ final class HotPocketSelection extends MicPoolSelection
             array_push($bind, ...$b);
         }
         $q->whereRaw($terms === [] ? '1 = 0' : '(' . implode(' OR ', $terms) . ')', $bind);
+
+        // 23.14 source 3: in a hot pocket it is the STUCK and PRICE-REDUCED stock that is worth a call - on the market longer than the agency's one "Long on market: more than N days" setting, or marked
+        // reduced by the portal, or with a price cut inside the price-drop look-back.
+        $day = \Carbon\Carbon::instance($ctx->date)->startOfDay();
+        $longBefore = $day->copy()->subDays(max(0, $ctx->settings->longOnMarketDays));
+        $cutSince = $day->copy()->subDays(max(1, $ctx->settings->priceDropLookbackDays))->toDateTimeString();
+        $q->whereRaw(
+            '(pl.is_reduced = 1'
+            . ' OR COALESCE(pl.listed_date, DATE(pl.first_seen_at)) < ?'
+            . ' OR EXISTS (SELECT 1 FROM prospecting_price_history phr WHERE phr.prospecting_listing_id = pl.id AND phr.changed_at >= ? AND phr.new_price < phr.old_price AND phr.old_price > 0))',
+            [$longBefore->toDateString(), $cutSince]
+        );
     }
 
     protected function order(Builder $q, SelectionContext $ctx): void
@@ -123,6 +135,33 @@ final class HotPocketSelection extends MicPoolSelection
             . ' ELSE FIELD(LOWER(TRIM(pl.suburb)), \'\'' . str_repeat(',?', count($names)) . ') END',
             [...$ids, ...$names]
         );
+    }
+
+    protected function explain(object $row, SelectionContext $ctx): array
+    {
+        $pocket = $this->pocketOf($row, $ctx);
+
+        if (! $pocket) {
+            return ['line' => 'Hot pocket', 'facts' => ['kind' => 'hot_pocket']];
+        }
+        $out = \App\Services\RoadToSold\Reasons\ReasonLine::hotPocket($pocket, max(1, (int) $ctx->settings->hotPocketLookbackDays));
+        $out['facts']['suburb_id'] = ! empty($pocket['suburb_id']) ? (int) $pocket['suburb_id'] : null;
+
+        return $out;
+    }
+
+    /** @return ?array the pocket this row sits in */
+    private function pocketOf(object $row, SelectionContext $ctx): ?array
+    {
+        $pockets = $this->pockets($ctx);
+        $p = $this->resolver->resolve(
+            $row->tp_suburb_id ? (int) $row->tp_suburb_id : null,
+            $row->tp_city_id ? (int) $row->tp_city_id : null,
+            $row->tp_town,
+            $row->suburb
+        );
+
+        return $p ? ($pockets[$p['key']] ?? null) : null;
     }
 
     protected function reason(object $row, SelectionContext $ctx): string

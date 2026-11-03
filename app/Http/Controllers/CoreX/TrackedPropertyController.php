@@ -9,7 +9,9 @@ use App\Events\Prospecting\TrackedPropertyCommentAdded;
 use App\Http\Controllers\Controller;
 use App\Models\Prospecting\TrackedProperty;
 use App\Models\Prospecting\TrackedPropertyAddress;
+use App\Models\Prospecting\TrackedPropertyAgencyWork;
 use App\Models\Prospecting\TrackedPropertyComment;
+use App\Services\Prospecting\AgencyWorkService;
 use App\Services\Prospecting\TrackedPropertyMatchOrCreateService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -370,6 +372,36 @@ final class TrackedPropertyController extends Controller
         TrackedPropertyCommentAdded::dispatch($comment);
 
         return $this->commentsJsonResponse($trackedProperty, $user);
+    }
+
+    /**
+     * POST - set (or clear) THIS agency's prospecting status on the property, with an optional reason. Writes only to the agency's own work
+     * record (property-identity.md section 12) and its history; the property itself and every other agency are untouched.
+     */
+    public function setProspectingStatus(Request $request, TrackedProperty $trackedProperty)
+    {
+        $this->assertOwnership($request, $trackedProperty);
+        $user = $request->user();
+        if (! $user->hasPermission('mic.comments.add')) {
+            abort(403, 'You do not have permission to change where a property stands.');
+        }
+
+        $data = $request->validate([
+            'prospecting_status' => ['nullable', 'string', 'in:' . implode(',', array_keys(TrackedPropertyAgencyWork::STATUSES))],
+            'prospecting_reason' => ['nullable', 'string', 'max:500'],
+        ], ['prospecting_status.in' => 'Pick one of the listed statuses.']);
+
+        $work = app(AgencyWorkService::class);
+        $before = $work->find((int) $trackedProperty->agency_id, (int) $trackedProperty->id)?->prospecting_status;
+        $after = ($data['prospecting_status'] ?? '') !== '' ? $data['prospecting_status'] : null;
+        $work->setStatus((int) $trackedProperty->agency_id, (int) $trackedProperty->id, $after, $data['prospecting_reason'] ?? null, (int) $user->id);
+
+        // C3 (property-identity.md section 15.3): "Owner not selling" is also the property's Not selling (and back); the other statuses have no
+        // property equivalent. One status per agency per property, both sides telling the same story.
+        $changedProperties = app(\App\Services\Prospecting\ProspectingStatusSync::class)->toProperty((int) $trackedProperty->agency_id, (int) $trackedProperty->id, $before, $after, (int) $user->id);
+        $also = $changedProperties !== [] ? ($after === TrackedPropertyAgencyWork::STATUS_NOT_SELLING ? ' The property is now marked Not selling too.' : ' The property is back in Prospecting.') : '';
+
+        return redirect()->route('market-intelligence.opportunities.show', $trackedProperty->id)->with('status', 'Saved - your agency\'s notes on this property are updated.' . $also);
     }
 
     /**

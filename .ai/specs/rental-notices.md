@@ -73,6 +73,7 @@ Built so an agency's real letters can be loaded as templates and print correctly
 ## Restyle (AT-455, 2026-10-15)
 The breach register uses the standard CoreX list look: flat page header, filter card, tinted status chips, table in a card with the pager in its footer. Behaviour, filters, sorting and scoping unchanged.
 
+
 ## 7c. Audit fixes 2026-10-20 (notices / portal audit)
 
 1. **Notice to vacate - the tenant has the whole last remedy day (finding 1).** Ruling (paraphrase, not a quote): **Johan, 20 Oct 2026: the tenant has the whole last remedy day; the notice to vacate is available from the next day.** This replaces the 15 Oct "from the remedy-by date itself" wording in 7b item 2. `LeaseBreach::remedyWindowPassed()` is true only when today (in the agency's timezone - `Agency::outreachTimezone()`, the app timezone until agencies carry their own) is LATER than `remedy_deadline`; `canIssueVacate()` and `LeaseBreachService::issueVacate()` use it; `vacateAvailableFrom()` is the day after. The "was it fixed?" follow-up is unchanged and still asked ON the remedy-by date (`remedyDateReached()`: the 06:15 alert, the Next bar question, the "date reached - was it fixed?" line), but on that day the Next bar offers only "Breach remedied" - "Send notice to vacate" appears the next day. The breach screen's "Not yet available" line and the refusal read: "The tenant has the whole of <date> to put this right. A notice to vacate is available from <next day>."
@@ -81,6 +82,7 @@ The breach register uses the standard CoreX list look: flat page header, filter 
 4. **Template HTML is cleaned (note).** CoreX has no general HTML purifier package (none added). `App\Support\Html\NoticeHtmlCleaner` removes scripts, frames / objects, forms, SVG / MathML, event-handler attributes, `javascript:` / `vbscript:` / non-image `data:` addresses and script-bearing `style` values, keeping the letter markup; it runs when a template is saved (typed or from a Word document) and again when a notice is rendered (`RentalNoticeService::render`), so templates saved earlier are covered on screen and in the PDF. Placeholder values stay escaped. The rules mirror what e-sign template import already refuses (`TemplateContentSafety`).
 5. **Notice reverse / change-outcome (finding 5)** need `rental_notices.review` - see `lease-notices.md`.
 6. Tests: `LeaseBreachFlowTest`, `BreachTemplatesAndFollowUpTest` (vacate gate), `AgencyNoticeDocumentsTest` (one vacate date), `NoticesHubTest` (gates), `NoticesPortalAuditFixesTest` (cleaner).
+
 
 ## 9. AT-495 - every Notices tab is usable (Johan, 21 Oct 2026)
 

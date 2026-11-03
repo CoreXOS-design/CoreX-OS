@@ -596,7 +596,7 @@ class PropertyMatchScoringService
             ->get()
             ->groupBy('contact_id');
 
-        $bandPct = AgencyContactSettings::forAgency((int) $listing->agency_id)->micPriceBandFraction();
+        $bandPct = \App\Services\Matching\BuyerMatchRules::toleranceFor((int) $listing->agency_id);
         $target  = $this->wrapCaptureAsProperty($listing);
 
         $rows = [];
@@ -623,6 +623,8 @@ class PropertyMatchScoringService
             ];
         }
 
+        $rows = app(\App\Services\Matching\BuyerPropertyExclusions::class)->markDismissed($rows, (int) $listing->agency_id); // spec 13.17: a hidden buyer stays hidden
+
         // Stale-row eviction — mirror recomputeProspectingMatchesForBuyer()'s
         // BUG 2 fix. This listing's cache must exactly reflect the current
         // qualifying set, so a buyer who dropped out (family/suburb gate,
@@ -648,7 +650,7 @@ class PropertyMatchScoringService
                     'prospecting_buyer_matches',
                     $rows,
                     ['prospecting_listing_id', 'contact_id'],
-                    ['agency_id', 'score', 'tier', 'source', 'matched_features', 'missing_features', 'last_recompute_at', 'updated_at']
+                    ['agency_id', 'score', 'tier', 'source', 'matched_features', 'missing_features', 'last_recompute_at', 'updated_at', 'dismissed_at', 'dismissed_by_user_id']
                 );
             }
         });
@@ -698,7 +700,7 @@ class PropertyMatchScoringService
                 ->get();
         }
 
-        $bandPct = AgencyContactSettings::forAgency((int) $contact->agency_id)->micPriceBandFraction();
+        $bandPct = \App\Services\Matching\BuyerMatchRules::toleranceFor((int) $contact->agency_id);
 
         $rows = [];
         $now  = now();
@@ -724,6 +726,8 @@ class PropertyMatchScoringService
             ];
         }
 
+        $rows = app(\App\Services\Matching\BuyerPropertyExclusions::class)->markDismissed($rows, (int) $contact->agency_id); // spec 13.17: a hidden property stays hidden
+
         // BUG 2 fix — mirror recomputeForBuyer()'s stale-row eviction: this
         // buyer's cache must exactly reflect the current qualifying set, so a
         // listing that dropped out (suburb gate, went inactive, score decayed)
@@ -746,7 +750,7 @@ class PropertyMatchScoringService
                     'prospecting_buyer_matches',
                     $rows,
                     ['prospecting_listing_id', 'contact_id'],
-                    ['agency_id', 'score', 'tier', 'source', 'matched_features', 'missing_features', 'last_recompute_at', 'updated_at']
+                    ['agency_id', 'score', 'tier', 'source', 'matched_features', 'missing_features', 'last_recompute_at', 'updated_at', 'dismissed_at', 'dismissed_by_user_id']
                 );
             }
         });
@@ -783,25 +787,30 @@ class PropertyMatchScoringService
     private function canonicalBestAcross(iterable $matches, Property $target, float $bandPct): ?array
     {
         $best = null;
+        $perWishlist = []; // 13.20: this advert's score against EACH wishlist (only the ones it is a match for), so MIC can list one wishlist at a time
         foreach ($matches as $m) {
             if (!$m->isCountable()) {
                 continue; // AT-71 gate — uncountable wishlists never match
             }
-            if ($this->violatesDealBreakers($m, $target)) {
-                continue; // only deal-breakers hard-exclude
-            }
-            if (!$this->matcher()->suburbCompatible($target, $m)) {
+            // Spec 13.15: the hard rules (listing type, price + tolerance, category, type, suburb, beds/baths/garages/parking, sizes,
+            // deal-breakers, auction) and the score are ONE verdict from the shared engine - the same one Core Matches asks.
+            // A failed hard rule scores 0 and is never cached; nothing here re-implements a rule.
+            $a = $this->matcher()->assess($target, $m);
+            if ($a['score'] <= 0) {
                 continue;
             }
-            $score = $this->matcher()->score($target, $m, $bandPct);
-            if ($best === null || $score > $best['score']) {
+            $perWishlist[(int) $m->id] = $a['score'];
+            if ($best === null || $a['score'] > $best['score']) {
                 $best = [
-                    'score'            => $score,
-                    'tier'             => $this->determineTier($score),
-                    'breakdown'        => ['engine' => 'canonical', 'price_band_pct' => $bandPct],
+                    'score'            => $a['score'],
+                    'tier'             => $this->determineTier($a['score']),
+                    'breakdown'        => ['engine' => 'canonical', 'rules' => \App\Services\Matching\BuyerMatchRules::VERSION, 'price_tolerance_pct' => (int) round($bandPct * 100), 'unverified' => $a['unverified']],
                     'missing_features' => [],
                 ];
             }
+        }
+        if ($best !== null) {
+            $best['breakdown']['wishlists'] = $perWishlist;
         }
         return $best;
     }
@@ -1037,6 +1046,10 @@ class PropertyMatchScoringService
      */
     public const PROSPECTING_POOL_COLUMNS = [
         'id',
+        'agency_id',
+        'listing_type',
+        'parking',
+        'features',
         'price',
         'suburb',
         'property_type',
@@ -1058,7 +1071,10 @@ class PropertyMatchScoringService
         $p->garages       = $data->garages ?? null;
         $p->size_m2       = $data->property_size_m2 ?? ($data->size_m2 ?? null);
         $p->erf_size_m2   = $data->erf_size_m2 ?? null;
-        $p->features_json = $data->features_json ?? null;
+        $p->features_json = $data->features_json ?? ($data->features ?? null);
+        $p->listing_type  = $data->listing_type ?? null;
+        $p->agency_id     = $data->agency_id ?? null;
+        $p->setAttribute('parking', $data->parking ?? null);
         // AT-75 — prospecting listings store only a suburb NAME; resolve it to a
         // p24_suburb_id so the canonical area scorer (suburbFitRatio) works.
         $p->p24_suburb_id = $this->resolveSuburbId($data->suburb ?? null);

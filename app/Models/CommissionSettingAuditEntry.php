@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\StampsOnBehalfOf;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
@@ -9,7 +10,7 @@ use App\Models\Concerns\BelongsToAgency;
 
 class CommissionSettingAuditEntry extends Model
 {
-    use BelongsToAgency;
+    use BelongsToAgency, StampsOnBehalfOf;
 
     protected $table = 'commission_setting_audit_log';
 

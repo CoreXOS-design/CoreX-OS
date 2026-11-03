@@ -44,7 +44,17 @@ class RtsListItem extends Model
     public const STATUS_WORKED = 'worked';
     public const STATUS_MISSED = 'missed';
     public const STATUS_ROLLED = 'rolled';
-    public const STATUSES = [self::STATUS_OPEN, self::STATUS_WORKED, self::STATUS_MISSED, self::STATUS_ROLLED];
+    /** 23.14: the agent swapped it for another, with a reason. The row is kept (so it is never offered to them again) but is not on their list. */
+    public const STATUS_SWAPPED = 'swapped';
+    public const STATUSES = [self::STATUS_OPEN, self::STATUS_WORKED, self::STATUS_MISSED, self::STATUS_ROLLED, self::STATUS_SWAPPED];
+
+    /** A swapped row is off the agent's list: every query through the model skips it unless it asks (withoutGlobalScope(self::SCOPE_NOT_SWAPPED)). */
+    public const SCOPE_NOT_SWAPPED = 'notSwapped';
+
+    protected static function booted(): void
+    {
+        static::addGlobalScope(self::SCOPE_NOT_SWAPPED, fn ($q) => $q->where('rts_list_items.status', '<>', self::STATUS_SWAPPED));
+    }
 
     /** The pseudo-selection key stored on a follow-up row. */
     public const SELECTION_FOLLOW_UP = 'follow_up';
@@ -53,7 +63,7 @@ class RtsListItem extends Model
         'agency_id', 'branch_id', 'user_id', 'list_date', 'track',
         'tracked_property_id', 'prospecting_listing_id', 'property_id',
         'selection', 'origin', 'position', 'status', 'reason',
-        'rolled_from_item_id', 'status_changed_at',
+        'rolled_from_item_id', 'status_changed_at', 'prospect_id', 'reason_facts',
     ];
 
     protected $casts = [
@@ -63,6 +73,8 @@ class RtsListItem extends Model
         'tracked_property_id'    => 'integer',
         'prospecting_listing_id' => 'integer',
         'property_id'            => 'integer',
+        'prospect_id'            => 'integer',
+        'reason_facts'           => 'array',
     ];
 
     /** The branch follows the agent whose list this is. */
@@ -112,9 +124,10 @@ class RtsListItem extends Model
     }
 
     /** Items that count toward the day's target (everything except "added", which is reported apart). */
+    /** The day's NEW intake: everything except the agent's own extras and follow-ups (road-to-sold.md 22.3: follow-ups are counted apart). */
     public function scopeCountingTowardTarget($query)
     {
-        return $query->where('rts_list_items.origin', '!=', self::ORIGIN_ADDED);
+        return $query->whereNotIn('rts_list_items.origin', [self::ORIGIN_ADDED, self::ORIGIN_FOLLOW_UP]);
     }
 
     /**

@@ -42,6 +42,13 @@ final class LongOnMarketSelection extends MicPoolSelection
         $q->orderBy('on_market_since');
     }
 
+    protected function explain(object $row, SelectionContext $ctx): array
+    {
+        $days = (int) Carbon::parse($row->on_market_since)->startOfDay()->diffInDays(Carbon::instance($ctx->date)->startOfDay());
+
+        return \App\Services\RoadToSold\Reasons\ReasonLine::longOnMarket($days, (bool) $row->listed_date, $row->price ? (int) $row->price : null);
+    }
+
     protected function reason(object $row, SelectionContext $ctx): string
     {
         $days = (int) Carbon::parse($row->on_market_since)->startOfDay()->diffInDays(Carbon::instance($ctx->date)->startOfDay());

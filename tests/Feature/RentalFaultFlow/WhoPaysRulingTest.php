@@ -187,7 +187,7 @@ final class WhoPaysRulingTest extends TestCase
 
     // ── report-back ───────────────────────────────────────────────────────────
 
-    public function test_the_contractor_link_needs_what_was_found_and_a_cause_on_a_fault_job_and_records_them(): void
+    public function test_the_contractor_link_records_what_was_found_and_a_cause_on_a_fault_job_when_given_and_never_requires_them(): void
     {
         $supplier = AgencyServiceProvider::withoutGlobalScopes()->create(['agency_id' => $this->agency->id, 'name' => 'Pipe Pros', 'email' => 'pipe@example.invalid', 'is_active' => true, 'specialty' => 'other']);
         $wo = $this->workOrder(null, ['agency_service_provider_id' => $supplier->id]);
@@ -196,10 +196,10 @@ final class WhoPaysRulingTest extends TestCase
 
         $this->get(route('rentals.secure-link.show', $raw))->assertOk()->assertSee('What did you find?')->assertSee('Foreign object in the drain')->assertSee('Something else (describe it)');
 
-        $this->post(route('rentals.secure-link.mark-done', $raw), [])->assertSessionHasErrors('work_order');
-        $this->assertSame(RentalWorkOrder::STATUS_IN_PROGRESS, $wo->fresh()->status);
-
+        // section 31.5: what was found is OPTIONAL on the link - with nothing typed the job is still reported done (the Who pays ruling asks for it when it is needed)
+        // ... but typed without a cause it is refused in words, so a half answer is never recorded
         $this->post(route('rentals.secure-link.mark-done', $raw), ['found_text' => 'Roots in the line', 'cause_id' => '', 'cause_note' => ''])->assertSessionHasErrors('work_order');
+        $this->assertNull($wo->fresh()->found_text);
 
         $this->post(route('rentals.secure-link.mark-done', $raw), ['found_text' => 'Roots in the line', 'cause_id' => $this->cause('Roots in the pipe')->id, 'cause_note' => 'Large tree next door'])->assertSessionHasNoErrors();
         $fresh = $wo->fresh();
@@ -232,11 +232,12 @@ final class WhoPaysRulingTest extends TestCase
         ]);
         $raw = app(RentalSecureAccessTokenService::class)->issueForJobCard($card, $this->agent)['raw_token'];
 
-        $this->post(route('rentals.crew-job.complete', $raw), ['full_name' => 'Pat Plumber', 'confirm' => 1])->assertSessionHasErrors();
+        // section 31.5: findings are optional - a half answer (words but no cause) is still refused in words, nothing typed goes through
+        $this->post(route('rentals.crew-job.complete', $raw), ['full_name' => 'Pat Plumber', 'found_text' => 'A toy car', 'cause_id' => '', 'cause_note' => ''])->assertSessionHasErrors();
         $this->assertNull($card->fresh()->worker_signed_off_at);
         $this->assertNull($wo->fresh()->found_text);
 
-        $this->post(route('rentals.crew-job.complete', $raw), ['full_name' => 'Pat Plumber', 'confirm' => 1, 'found_text' => 'A toy car', 'cause_id' => $this->cause('Foreign object in the drain')->id]);
+        $this->post(route('rentals.crew-job.complete', $raw), ['full_name' => 'Pat Plumber', 'found_text' => 'A toy car', 'cause_id' => $this->cause('Foreign object in the drain')->id]);
         $this->assertSame('A toy car', $wo->fresh()->found_text);
         $this->assertSame('Pat Plumber (crew)', $wo->fresh()->reported_back_by);
     }

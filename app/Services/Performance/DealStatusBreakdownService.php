@@ -60,16 +60,19 @@ class DealStatusBreakdownService
 
     /**
      * @param int[] $userIds
-     * @return array{perAgent: array<int,array>, distinct: array<string,array>}
-     *   perAgent[uid][bucket] = {count,value,commission}; distinct[bucket] = rollup (each deal once).
+     * @return array{perAgent: array<int,array>, distinct: array<string,array>, agentDeals: array<int,array>}
+     *   perAgent[uid][bucket] = {count,value,commission}; distinct[bucket] = rollup (each deal once);
+     *   agentDeals[uid]["1:id"|"2:id"] = ['bucket' => string, 'value' => float] — the deals behind each agent's row,
+     *   so a branch or the company can count a joint deal ONCE (the report's rollup uses it).
      */
     public function forUsers(array $userIds, Period $period, int $agencyId): array
     {
         $perAgent = [];
+        $agentDeals = [];
         foreach ($userIds as $u) $perAgent[$u] = $this->emptyBuckets();
         $distinctSeen = [];                 // "1:id"/"2:id" => true  (rollup dedup)
         $distinct = $this->emptyBuckets();
-        if (empty($userIds)) return ['perAgent' => $perAgent, 'distinct' => $distinct];
+        if (empty($userIds)) return ['perAgent' => $perAgent, 'distinct' => $distinct, 'agentDeals' => $agentDeals];
 
         $start = $period->start->toDateString();
         $end   = $period->end->toDateString();
@@ -111,7 +114,7 @@ class DealStatusBreakdownService
             $agents = [];
             if (in_array((int) $d->managed_by_user_id, $userIds, true)) $agents[(int) $d->managed_by_user_id] = true;
             foreach ($pivot1[$d->id] ?? [] as $p) $agents[(int) $p->user_id] = true;
-            foreach (array_keys($agents) as $uid) $add($perAgent[$uid], $bucket, $val, (float) ($mlByDealUser[$d->id][$uid] ?? 0), (float) ($mlCompanyByDealUser[$d->id][$uid] ?? 0));
+            foreach (array_keys($agents) as $uid) { $add($perAgent[$uid], $bucket, $val, (float) ($mlByDealUser[$d->id][$uid] ?? 0), (float) ($mlCompanyByDealUser[$d->id][$uid] ?? 0)); $agentDeals[$uid]['1:' . $d->id] = ['bucket' => $bucket, 'value' => $val]; }
             if ($agents) { $key = '1:' . $d->id; if (empty($distinctSeen[$key])) { $distinctSeen[$key] = true; $add($distinct, $bucket, $val, (float) ($mlByDeal[$d->id] ?? 0), (float) ($mlCompanyByDeal[$d->id] ?? 0)); } }
         }
 
@@ -131,10 +134,10 @@ class DealStatusBreakdownService
             $agents = [];
             foreach (['listing_agent_id', 'selling_agent_id'] as $c) if (in_array((int) $d->$c, $userIds, true)) $agents[(int) $d->$c] = true;
             foreach ($pivot2[$d->id] ?? [] as $p) $agents[(int) $p->user_id] = true;
-            foreach (array_keys($agents) as $uid) $add($perAgent[$uid], $bucket, $val, $comm, $companyComm);
+            foreach (array_keys($agents) as $uid) { $add($perAgent[$uid], $bucket, $val, $comm, $companyComm); $agentDeals[$uid]['2:' . $d->id] = ['bucket' => $bucket, 'value' => $val]; }
             if ($agents) { $key = '2:' . $d->id; if (empty($distinctSeen[$key])) { $distinctSeen[$key] = true; $add($distinct, $bucket, $val, $comm, $companyComm); } }
         }
 
-        return ['perAgent' => $perAgent, 'distinct' => $distinct];
+        return ['perAgent' => $perAgent, 'distinct' => $distinct, 'agentDeals' => $agentDeals];
     }
 }

@@ -1,0 +1,13 @@
+import { execFileSync } from 'node:child_process';
+import puppeteer from 'puppeteer-core';
+const BASE='https://qatesting1.corexos.co.za';
+const out = execFileSync('php8.2',['/corex-qa1/scripts/mint-session-cookie.php','--app-root=/corex-qa1','--user-id=22'],{encoding:'utf8'});
+const c={name:out.match(/COOKIE_NAME=(.+)/)[1].trim(),value:out.match(/COOKIE_VALUE=(.+)/)[1].trim()};
+const b=await puppeteer.launch({executablePath:'/usr/bin/chromium',headless:true,args:['--no-sandbox']});
+const p=await b.newPage(); await p.setViewport({width:1440,height:900});
+p.on('console',m=>console.log('CONSOLE',m.text().slice(0,300))); p.on('pageerror',e=>console.log('PAGEERR',e.message.slice(0,300)));
+await p.setCookie({...c,domain:new URL(BASE).hostname,path:'/',httpOnly:true,secure:true});
+await p.goto(BASE+'/road-to-sold/settings/budgets',{waitUntil:'networkidle2'});
+await new Promise(r=>setTimeout(r,1500));
+console.log(await p.evaluate(()=>{const tr=document.querySelector('[data-split] tbody tr'); return tr? tr.innerHTML.slice(0,1800):'none'}));
+await b.close();

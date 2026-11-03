@@ -2,6 +2,9 @@
 
 namespace App\Services\Performance;
 
+use App\Services\Performance\Providers\CountsDistinctDeals;
+use App\Services\Performance\Providers\DealStatusAware;
+
 /**
  * AT-366 — the report read-model. Given a scope and a period it:
  *   1. resolves the agent cohort (owners excluded),
@@ -14,6 +17,8 @@ namespace App\Services\Performance;
  */
 class AgencyPerformanceReportService
 {
+    public const AGENT_SHARE_LABEL = 'Commission (agent share, ex-VAT)';
+
     public function __construct(
         private readonly HierarchyResolver $hierarchy,
         private readonly MetricProviderRegistry $registry,
@@ -43,7 +48,13 @@ class AgencyPerformanceReportService
         }
     }
 
-    public function build(PerformanceScope $scope, Period $period): array
+    /**
+     * @param  ?DealStatusSelection  $statuses  the deal-status ticks. Every deal-based metric (deals created,
+     *   deals registered, commission) counts only deals in the ticked buckets; null = every status, as before.
+     *   The per-status `deal_status` buckets stay complete either way, so the tiles can be shown for any
+     *   selection. Applied after the cohort is resolved: it filters rows, it can never widen the scope.
+     */
+    public function build(PerformanceScope $scope, Period $period, ?DealStatusSelection $statuses = null): array
     {
         $agents    = $this->hierarchy->agents($scope);
         $userIds   = $agents->pluck('id')->map(fn ($i) => (int) $i)->all();
@@ -51,17 +62,34 @@ class AgencyPerformanceReportService
 
         // One grouped query per provider for the whole cohort.
         $valuesByKey = [];
+        $dealKeys = []; // metric key => uid => ["1:id"|"2:id" => true] — which deals each agent's count is made of
         foreach ($providers as $provider) {
-            $valuesByKey[$provider->key()] = $provider->forUsers($userIds, $period);
+            if ($provider instanceof CountsDistinctDeals) {
+                $dealKeys[$provider->key()] = $provider->dealKeysByUser($userIds, $period, $statuses ?? DealStatusSelection::all());
+                $valuesByKey[$provider->key()] = array_map(fn ($set) => count($set), $dealKeys[$provider->key()]);
+                continue;
+            }
+            $valuesByKey[$provider->key()] = ($statuses !== null && $provider instanceof DealStatusAware)
+                ? $provider->forUsersWithStatuses($userIds, $period, $statuses)
+                : $provider->forUsers($userIds, $period);
         }
-        $metricMeta = array_map(fn ($p) => ['key' => $p->key(), 'label' => $p->label()], $providers);
+        // 'column_label' is the heading to put over the number a row/column/agent card actually holds. For commission that
+        // number is the AGENT share (CommissionGrossProvider::forUsers returns the agent's own money line), not the gross
+        // the company Commission card headlines, so it says so. 'label' (the card/drilldown name) is unchanged.
+        $metricMeta = array_map(fn ($p) => [
+            'key' => $p->key(),
+            'label' => $p->label(),
+            'column_label' => $p->key() === 'commission_gross_ex_vat' ? self::AGENT_SHARE_LABEL : $p->label(),
+        ], $providers);
 
         // AT-366 §A — per-agent deal status breakdown (qty+value per bucket) for the toggle bar.
-        $dealBreak = $this->dealStatus->forUsers($userIds, $period, $scope->agencyId)['perAgent'];
+        $breakdown = $this->dealStatus->forUsers($userIds, $period, $scope->agencyId);
+        $dealBreak = $breakdown['perAgent'];
+        $agentDeals = $breakdown['agentDeals'];
 
         // 2026-08 (company-share refinement) — same source as the 'commission_gross_ex_vat'
         // provider, so this reconciles with it exactly; keyed by user_id => company_gross_ex_vat sum.
-        $companyShareByUser = $this->commissionProvider->forUsersWithCompanyShare($userIds, $period);
+        $companyShareByUser = $this->commissionProvider->forUsersWithCompanyShare($userIds, $period, $statuses);
 
         $branchNames = $this->hierarchy->branchNames($scope->agencyId);
 
@@ -69,6 +97,13 @@ class AgencyPerformanceReportService
         $branchAgg = [];
         $companyAgg = [];
         $companyDs  = $this->emptyDealStatus();
+        // Deal-date rule (Johan, AT-535): a deal is counted ONCE in a branch's and the company's deal numbers,
+        // however many agents are on it — the Deal Register lists it once. Agent rows still show every deal the
+        // agent is on. (Commission is unaffected: each agent's own money line is their own share, summed.)
+        $branchDealSets  = [];  // branchKey => metricKey => dealKey => true
+        $companyDealSets = [];  // metricKey => dealKey => true
+        $branchDealStatus  = []; // branchKey => dealKey => [bucket, value]
+        $companyDealStatus = []; // dealKey => [bucket, value]
 
         foreach ($agents as $agent) {
             $uid = (int) $agent->id;
@@ -122,7 +157,30 @@ class AgencyPerformanceReportService
             }
             $this->addDealStatus($branchAgg[$branchKey]['deal_status'], $agentDs);
             $this->addDealStatus($companyDs, $agentDs);
+
+            foreach ($dealKeys as $metricKey => $byUser) {
+                $branchDealSets[$branchKey][$metricKey] = ($branchDealSets[$branchKey][$metricKey] ?? []) + ($byUser[$uid] ?? []);
+                $companyDealSets[$metricKey]            = ($companyDealSets[$metricKey] ?? []) + ($byUser[$uid] ?? []);
+            }
+            $branchDealStatus[$branchKey] = ($branchDealStatus[$branchKey] ?? []) + ($agentDeals[$uid] ?? []);
+            $companyDealStatus            = $companyDealStatus + ($agentDeals[$uid] ?? []);
         }
+
+        // Replace the sum-of-agents deal numbers with distinct-deal numbers for every branch and the company.
+        foreach ($dealKeys as $metricKey => $_) {
+            $companyAgg[$metricKey] = count($companyDealSets[$metricKey] ?? []);
+            foreach ($branchAgg as $bk => &$b) {
+                $b['metrics'][$metricKey] = count($branchDealSets[$bk][$metricKey] ?? []);
+            }
+            unset($b);
+        }
+        $setDistinctQtyValue = function (array &$ds, array $deals) {
+            foreach (['pending', 'granted', 'registered', 'declined'] as $bucket) { $ds[$bucket]['qty'] = 0; $ds[$bucket]['value'] = 0.0; }
+            foreach ($deals as $d) { $ds[$d['bucket']]['qty']++; $ds[$d['bucket']]['value'] += $d['value']; }
+        };
+        $setDistinctQtyValue($companyDs, $companyDealStatus);
+        foreach ($branchAgg as $bk => &$b) { $setDistinctQtyValue($b['deal_status'], $branchDealStatus[$bk] ?? []); }
+        unset($b);
 
         $companyAgg['deal_status'] = $companyDs; // AT-366 §A company rollup row
 
@@ -134,6 +192,7 @@ class AgencyPerformanceReportService
                 'user_id'   => $scope->userId,
                 'level'     => $scope->level(),
             ],
+            'deal_statuses' => ($statuses ?? DealStatusSelection::all())->buckets(),
             'metrics'  => $metricMeta,
             'company'  => $companyAgg,
             'branches' => $branchAgg,
@@ -145,13 +204,14 @@ class AgencyPerformanceReportService
      * AT-366-C — one agent's journey for the period, each metric paired with its
      * value in the equal-length preceding period (delta = trend). Returns
      * ['agent' => null] when the user is not an in-scope agency member (owners
-     * excluded), so the caller can 404.
+     * excluded), so the caller can 404. $statuses = the deal-status ticks (null = every status), applied to
+     * both periods so the trend compares like with like.
      */
-    public function agentJourney(int $agencyId, int $userId, Period $period, ?PerformanceScope $ceiling = null): array
+    public function agentJourney(int $agencyId, int $userId, Period $period, ?PerformanceScope $ceiling = null, ?DealStatusSelection $statuses = null): array
     {
         $scope    = $ceiling ? $ceiling->withFilters(null, $userId) : new PerformanceScope($agencyId, null, $userId);
-        $current  = $this->build($scope, $period);
-        $previous = $this->build($scope, $period->previous());
+        $current  = $this->build($scope, $period, $statuses);
+        $previous = $this->build($scope, $period->previous(), $statuses);
 
         $curAgent  = $current['agents'][0] ?? null;
         $prevAgent = $previous['agents'][0] ?? null;
@@ -166,7 +226,7 @@ class AgencyPerformanceReportService
             $prev = $prevAgent['metrics'][$m['key']] ?? 0;
             $metrics[] = [
                 'key'      => $m['key'],
-                'label'    => $m['label'],
+                'label'    => $m['column_label'],
                 'value'    => $cur,
                 'previous' => $prev,
                 'delta'    => $cur - $prev,
@@ -196,11 +256,11 @@ class AgencyPerformanceReportService
      * which can differ after a move). $branchKey is a numeric branch id or the
      * 'unassigned' sentinel. Returns ['branch' => null] for an unknown branch.
      */
-    public function branchJourney(int $agencyId, string $branchKey, Period $period, ?PerformanceScope $ceiling = null): array
+    public function branchJourney(int $agencyId, string $branchKey, Period $period, ?PerformanceScope $ceiling = null, ?DealStatusSelection $statuses = null): array
     {
         $scope    = $ceiling ? $ceiling->withFilters(null, null) : new PerformanceScope($agencyId);
-        $current  = $this->build($scope, $period);
-        $previous = $this->build($scope, $period->previous());
+        $current  = $this->build($scope, $period, $statuses);
+        $previous = $this->build($scope, $period->previous(), $statuses);
 
         $branchNames = $this->hierarchy->branchNames($agencyId);
 
@@ -226,7 +286,7 @@ class AgencyPerformanceReportService
             $prev = $prevMetrics[$m['key']] ?? 0;
             $metrics[] = [
                 'key'      => $m['key'],
-                'label'    => $m['label'],
+                'label'    => $m['column_label'],
                 'value'    => $cur,
                 'previous' => $prev,
                 'delta'    => $cur - $prev,

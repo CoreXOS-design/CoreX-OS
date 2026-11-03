@@ -1,0 +1,65 @@
+{
+  "kind": "streets",
+  "p24_suburb_id": 6359,
+  "suburb": "Uvongo",
+  "town": "Margate",
+  "url": "https://www.property24.com/property-values/marine-drive/uvongo/margate/kwazulu-natal/6359",
+  "streets": [
+    {
+      "street_slug": "marine-drive",
+      "street_name": "Marine Drive",
+      "addresses": [
+        {
+          "address": "96 Marine Drive",
+          "house_number": "96",
+          "last_sold_year": null
+        },
+        {
+          "address": "98 Marine Drive",
+          "house_number": "98",
+          "last_sold_year": null
+        },
+        {
+          "address": "100 Marine Drive",
+          "house_number": "100",
+          "last_sold_year": null
+        },
+        {
+          "address": "102 Marine Drive",
+          "house_number": "102",
+          "last_sold_year": null
+        },
+        {
+          "address": "104 Marine Drive",
+          "house_number": "104",
+          "last_sold_year": null
+        },
+        {
+          "address": "106 Marine Drive",
+          "house_number": "106",
+          "last_sold_year": null
+        },
+        {
+          "address": "108 Marine Drive",
+          "house_number": "108",
+          "last_sold_year": null
+        },
+        {
+          "address": "110 Marine Drive",
+          "house_number": "110",
+          "last_sold_year": null
+        },
+        {
+          "address": "112 Marine Drive",
+          "house_number": "112",
+          "last_sold_year": null
+        },
+        {
+          "address": "1215 Marine Drive",
+          "house_number": "1215",
+          "last_sold_year": null
+        }
+      ]
+    }
+  ]
+}

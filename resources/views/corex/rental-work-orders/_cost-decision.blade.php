@@ -142,7 +142,7 @@
                     this.busy = true; this.$refs.authForm.submit();
                 }
              }"
-             x-on:keydown.escape.window="open = false" class="space-y-3" data-cost-actions>
+             x-on:keydown.escape.window="open = false" x-on:corex-open.window="if ($event.detail === 'cost-owner-decision') { open = true }" class="space-y-3" data-cost-actions>
 
             <div class="text-sm" data-cost-amount>
                 @unless($cdCompact ?? false)
@@ -191,6 +191,8 @@
             </div>
 
             @if($cdCanAuthorise)
+            {{-- section 31 - teleported to <body>: the Next bar opens this from anywhere, and the folded panel that holds the button would hide a fixed overlay --}}
+            <template x-teleport="body">
             <div x-show="open" x-cloak class="cxod-overlay" role="dialog" aria-modal="true" aria-labelledby="cxcd-title" data-cost-owner-decision-modal>
                 <div class="cxod-box" x-on:click.outside="open = false">
                     <h3 id="cxcd-title" class="cxod-title">Record the owner's decision</h3>
@@ -250,6 +252,7 @@
                     </form>
                 </div>
             </div>
+            </template>
             @endif
         </div>
     @endif

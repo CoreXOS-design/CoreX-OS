@@ -111,21 +111,17 @@
     // ── Active group detection (ONE mechanism: routeIs) ──
     $activeGroup = null;
     if (request()->routeIs(
-        'worksheet.*',
         // 'agent.daily' + 'agent.daily.print' (the capture form) live under My Portal now; the summary stays here
         // until Road to Sold phase 3 replaces it (agency-tracker-rehome.md §14 step 3).
         'agent.dashboard', 'agent.daily.summary*',
-        'bm.daily*', 'bm.listings*',
+        'bm.daily*',
         // (Branch / Agency Performance, their agent drill-downs and both Worksheet Market pages moved to the Reports group - step 7.)
         'admin.listings.*',
         'admin.daily*', 'admin.targets*',
         'admin.activity-mappings.*', 'admin.daily-activities.setup*',
-        // The RCR link lives in the Agency Tracker panel, so its routes must open it.
-        // 'corex.compliance.rcr.*' does NOT match the 'compliance.*' matcher below —
-        // routeIs() globs the whole name, and this one is prefixed 'corex.'.
+        // (RCR · FIC 2026 left this panel - step 9; its routes now open Compliance, see the compliance matcher below.)
         // (The deal register routes — deals-dr2.*, agent.deals.*, admin.deals* — moved to the
         // Deals group; agency-tracker-rehome.md §14 step 6.)
-        'corex.compliance.rcr.*',
         'admin.expenses*',
         // (tools.commission, tools.cma*, tools.history.* moved to the Calculators group - step 10.)
         'commission.index', 'commission.principal', 'commission.confirm', 'commission.pay'
@@ -167,7 +163,9 @@
         $activeGroup = 'documents';
     } elseif ((request()->routeIs('compliance.*')
         && !request()->routeIs('compliance.comm-archive.*', 'compliance.comm-flags.*', 'compliance.comm-mailboxes.*'))
-        || request()->routeIs('corex.hubs.rmcp-policies', 'corex.hubs.compliance-agents', 'corex.hubs.compliance-reports')) {
+        || request()->routeIs('corex.hubs.rmcp-policies', 'corex.hubs.compliance-agents', 'corex.hubs.compliance-reports')
+        // RCR · FIC 2026 is retired from the menu (agency-tracker-rehome.md step 9); a bookmarked / notification deep link still opens Compliance.
+        || request()->routeIs('corex.compliance.rcr.*')) {
         // .ai/specs/compliance-menu-tabs.md - the tabbed Compliance items' landing routes open this panel too.
         // AT-161 IA re-cut — the compliance.comm-* routes (Message Archive, Flagged
         // Messages, Archive Mailboxes) live in the COMMUNICATIONS group, not
@@ -281,6 +279,7 @@
         'market-intelligence.*',
         'corex.properties.*',
         'corex.map.*',
+        'corex.sold-stock.*',        // AT-512 - Sold stock is a tab of the Properties item, so its pages open the Real Estate panel
         'admin.p24.*',
         'corex.contacts.*',
         'corex.core-matches.*',
@@ -360,12 +359,15 @@
         $activeGroup = 'deals-v2';
     } elseif (request()->routeIs('admin.integrations.*', 'admin.training-videos.*')) {
         $activeGroup = 'integration';
+    } elseif (request()->routeIs('admin.video-ads.*')) {
+        $activeGroup = 'owner-marketing';   // CoreX owners -> Marketing -> Video ads (AT-527, spec training-videos.md 9.21)
     } elseif (request()->routeIs(
         'agencies.*',
         'admin.agency-setup-progress',
         'admin.agency-setup-progress.*',
         'admin.ai-usage.*',
         'admin.billing.*',
+        'admin.revenue.*',
         'admin.agency-timelines.*'
     )) {
         $activeGroup = 'agency';
@@ -991,7 +993,7 @@
                      (corex.lens.properties) lens lights Rentals instead, as before. --}}
                 @php $_propTabs = \App\Support\Navigation\Hubs\PropertiesTabs::forUser($user); @endphp
                 @if($_propTabs !== [])
-                <a href="{{ route('corex.hubs.properties') }}" data-nav-extra="{{ json_encode(\App\Support\Navigation\Hubs\PropertiesTabs::searchEntries($_propTabs), JSON_UNESCAPED_UNICODE) }}" class="corex-nav-subitem {{ (request()->routeIs('corex.hubs.properties', 'corex.properties.*', 'corex.map.*') && ! session('corex.lens.properties', false)) ? 'active' : '' }}">Properties</a>
+                <a href="{{ route('corex.hubs.properties') }}" data-nav-extra="{{ json_encode(\App\Support\Navigation\Hubs\PropertiesTabs::searchEntries($_propTabs), JSON_UNESCAPED_UNICODE) }}" class="corex-nav-subitem {{ (request()->routeIs('corex.hubs.properties', 'corex.properties.*', 'corex.map.*', 'corex.sold-stock.*') && ! session('corex.lens.properties', false)) ? 'active' : '' }}">Properties</a>
                 @endif
 
                 @permission('access_contacts')
@@ -1023,7 +1025,35 @@
                 @feature('road-to-sold')
                 @permission('access_road_to_sold')
                 @if(\Illuminate\Support\Facades\Route::has('road-to-sold.index'))
-                <a href="{{ route('road-to-sold.index') }}" class="corex-nav-subitem {{ request()->routeIs('road-to-sold.index', 'road-to-sold.drilldown', 'road-to-sold.report', 'road-to-sold.report.*', 'road-to-sold.add-to-day', 'road-to-sold.outcomes.*', 'road-to-sold.settings.index', 'road-to-sold.settings.general.*', 'road-to-sold.settings.areas.*', 'road-to-sold.settings.outcomes.*', 'road-to-sold.settings.recipe.*') ? 'active' : '' }}">Road to Sold</a>
+                <a href="{{ route('road-to-sold.index') }}" class="corex-nav-subitem {{ request()->routeIs('road-to-sold.index', 'road-to-sold.drilldown', 'road-to-sold.report', 'road-to-sold.report.*', 'road-to-sold.add-to-day', 'road-to-sold.outcomes.*', 'road-to-sold.settings.index', 'road-to-sold.settings.general.*', 'road-to-sold.settings.areas.*', 'road-to-sold.settings.outcomes.*', 'road-to-sold.settings.recipe.*', 'road-to-sold.settings.flags.*', 'road-to-sold.settings.task-targets.*', 'road-to-sold.prospects.*') ? 'active' : '' }}">Road to Sold</a>
+                @endif
+                @endpermission
+                @endfeature
+
+                {{-- AT-454 v2 phase 6 - the manager's review of captured tasks (approve or send back). Managers and admins only (the permission);
+                     the agency's Road to Sold switch hides it like the page it belongs to. --}}
+                @feature('road-to-sold')
+                @permission('road_to_sold.review_completions')
+                @if(\Illuminate\Support\Facades\Route::has('road-to-sold.review.index'))
+                <a href="{{ route('road-to-sold.review.index') }}" class="corex-nav-subitem {{ request()->routeIs('road-to-sold.review.*') ? 'active' : '' }}">Review captures</a>
+                @endif
+                @endpermission
+                @endfeature
+
+                {{-- AT-454 v2 phase 4 - the manager's level sign-off (agents waiting to move up a level). Managers and admins only. --}}
+                @feature('road-to-sold')
+                @permission('road_to_sold.signoff_levels')
+                @if(\Illuminate\Support\Facades\Route::has('road-to-sold.signoffs.index'))
+                <a href="{{ route('road-to-sold.signoffs.index') }}" class="corex-nav-subitem {{ request()->routeIs('road-to-sold.signoffs.*') ? 'active' : '' }}">Level sign-offs</a>
+                @endif
+                @endpermission
+                @endfeature
+
+                {{-- AT-454 v2 phase 5 - the team funnel, training flags and suggested targets. Managers and admins only. --}}
+                @feature('road-to-sold')
+                @permission('road_to_sold.view_funnel')
+                @if(\Illuminate\Support\Facades\Route::has('road-to-sold.funnel.index'))
+                <a href="{{ route('road-to-sold.funnel.index') }}" class="corex-nav-subitem {{ request()->routeIs('road-to-sold.funnel.*') ? 'active' : '' }}">Team funnel</a>
                 @endif
                 @endpermission
                 @endfeature
@@ -1395,11 +1425,35 @@
         </a>
         @endfeature
 
+        {{-- AT-525 - Training library: the auto-generated how-to videos (a short video with voice-over for a screen, explaining what to click AND why it matters). --}}
+        @feature('guided-tours')
+        @permission('training_videos.view')
+        <a href="{{ route('corex.training-library.index') }}" data-nav="training-library"
+           class="corex-nav-item {{ request()->routeIs('corex.training-library.*') ? 'active' : '' }}">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 10.5l4.72-4.72a.75.75 0 011.28.53v11.38a.75.75 0 01-1.28.53l-4.72-4.72M4.5 18.75h9a2.25 2.25 0 002.25-2.25v-9a2.25 2.25 0 00-2.25-2.25h-9A2.25 2.25 0 002.25 7.5v9a2.25 2.25 0 002.25 2.25z" />
+            </svg>
+            <span>Training library</span>
+        </a>
+        @endpermission
+        @endfeature
+
         {{-- ═══════════════════════════════════════════
              AGENCY TRACKER (expandable group)
              ═══════════════════════════════════════════ --}}
         @feature('agency-tracker')
         @permission('access_agency_tracker')
+        {{-- Agency Tracker re-home step 11 (agency-tracker-rehome.md section 14): what is left in this panel is the Daily Activities summary / Setup
+             for an agency whose daily activity has not yet moved into Road to Sold, and Commission for the owner. A user who would see neither
+             gets no empty "Agency Tracker" entry. --}}
+        @php
+            $atDailyMoved = \App\Services\Activity\ActivityPointsService::usesCompletions((int) (auth()->user()?->effectiveAgencyId() ?: 0));
+            $atShowGroup = (! $atDailyMoved && (auth()->user()?->hasPermission('view_daily_activity')
+                                                || auth()->user()?->hasPermission('manage_targets')
+                                                || auth()->user()?->hasPermission('manage_activity_mappings')))
+                        || (feature('commission-management') && ($isOwner || $effectiveRole === 'super_admin'));
+        @endphp
+        @if($atShowGroup)
         <div>
             <button type="button" @click="push('agency-tracker')"
                     class="corex-nav-item corex-nav-group-toggle {{ $activeGroup === 'agency-tracker' ? 'active' : '' }}">
@@ -1417,14 +1471,15 @@
                 </button>
                 <div class="corex-nav-panel-title">Agency Tracker</div>
 
-                {{-- Common items (all roles) --}}
-                @permission('view_worksheet')
-                <a href="{{ route('worksheet.index') }}" class="corex-nav-subitem {{ request()->routeIs('worksheet.*') ? 'active' : '' }}">Worksheet</a>
-                @endpermission
+                {{-- The Worksheet left this panel (agency-tracker-rehome.md step 5): /worksheet now 301s to My Portal > Targets & Budget. --}}
 
+                {{-- AT-454 v2 phase 3: an agency whose daily activity has moved into Road to Sold (road-to-sold.md section 7) no longer shows the old
+                     Daily Activities groups below - the summaries are Road to Sold's Captures / Team views, the setup is its Recipe tab. The routes still
+                     resolve (they redirect), so nothing breaks; an agency not moved keeps its menu exactly as it was. --}}
+                @php $dailyMoved = \App\Services\Activity\ActivityPointsService::usesCompletions((int) (auth()->user()?->effectiveAgencyId() ?: 0)); @endphp
                 {{-- Agent section (view own stats) --}}
                 @permission('view_own_stats')
-                <div class="corex-nav-sublabel">My Performance</div>
+                @unless($dailyMoved)
                 @permission('view_daily_activity')
                 <div class="corex-nav-sublabel">Daily Activities</div>
                 <a href="{{ route('agent.daily.summary') }}" class="corex-nav-subitem {{ request()->routeIs('agent.daily.summary*') ? 'active' : '' }}">Daily Activity Summary</a>
@@ -1432,16 +1487,13 @@
                 @if(auth()->user()?->hasPermission('manage_targets') || auth()->user()?->hasPermission('manage_activity_mappings'))
                 <a href="{{ route('admin.daily-activities.setup') }}" class="corex-nav-subitem {{ request()->routeIs('admin.daily-activities.setup*') ? 'active' : '' }}">Setup</a>
                 @endif
+                @endunless
                 {{-- My Deals moved to the Deals main menu (agency-tracker-rehome.md §8.2, step 6). --}}
                 @endpermission
 
                 {{-- Branch Manager section (view branch stats) --}}
                 @permission('view_branch_stats')
-                <div class="corex-nav-sublabel">Branch</div>
-                {{-- Branch Performance moved to Reports (agency-tracker-rehome.md step 7). --}}
-                @permission('access_listing_stock')
-                <a href="{{ route('bm.listings') }}" class="corex-nav-subitem {{ request()->routeIs('bm.listings*') ? 'active' : '' }}">Branch Listing Stock</a>
-                @endpermission
+                {{-- Branch Performance moved to Reports (agency-tracker-rehome.md step 7). Branch Listing Stock retired (step 9): /bm/listings 301s to Properties. --}}
                 {{-- Deal Register (old + DR2) moved to the Deals main menu (agency-tracker-rehome.md §8.2, step 6). --}}
                 {{-- Branch Manager section ends here (matches the section's own opening
                      comment above) — permission-block fix, 2026-08-22. Previously the
@@ -1472,35 +1524,7 @@
 
                 {{-- Unfiled Emails moved to the Deals main menu as "Unfiled deal emails" (agency-tracker-rehome.md §8.2, step 6). --}}
 
-                @if(auth()->user() && in_array((string) auth()->user()->role, ['admin', 'super_admin', 'branch_manager', 'principal'], true) && \Illuminate\Support\Facades\Route::has('corex.compliance.rcr.index'))
-                    @php
-                        // Phase 9d — open RCR submissions for current agency.
-                        $rcrOpenCount = 0; $rcrNextDeadline = null;
-                        try {
-                            $agencyId = auth()->user()?->effectiveAgencyId();
-                            if ($agencyId) {
-                                $open = \App\Models\Compliance\Rcr\RcrSubmission::where('agency_id', $agencyId)
-                                    ->whereIn('status', ['draft', 'in_review', 'approved_for_submission'])
-                                    ->orderBy('submission_deadline')
-                                    ->first();
-                                if ($open) {
-                                    $rcrOpenCount = 1;
-                                    $rcrNextDeadline = (int) round(now()->diffInDays($open->submission_deadline, false));
-                                }
-                            }
-                        } catch (\Throwable $e) { /* sidebar must never blow up */ }
-                    @endphp
-                    <a href="{{ route('corex.compliance.rcr.index') }}"
-                       class="corex-nav-subitem {{ request()->routeIs('corex.compliance.rcr.*') ? 'active' : '' }}"
-                       style="display:flex;align-items:center;justify-content:space-between;gap:6px;">
-                        <span>RCR · FIC 2026</span>
-                        @if($rcrOpenCount > 0)
-                            <span style="display:inline-block;min-width:18px;padding:1px 6px;background:{{ $rcrNextDeadline !== null && $rcrNextDeadline < 0 ? 'var(--ds-crimson, #c41e3a)' : ($rcrNextDeadline !== null && $rcrNextDeadline <= 7 ? 'var(--ds-amber, #f59e0b)' : 'var(--brand-icon, #0ea5e9)') }};color:#fff;border-radius:99px;font-size:0.625rem;font-weight:700;text-align:center;line-height:1.4;">
-                                {{ $rcrNextDeadline !== null ? ($rcrNextDeadline < 0 ? 'OVERDUE' : $rcrNextDeadline . 'd') : '!' }}
-                            </span>
-                        @endif
-                    </a>
-                @endif
+                {{-- RCR · FIC 2026 retired from the menu (agency-tracker-rehome.md step 9): /corex/compliance/rcr 301s to the FICA centre. Nothing deleted. --}}
 
                 {{-- HIDDEN 2026-08-24 (Johan, quick wins) — menu-only hide, legacy/pre-CoreX
                      screen; route left fully live (assertAdmin() in DealLinkReviewController
@@ -1531,6 +1555,7 @@
                 @endif
 
                 {{-- Daily Activities group — summary + merged Setup. The capture form is reached from My Portal > My Activity. --}}
+                @unless($dailyMoved)
                 @permission('view_daily_activity')
                 <div class="corex-nav-sublabel">Daily Activities</div>
                 <a href="{{ route('bm.daily.summary') }}" class="corex-nav-subitem {{ request()->routeIs('bm.daily.summary*') ? 'active' : '' }}">Daily Activity Summary</a>
@@ -1538,6 +1563,7 @@
                 @if(auth()->user()?->hasPermission('manage_targets') || auth()->user()?->hasPermission('manage_activity_mappings'))
                 <a href="{{ route('admin.daily-activities.setup') }}" class="corex-nav-subitem {{ request()->routeIs('admin.daily-activities.setup*') ? 'active' : '' }}">Setup</a>
                 @endif
+                @endunless
 
                 {{-- Worksheet Market (branch) moved to Reports (agency-tracker-rehome.md step 7); the "Setup" label went with it. --}}
                 {{-- TV Messages (branch) moved to Settings > TV Display (agency-tracker-rehome.md step 8). --}}
@@ -1551,7 +1577,6 @@
 
                 {{-- Admin section (view company stats) --}}
                 @permission('view_company_stats')
-                <div class="corex-nav-sublabel">Admin</div>
                 {{-- Agency Performance moved to Reports (agency-tracker-rehome.md step 7), beside the Performance & ROI Report. --}}
                 @permission('view_listings')
                 {{-- HIDDEN 2026-08-24 (Johan, quick wins) — menu-only hide, legacy/pre-CoreX
@@ -1588,6 +1613,7 @@
                      "Setup" section above already renders the Setup link for users with
                      view_branch_stats — only render it here for company-admins who don't
                      see that section, so it appears exactly once. --}}
+                @unless($dailyMoved)
                 @permission('view_daily_activity')
                 <div class="corex-nav-sublabel">Daily Activities</div>
                 <a href="{{ route('admin.daily.summary') }}" class="corex-nav-subitem {{ request()->routeIs('admin.daily.summary*') ? 'active' : '' }}">Daily Activity Summary</a>
@@ -1596,6 +1622,7 @@
                     @if(auth()->user()?->hasPermission('manage_targets') || auth()->user()?->hasPermission('manage_activity_mappings'))
                     <a href="{{ route('admin.daily-activities.setup') }}" class="corex-nav-subitem {{ request()->routeIs('admin.daily-activities.setup*') ? 'active' : '' }}">Setup</a>
                     @endif
+                @endunless
                 @endunless
                 {{-- Worksheet Market (agency) moved to Reports (agency-tracker-rehome.md step 7). --}}
                 {{-- TV Messages (admin) moved to Settings > TV Display (agency-tracker-rehome.md step 8). --}}
@@ -1614,6 +1641,7 @@
                      the Calculators main menu below (agency-tracker-rehome.md step 10). --}}
             </div>
         </div>
+        @endif{{-- atShowGroup --}}
         @endpermission
         @endfeature{{-- agency-tracker --}}
 
@@ -2883,6 +2911,9 @@
                      Already inside if($isOwner). Spec: agency-billing.md §9. --}}
                 <a href="{{ route('admin.billing.index') }}" class="corex-nav-subitem {{ request()->routeIs('admin.billing.*') ? 'active' : '' }}">Agency Billing</a>
 
+                {{-- Revenue (system owner): signed agencies, prospect pipeline, 12-month cash flow. Owner only, no permission key BY DESIGN. --}}
+                <a href="{{ route('admin.revenue.index') }}" class="corex-nav-subitem {{ request()->routeIs('admin.revenue.*') ? 'active' : '' }}">Revenue</a>
+
                 {{-- Agency Timeline (AT-447) — the recorded onboarding plan per agency + its shareable public link.
                      Owner-only, no permission key BY DESIGN (spec agency-timeline-and-platform-esign.md §5). --}}
                 <a href="{{ route('admin.agency-timelines.index') }}" class="corex-nav-subitem {{ request()->routeIs('admin.agency-timelines.*') ? 'active' : '' }}">Agency Timeline</a>
@@ -3090,6 +3121,30 @@
                 <a href="{{ route('public.data-deletion') }}" target="_blank" rel="noopener" class="corex-nav-subitem">Data Deletion ↗</a>
                 <a href="{{ route('public.support') }}" target="_blank" rel="noopener" class="corex-nav-subitem">Support ↗</a>
                 <a href="{{ route('public.training-videos') }}" target="_blank" rel="noopener" class="corex-nav-subitem">Training Videos ↗</a>
+            </div>
+        </div>
+
+        {{-- Marketing (CoreX owners only; already inside if($isOwner)) — CoreX's own marketing: Video ads (Ad Studio). Spec: training-videos.md 9.21 --}}
+        <div>
+            <button type="button" @click="push('owner-marketing')"
+                    class="corex-nav-item corex-nav-group-toggle {{ $activeGroup === 'owner-marketing' ? 'active' : '' }}">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M10.34 15.84c-.688-.06-1.386-.09-2.09-.09H7.5a4.5 4.5 0 1 1 0-9h.75c.704 0 1.402-.03 2.09-.09m0 9.18c.253.962.584 1.892.985 2.783.247.55.06 1.21-.463 1.511l-.657.38c-.551.318-1.26.117-1.527-.461a20.845 20.845 0 0 1-1.44-4.282m3.102.069a18.03 18.03 0 0 1-.59-4.59c0-1.586.205-3.124.59-4.59m0 9.18a23.848 23.848 0 0 1 8.835 2.535M10.34 6.66a23.847 23.847 0 0 0 8.835-2.535m0 0A23.74 23.74 0 0 0 18.795 3m.38 1.125a23.91 23.91 0 0 1 1.014 5.395m-1.014 8.855c-.118.38-.245.754-.38 1.125m.38-1.125a23.91 23.91 0 0 0 1.014-5.395m0-3.46c.495.413.811 1.035.811 1.73 0 .695-.316 1.317-.811 1.73m0-3.46a24.347 24.347 0 0 1 0 3.46" />
+                </svg>
+                <span>Marketing</span>
+                <svg class="corex-chevron" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" /></svg>
+            </button>
+
+            <div class="corex-nav-panel {{ $activeGroup === 'owner-marketing' ? 'is-open' : '' }}" :class="{ 'is-open': inStack('owner-marketing') }">
+                <button type="button" @click="pop()" class="corex-nav-back">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" /></svg>
+                    <span>Back</span>
+                </button>
+                <div class="corex-nav-panel-title">Marketing</div>
+                <a href="{{ route('admin.video-ads.index') }}" class="corex-nav-subitem {{ request()->routeIs('admin.video-ads.*') && ! request()->routeIs('admin.video-ads.brand*', 'admin.video-ads.posts*', 'admin.video-ads.facebook*') ? 'active' : '' }}">Video ads</a>
+                <a href="{{ route('admin.video-ads.posts') }}" class="corex-nav-subitem {{ request()->routeIs('admin.video-ads.posts*') ? 'active' : '' }}">Scheduled posts</a>
+                <a href="{{ route('admin.video-ads.facebook') }}" class="corex-nav-subitem {{ request()->routeIs('admin.video-ads.facebook*') ? 'active' : '' }}">Facebook page</a>
+                <a href="{{ route('admin.video-ads.brand') }}" class="corex-nav-subitem {{ request()->routeIs('admin.video-ads.brand*') ? 'active' : '' }}">Brand settings</a>
             </div>
         </div>
 

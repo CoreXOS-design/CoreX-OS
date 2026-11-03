@@ -106,6 +106,10 @@ final class BudgetService
         $q = RtsBudget::query()->where('agency_id', $agencyId)->where('track', $track)
             ->where('scope_key', RtsBudget::keyForUser((int) $u->id));
         $row = (clone $q)->where('period', $period)->first();
+        // A month that only holds the agent's share of a branch total (spec 21.3) is not "their budget for the month".
+        if ($row && $row->isShareOnly()) {
+            $row = null;
+        }
         $source = self::SOURCE_USER;
 
         if (! $row && $period === now()->format('Y-m')) {
@@ -124,7 +128,7 @@ final class BudgetService
      *
      * @return array{requirement: float, requiredPerAgent: float, agents: int}
      */
-    public function requirementFor(int $agencyId, ?int $branchId, string $period, string $track = RtsSetting::TRACK_SALES): array
+    public function requirementFor(int $agencyId, ?int $branchId, string $period, string $track = RtsSetting::TRACK_SALES, ?int $userId = null): array
     {
         $zero = ['requirement' => 0.0, 'requiredPerAgent' => 0.0, 'agents' => 0];
         if ($agencyId <= 0 || ! $branchId) {
@@ -139,11 +143,54 @@ final class BudgetService
         $agents = User::query()->where('agency_id', $agencyId)->where('branch_id', $branchId)
             ->where('is_active', 1)->where('counts_for_branch_split', 1)->count();
 
+        // The agent's own share, when the branch total was split to them by percentage (spec 21.3); otherwise the even split.
+        $own = $userId ? $this->agentRequirement($agencyId, $userId, $period, $track) : 0.0;
+
         return [
             'requirement'      => $budget,
-            'requiredPerAgent' => $agents > 0 ? round($budget / $agents, 2) : 0.0,
+            'requiredPerAgent' => $own > 0 ? $own : ($agents > 0 ? round($budget / $agents, 2) : 0.0),
             'agents'           => $agents,
         ];
+    }
+
+    /** What the branch total was split to this agent for the month (0 when it was never split to them). */
+    public function agentRequirement(int $agencyId, int $userId, string $period, string $track = RtsSetting::TRACK_SALES): float
+    {
+        if ($agencyId <= 0) {
+            return 0.0;
+        }
+
+        return (float) RtsBudget::query()->where('agency_id', $agencyId)->where('track', $track)
+            ->where('scope_key', RtsBudget::keyForUser($userId))->where('period', $period)->value('requirement');
+    }
+
+    /**
+     * Every counting agent's share of a branch for a month (user id => amount), for the screen's starting percentages.
+     *
+     * @return array<int,float>
+     */
+    public function agentRequirements(int $agencyId, array $userIds, string $period, string $track = RtsSetting::TRACK_SALES): array
+    {
+        if ($agencyId <= 0 || $userIds === []) {
+            return [];
+        }
+
+        return RtsBudget::query()->where('agency_id', $agencyId)->where('track', $track)->where('level', RtsBudget::LEVEL_AGENT)
+            ->where('period', $period)->whereIn('user_id', $userIds)->pluck('requirement', 'user_id')
+            ->map(fn ($v) => (float) $v)->all();
+    }
+
+    /**
+     * The ids of the agents a branch total is split between: active, counted in the branch split (the same people
+     * requirementFor() divides by).
+     *
+     * @return int[]
+     */
+    public function splitAgentIds(int $agencyId, int $branchId): array
+    {
+        return User::query()->where('agency_id', $agencyId)->where('branch_id', $branchId)
+            ->where('is_active', 1)->where('counts_for_branch_split', 1)->orderBy('name')->orderBy('id')
+            ->pluck('id')->map(fn ($id) => (int) $id)->all();
     }
 
     public function branchRequirement(int $agencyId, int $branchId, string $period, string $track = RtsSetting::TRACK_SALES): float
@@ -283,6 +330,111 @@ final class BudgetService
         });
     }
 
+    /**
+     * Split a total by percentages, down one or two levels, and save every figure in ONE transaction (road-to-sold.md section 21.3).
+     *
+     *  - $branchId null  : $total is what the AGENCY needs; $branchPercents says how it splits to every branch of the agency.
+     *  - $branchId given : $total is what that BRANCH needs.
+     *  - $agentPercents  : branch id => (agent id => percent). For each branch present, that branch's amount splits to its agents.
+     *
+     * A level whose percentages do not add up to 100 refuses the whole save (nothing is written). A single branch (or a single agent)
+     * is 100% without being told. The amounts are exact (SplitAllocator): the parts always add up to the total to the cent.
+     *
+     * @param  array<int,float|string>               $branchPercents
+     * @param  array<int,array<int,float|string>>    $agentPercents
+     * @return array{branches:array<int,float>,agents:array<int,float>}
+     * @throws \Illuminate\Validation\ValidationException
+     */
+    public function saveSplit(User $actor, string $period, ?int $branchId, float $total, array $branchPercents, array $agentPercents, string $track = RtsSetting::TRACK_SALES): array
+    {
+        $agencyId = (int) ($actor->effectiveAgencyId() ?: 0);
+        abort_unless($agencyId > 0, 403, 'Switch into an agency first.');
+        $total = $this->money($total);
+
+        return DB::transaction(function () use ($actor, $period, $branchId, $total, $branchPercents, $agentPercents, $track, $agencyId) {
+            $branchNames = DB::table('branches')->where('agency_id', $agencyId)->whereNull('deleted_at')->orderBy('id')->pluck('name', 'id')->all();
+            $branchAmounts = [];
+
+            if ($branchId === null) {
+                $ids = array_keys($branchNames);
+                if ($ids === []) {
+                    throw \Illuminate\Validation\ValidationException::withMessages(['branches' => 'This agency has no branches to split between.']);
+                }
+                $pct = count($ids) === 1 ? [$ids[0] => 100.0] : $this->percentsFor($ids, $branchPercents, 'branches', 'The branches changed while you were on this page - reload and split again.');
+                SplitAllocator::assertTallies($pct, 'branch', 'branches');
+                $branchAmounts = SplitAllocator::allocate($total, $pct, 2);
+                $this->saveRequirement($actor, null, $period, $total, $track);
+                foreach ($branchAmounts as $bid => $amount) {
+                    $this->saveRequirement($actor, (int) $bid, $period, (float) $amount, $track);
+                }
+            } else {
+                abort_unless(isset($branchNames[$branchId]), 404);
+                $branchAmounts = [$branchId => $total];
+                $this->saveRequirement($actor, $branchId, $period, $total, $track);
+            }
+
+            $agentAmounts = [];
+            foreach ($branchAmounts as $bid => $amount) {
+                if (! isset($agentPercents[$bid])) {
+                    continue; // this branch's agents were not split in this save
+                }
+                $ids = $this->splitAgentIds($agencyId, (int) $bid);
+                if ($ids === []) {
+                    continue;
+                }
+                $name = $branchNames[$bid] ?? 'branch';
+                $pct = count($ids) === 1 ? [$ids[0] => 100.0] : $this->percentsFor($ids, (array) $agentPercents[$bid], "agents.{$bid}", "The agents of {$name} changed while you were on this page - reload and split again.");
+                SplitAllocator::assertTallies($pct, "{$name} agents", "agents.{$bid}");
+                foreach (SplitAllocator::allocate((float) $amount, $pct, 2) as $uid => $share) {
+                    $this->saveAgentRequirement($actor, (int) $uid, $period, (float) $share, $track);
+                    $agentAmounts[(int) $uid] = (float) $share;
+                }
+            }
+
+            return ['branches' => array_map('floatval', $branchAmounts), 'agents' => $agentAmounts];
+        });
+    }
+
+    /**
+     * The posted percentages, checked to be for exactly the people the save covers.
+     *
+     * @param  int[]                       $ids
+     * @param  array<int|string,mixed>     $posted
+     * @return array<int,float>
+     */
+    private function percentsFor(array $ids, array $posted, string $field, string $changedMessage): array
+    {
+        $out = [];
+        foreach ($ids as $id) {
+            if (! array_key_exists($id, $posted) || ! is_numeric($posted[$id])) {
+                throw \Illuminate\Validation\ValidationException::withMessages([$field => $changedMessage]);
+            }
+            $out[$id] = (float) $posted[$id];
+        }
+        if (count(array_diff(array_map('intval', array_keys($posted)), $ids)) > 0) {
+            throw \Illuminate\Validation\ValidationException::withMessages([$field => $changedMessage]);
+        }
+
+        return $out;
+    }
+
+    /** The share of the branch total given to one agent. Their own budgets and planning figures are never touched. */
+    public function saveAgentRequirement(User $actor, int $userId, string $period, float $amount, string $track = RtsSetting::TRACK_SALES): RtsBudget
+    {
+        $agent = User::query()->withoutGlobalScopes()->find($userId);
+        abort_unless($agent, 404);
+        $agencyId = $this->sameAgencyOrFail($actor, (int) $agent->agency_id);
+
+        $row = $this->rowOrNew($agencyId, $track, RtsBudget::LEVEL_AGENT, RtsBudget::keyForUser($userId), $period);
+        $row->user_id = $userId;
+        $row->branch_id = $agent->branch_id;
+        $row->requirement = $this->money($amount);
+        $row->set_by_user_id = (int) $actor->id;
+        $row->save();
+
+        return $row;
+    }
+
     /** Archive a row (soft). Returns false when it was already archived or is not in the writer's agency. */
     public function archive(User $actor, int $id): bool
     {
@@ -319,9 +471,9 @@ final class BudgetService
         $n = 0;
         foreach ($agents as $agent) {
             $agencyId = (int) $agent->agency_id;
-            $has = RtsBudget::query()->where('agency_id', $agencyId)->where('track', $track)
-                ->where('scope_key', RtsBudget::keyForUser((int) $agent->id))->where('period', $period)->exists();
-            if ($has) {
+            $current = RtsBudget::query()->where('agency_id', $agencyId)->where('track', $track)
+                ->where('scope_key', RtsBudget::keyForUser((int) $agent->id))->where('period', $period)->first();
+            if ($current && ! $current->isShareOnly()) {
                 continue;
             }
             $before = RtsBudget::query()->where('agency_id', $agencyId)->where('track', $track)

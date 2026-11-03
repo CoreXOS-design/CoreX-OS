@@ -35,8 +35,25 @@ abstract class MicPoolSelection implements Selection
     /** Plain-English reason for this row. */
     abstract protected function reason(object $row, SelectionContext $ctx): string;
 
+    /**
+     * The line and the structured facts for one row, stored on the list item at the moment it is offered (road-to-sold.md 22.5). A source
+     * that has numbers and names overrides this; the default is its plain reason() with no facts.
+     *
+     * @return array{line:string,facts:?array}
+     */
+    protected function explain(object $row, SelectionContext $ctx): array
+    {
+        return ['line' => $this->reason($row, $ctx), 'facts' => null];
+    }
+
     /** Whether the agent's own still-held properties are skipped (follow-ups bring them back when due). */
     protected function skipOwnHeld(): bool
+    {
+        return true;
+    }
+
+    /** Most selections draw on live adverts only; the expired-competitor source reads withdrawn ones. */
+    protected function activeOnly(): bool
     {
         return true;
     }
@@ -99,14 +116,16 @@ abstract class MicPoolSelection implements Selection
                     }
                 }
 
+                $why = $this->explain($row, $ctx);
                 $c = new Candidate(
                     trackedPropertyId: $tid,
                     prospectingListingId: (int) $row->listing_id,
                     propertyId: $row->matched_property_id ? (int) $row->matched_property_id : null,
                     selection: $this->key(),
-                    reason: $this->reason($row, $ctx),
+                    reason: $why['line'],
                     hasAddress: (bool) $row->has_address,
                     inArea: (bool) $row->in_area,
+                    facts: $why['facts'],
                 );
                 if (isset($seen[$c->dedupeKey()])) {
                     continue; // the P24 / PP twin of one already taken
@@ -153,7 +172,7 @@ abstract class MicPoolSelection implements Selection
             })
             ->where('pl.agency_id', $ctx->agencyId)
             ->whereNull('pl.deleted_at')
-            ->where('pl.is_active', 1)
+            ->when($this->activeOnly(), fn ($w) => $w->where('pl.is_active', 1))
             // the track: sales draws on sale adverts, rentals on adverts to let
             ->where('pl.listing_type', $this->listingType($ctx->track))
             // a listing whose tracked property was deleted is no longer a property we can work
@@ -173,15 +192,53 @@ abstract class MicPoolSelection implements Selection
                 "NOT EXISTS (SELECT 1 FROM properties px2 WHERE px2.id = tp.promoted_to_property_id AND px2.deleted_at IS NULL
                     AND px2.agent_id IS NOT NULL AND px2.agent_id NOT IN ({$meIn}) AND (px2.status IS NULL OR px2.status <> 'other_agency_stock'))"
             )
-            // never a listing another agent has claimed or is pitching right now
+            // never a listing that is CLAIMED (23.14 "unclaimed"): another agent's claim is theirs, and mine is already on my belt at station 2 - neither is new
+            // stock. Checked on the advert and on the property file, so a claim on the P24 advert also covers its PP twin.
             ->whereRaw(
                 "NOT EXISTS (SELECT 1 FROM prospecting_claims pc WHERE pc.prospecting_listing_id = pl.id
-                    AND pc.is_active = 1 AND pc.released_at IS NULL AND pc.deleted_at IS NULL AND pc.user_id NOT IN ({$meIn}))"
+                    AND pc.is_active = 1 AND pc.released_at IS NULL AND pc.deleted_at IS NULL)"
+            )
+            ->whereRaw(
+                "(pl.tracked_property_id IS NULL OR NOT EXISTS (SELECT 1 FROM prospecting_claims pc2 JOIN prospecting_listings plc ON plc.id = pc2.prospecting_listing_id
+                    WHERE plc.tracked_property_id = pl.tracked_property_id AND pc2.is_active = 1 AND pc2.released_at IS NULL AND pc2.deleted_at IS NULL))"
+            )
+            // no duplicates across days (23.14): a property that was on ANY earlier list of this agent (worked, missed, rolled or swapped) is not offered as new
+            // stock again. Follow-ups bring it back when it is due; a roll-over carries it on purpose.
+            ->whereRaw(
+                "NOT EXISTS (SELECT 1 FROM rts_list_items ri WHERE ri.user_id IN ({$meIn}) AND ri.track = ? AND ri.list_date < ?
+                    AND (ri.prospecting_listing_id = pl.id OR (pl.tracked_property_id IS NOT NULL AND ri.tracked_property_id = pl.tracked_property_id)))",
+                [$ctx->track, $ctx->date->toDateString()]
             )
             // the app clock (bound), never SQL NOW(): timestamps are stored in app time, the DB session may not be
             ->whereRaw(
                 "NOT EXISTS (SELECT 1 FROM prospecting_pitch_locks pk WHERE pk.prospecting_listing_id = pl.id
                     AND pk.released_at IS NULL AND pk.expires_at > ? AND pk.user_id NOT IN ({$meIn}))",
+                [now()->toDateTimeString()]
+            )
+            // never a property (or listing) another agent already owns as a prospect: the allocation (road-to-sold.md 22.6). Two plain
+            // key checks - the tracked property, and the listing itself.
+            ->whereRaw(
+                "NOT EXISTS (SELECT 1 FROM rts_prospects rp WHERE rp.agency_id = ? AND rp.track = ? AND rp.tracked_property_id = pl.tracked_property_id
+                    AND rp.deleted_at IS NULL AND rp.closed_at IS NULL AND rp.released_at IS NULL AND rp.user_id NOT IN ({$meIn}))",
+                [$ctx->agencyId, $ctx->track]
+            )
+            ->whereRaw(
+                "NOT EXISTS (SELECT 1 FROM rts_prospects rp2 WHERE rp2.agency_id = ? AND rp2.track = ? AND rp2.prospecting_listing_id = pl.id
+                    AND rp2.deleted_at IS NULL AND rp2.closed_at IS NULL AND rp2.released_at IS NULL AND rp2.user_id NOT IN ({$meIn}))",
+                [$ctx->agencyId, $ctx->track]
+            )
+            // ... and a property this agent has already moved on (a call result, a later stage, parked) is not NEW intake: it comes back
+            // through its follow-up. A "found" property they never got to stays offerable to them (and still to nobody else).
+            ->whereRaw(
+                "NOT EXISTS (SELECT 1 FROM rts_prospects rp3 WHERE rp3.agency_id = ? AND rp3.track = ? AND rp3.tracked_property_id = pl.tracked_property_id
+                    AND rp3.deleted_at IS NULL AND rp3.closed_at IS NULL AND rp3.released_at IS NULL AND rp3.user_id IN ({$meIn})
+                    AND (rp3.stage <> 'found' OR rp3.last_outcome_id IS NOT NULL OR rp3.parked_at IS NOT NULL))",
+                [$ctx->agencyId, $ctx->track]
+            )
+            // ... nor one another agent is pitching right now through the tracked property (the "Find the owner" lock is keyed on it)
+            ->whereRaw(
+                "NOT EXISTS (SELECT 1 FROM prospecting_pitch_locks pk2 WHERE pk2.tracked_property_id = pl.tracked_property_id
+                    AND pk2.released_at IS NULL AND pk2.expires_at > ? AND pk2.user_id NOT IN ({$meIn}))",
                 [now()->toDateTimeString()]
             )
             ->select([

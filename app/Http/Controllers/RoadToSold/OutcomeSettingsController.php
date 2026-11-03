@@ -66,6 +66,8 @@ class OutcomeSettingsController extends Controller
             'sort'     => $sort,
             'kinds'    => Def::KINDS,
             'actions'  => $this->actionLabels(),
+            'stages'   => array_map(fn ($k) => \App\Services\RoadToSold\ProspectStages::label($k), array_combine(\App\Services\RoadToSold\ProspectStages::keys(), \App\Services\RoadToSold\ProspectStages::keys())),
+            'parkReasons' => app(\App\Services\RoadToSold\ParkReasonService::class)->choices((int) ($request->user()->effectiveAgencyId() ?: 0), $track)->pluck('label', 'key')->all(),
             'canReorder' => $sort === 'order' && $status !== 'archived' && $q === '',
         ]);
     }
@@ -140,7 +142,13 @@ class OutcomeSettingsController extends Controller
     /** @return array<string,mixed> */
     private function input(Request $request): array
     {
-        return [
+        // v3 fields travel only when the form sent them, so the older form never wipes them
+        $v3 = $request->only(array_values(array_filter(
+            ['stage_after', 'max_tries', 'after_max_tries', 'park_reason_key', 'choice_months', 'default_months', 'fallback_days'],
+            fn ($k) => $request->has($k)
+        )));
+
+        return $v3 + [
             'label'                  => $request->input('label'),
             'kind'                   => $request->input('kind'),
             'next_action'            => $request->input('next_action'),
@@ -162,6 +170,9 @@ class OutcomeSettingsController extends Controller
             Def::ACTION_MOVE_TO_LIST => 'Moves to a named list',
             Def::ACTION_NEVER_AGAIN  => 'Never suggested again',
             Def::ACTION_APPOINTMENT  => 'Becomes a calendar appointment',
+            Def::ACTION_AFTER_MONTHS => 'Comes back after months the agent picks (for example 3, 6 or 12)',
+            Def::ACTION_EXPIRY_ELSE_DAYS => 'Comes back on the mandate end date, else after a number of days',
+            Def::ACTION_FIND_OWNER   => 'Find the owner again after a number of days',
         ];
     }
 }

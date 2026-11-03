@@ -1,0 +1,20 @@
+{
+  "_about": "Defaults Johan asked for on 28 Oct 2026 (road-to-sold.md 22.25), applied with rts:apply-task-mapping --agency=1. Each can be changed or put back under Road to Sold > Settings > Recipe > Tasks.",
+  "decisions": [
+    {
+      "task": "Prospecting - Lead",
+      "step": "buyers",
+      "note": "A 'Lead' is a buyer or seller enquiry the agent has found. In the stage list Lead sits at the start of Sell stock, which is the Buyers step. It stays hand-ticked by the agent (its 304 entries so far are all hand-entered counts), so no event is bound."
+    },
+    {
+      "task": "Feedback to Sellers - EATS",
+      "step": "listing_live",
+      "note": "EATS is the Exclusive Authority To Sell, the mandate document a seller signs (CoreX's own document pack names it that way). The task is the agent giving sellers feedback on a property they have on that mandate, so it belongs with the live listing. It is hand-ticked (99 entries, all manual, none tied to a property), so no event is bound."
+    },
+    {
+      "task": "Rcr submitted",
+      "needs_step": true,
+      "note": "RCR is the annual Regulatory Compliance Report an agency files with the PPRA. It is credited by the compliance filing itself, never by prospecting or a sale, so it is not a Road to Sold step. It keeps being credited exactly as before; choose a step only if you want it to count inside one."
+    }
+  ]
+}

@@ -78,5 +78,6 @@
     </footer>
 </div>
 
+@include('layouts.partials.guide-me')
 </body>
 </html>

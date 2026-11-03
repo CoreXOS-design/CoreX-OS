@@ -87,7 +87,7 @@ final class TargetsTest extends TestCase
     public function test_the_grid_shows_agents_with_the_default_as_placeholder_and_a_manager_sees_only_their_branch(): void
     {
         $this->actingAs($this->admin)->get(route('road-to-sold.settings.targets.index'))
-            ->assertOk()->assertSee('Retha Kelly')->assertSee('Shawn Du Bois')->assertSee('Agency default week');
+            ->assertOk()->assertSee('Retha Kelly')->assertSee('Shawn Du Bois')->assertSee('Agency default: calls per agent per day');
 
         $this->actingAs($this->managerNorth)->get(route('road-to-sold.settings.targets.index'))
             ->assertOk()->assertSee('Retha Kelly')->assertDontSee('Shawn Du Bois');

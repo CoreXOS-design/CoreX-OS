@@ -385,7 +385,9 @@ Route::middleware('auth')->group(function () {
     Route::prefix('corex/compliance/rcr')
         ->name('corex.compliance.rcr.')
         ->group(function () {
-            Route::get('/',                                          [\App\Http\Controllers\Compliance\Rcr\RcrSubmissionController::class, 'index'])->name('index');
+            // RCR · FIC 2026 is retired from the menu (agency-tracker-rehome.md step 9): the list address 301s to the FICA centre in Compliance.
+            // The submission pages, their POSTs, the deadline job and the rcr_* tables are untouched (no feature switch, nothing deleted).
+            Route::get('/', fn () => redirect()->route('compliance.fica.index', [], 301))->name('index');
             Route::post('/',                                         [\App\Http\Controllers\Compliance\Rcr\RcrSubmissionController::class, 'store'])->name('store');
             Route::get('/{rcrSubmission}',                           [\App\Http\Controllers\Compliance\Rcr\RcrSubmissionController::class, 'show'])->name('show');
             Route::patch('/{rcrSubmission}/answers/{rcrAnswer}',     [\App\Http\Controllers\Compliance\Rcr\RcrSubmissionController::class, 'saveAnswer'])->name('answers.save');
@@ -439,6 +441,14 @@ Route::middleware('auth')->group(function () {
     Route::get('/api/v1/p24/cities',    [\App\Http\Controllers\Api\V1\P24LocationController::class, 'cities'])->name('api.v1.p24.cities');
     Route::get('/api/v1/p24/suburbs',   [\App\Http\Controllers\Api\V1\P24LocationController::class, 'suburbs'])->name('api.v1.p24.suburbs');
 
+    // Narrated guided tours (AT-526, spec .ai/specs/training-videos.md 9.23) - the tour's steps and voice clips for the "Guide me" player (fetch + session cookie, so here and
+    // not in routes/api.php). Under /api/v1 so the Admin -> API catalogue lists them (non-negotiable #7). Gate: permission training_tours.use + agency feature narrated-tours.
+    Route::prefix('api/v1/training-tours')->middleware(['permission:training_tours.use', 'feature:narrated-tours', 'throttle:staff-api'])
+        ->name('api.v1.training-tours.')->group(function () {
+            Route::get('/{screen}', [\App\Http\Controllers\Api\V1\TrainingToursController::class, 'show'])->where('screen', '[a-z0-9-]+')->name('show');
+            Route::get('/{screen}/audio/{n}', [\App\Http\Controllers\Api\V1\TrainingToursController::class, 'audio'])->where('screen', '[a-z0-9-]+')->whereNumber('n')->name('audio');
+        });
+
     // Training Videos — the owner uploads a video file in pieces from the Add video page (fetch + session cookie, so
     // these live here, NOT in routes/api.php: that file's group has the session stack stripped and answers
     // "Unauthenticated" to a logged-in browser). Under /api/v1 so the Admin -> API catalogue lists them
@@ -449,6 +459,14 @@ Route::middleware('auth')->group(function () {
             Route::post('/', [\App\Http\Controllers\Api\V1\TrainingVideoUploadController::class, 'start'])->name('start');
             Route::post('/{upload}/chunks', [\App\Http\Controllers\Api\V1\TrainingVideoUploadController::class, 'chunk'])->name('chunk');
             Route::post('/{upload}/complete', [\App\Http\Controllers\Api\V1\TrainingVideoUploadController::class, 'complete'])->name('complete');
+        });
+
+    // Ad Studio (AT-527) — the script editor's live check and the list's progress poll (fetch + session cookie). Under /api/v1 so the Admin -> API catalogue
+    // lists them (non-negotiable #7). Owner-only: owner_only here, re-checked in the controller. .ai/specs/training-videos.md 9.21.8
+    Route::prefix('api/v1/admin/video-ads')->middleware(['owner_only', 'throttle:staff-api'])
+        ->name('api.v1.video-ads.')->group(function () {
+            Route::get('/progress', [\App\Http\Controllers\Api\V1\VideoAdApiController::class, 'progress'])->name('progress');
+            Route::post('/validate', [\App\Http\Controllers\Api\V1\VideoAdApiController::class, 'validateDraft'])->name('validate');
         });
 
     // AT-479 — the reOS review screen's saves and pickers (called from the Blade page over fetch with the session cookie,
@@ -827,8 +845,14 @@ Route::middleware('auth')->group(function () {
     Route::post('/calculators/upload-fee-sheet', [\App\Http\Controllers\CalculatorController::class, 'uploadFeeSheet'])->middleware('permission:access_calculators')->name('calculators.uploadFeeSheet');
     Route::post('/calculators/bond-overpayment', [\App\Http\Controllers\CalculatorController::class, 'calculateBondOverpayment'])->middleware('permission:access_calculators')->name('calculators.bondOverpayment');
 
-    Route::get('/worksheet', [WorksheetController::class, 'index'])->middleware('permission:view_worksheet')->name('worksheet.index');
-    Route::post('/worksheet', [WorksheetController::class, 'store'])->middleware('permission:view_worksheet')->name('worksheet.store');
+    // The Worksheet is retired (agency-tracker-rehome.md step 5): My Portal > Targets & Budget replaces it. The route NAMES are kept so every
+    // caller still resolves; both addresses 301 there. WorksheetController and the views stay in place but are no longer reachable, and nothing
+    // is saved (a stale POST is answered with the same redirect). No data is touched.
+    Route::get('/worksheet', fn (\Illuminate\Http\Request $request) => redirect()->route('agent.portal', array_filter([
+        'sub'    => 'targets',
+        'period' => $request->query('period'),
+    ]), 301))->middleware('permission:view_worksheet')->name('worksheet.index');
+    Route::post('/worksheet', fn () => redirect()->route('agent.portal', ['sub' => 'targets'], 301))->middleware('permission:view_worksheet')->name('worksheet.store');
 
     // Company Summary retired (Andre 2026-10-26) — old links land on the main Dashboard, never 404.
     Route::get('/company-summary', fn () => redirect()->route('corex.dashboard'))->name('company.summary');
@@ -2006,7 +2030,14 @@ Route::middleware(['auth'])->group(function () {
 
 Route::get('/bm/performance', [\App\Http\Controllers\BM\PerformanceController::class, 'index'])->middleware('permission:view_performance')->name('bm.performance');
 
-Route::get('/bm/listings', [\App\Http\Controllers\BM\ListingStockController::class, 'index'])->middleware(['permission:access_listing_stock', 'permission:view_branch_stats'])->name('bm.listings');
+// Branch Listing Stock is retired (agency-tracker-rehome.md step 9): it read the frozen Propcon import. The address 301s to the Properties list
+// for the manager's own branch (scope=branch + branch_id). The route NAME is kept for the Branch Performance tiles and every other caller;
+// ListingStockController, the view and the listing_stocks data are untouched.
+Route::get('/bm/listings', fn (\Illuminate\Http\Request $request) => redirect()->route('corex.properties.index', array_filter([
+    'scope'     => 'branch',
+    'branch_id' => $request->user()?->branch_id,
+    'status'    => $request->query('filter') === 'active' ? 'active' : null,
+]), 301))->middleware(['permission:access_listing_stock', 'permission:view_branch_stats'])->name('bm.listings');
 
     // ===== TV DISPLAY (codes + messages) - one settings screen (agency-tracker-rehome.md 10.2, step 8; Johan 20 Oct 2026) =====
     // Lives in the settings hub: Settings > Operations > TV Display. Whole-agency viewers work the company code, every branch and every
@@ -2083,24 +2114,24 @@ Route::get('/bm/listings', [\App\Http\Controllers\BM\ListingStockController::cla
 
     // Agent Daily Activity (agent menu link)
       // Agent Daily Activity (locked to agents only)
-      Route::get('/agent/daily', [\App\Http\Controllers\Agent\DailyActivityController::class, 'index'])->middleware('permission:access_daily_activity')->name('agent.daily');
-Route::get('/agent/daily/summary', [\App\Http\Controllers\Agent\DailyActivitySummaryController::class, 'index'])->middleware('permission:view_daily_activity')->name('agent.daily.summary');
-Route::get('/agent/daily/summary/activity/{definition}', [\App\Http\Controllers\Agent\DailyActivitySummaryController::class, 'activity'])->middleware('permission:view_daily_activity')->name('agent.daily.summary.activity');
+      Route::get('/agent/daily', [\App\Http\Controllers\Agent\DailyActivityController::class, 'index'])->middleware(['permission:access_daily_activity', 'daily.moved:capture'])->name('agent.daily');
+Route::get('/agent/daily/summary', [\App\Http\Controllers\Agent\DailyActivitySummaryController::class, 'index'])->middleware(['permission:view_daily_activity', 'daily.moved:summary'])->name('agent.daily.summary');
+Route::get('/agent/daily/summary/activity/{definition}', [\App\Http\Controllers\Agent\DailyActivitySummaryController::class, 'activity'])->middleware(['permission:view_daily_activity', 'daily.moved:summary'])->name('agent.daily.summary.activity');
 
 
-Route::get('/bm/daily/summary', [\App\Http\Controllers\BM\DailyActivitySummaryController::class, 'index'])->middleware('permission:view_daily_activity')->name('bm.daily.summary');
-Route::get('/bm/daily/summary/activity/{definition}', [\App\Http\Controllers\BM\DailyActivitySummaryController::class, 'activity'])->middleware('permission:view_daily_activity')->name('bm.daily.summary.activity');
-Route::get('/bm/daily/summary/activity/{definition}/agent/{user}', [\App\Http\Controllers\BM\DailyActivitySummaryController::class, 'agent'])->middleware('permission:view_daily_activity')->name('bm.daily.summary.activity.agent');
+Route::get('/bm/daily/summary', [\App\Http\Controllers\BM\DailyActivitySummaryController::class, 'index'])->middleware(['permission:view_daily_activity', 'daily.moved:team'])->name('bm.daily.summary');
+Route::get('/bm/daily/summary/activity/{definition}', [\App\Http\Controllers\BM\DailyActivitySummaryController::class, 'activity'])->middleware(['permission:view_daily_activity', 'daily.moved:team'])->name('bm.daily.summary.activity');
+Route::get('/bm/daily/summary/activity/{definition}/agent/{user}', [\App\Http\Controllers\BM\DailyActivitySummaryController::class, 'agent'])->middleware(['permission:view_daily_activity', 'daily.moved:team'])->name('bm.daily.summary.activity.agent');
 
-Route::get('/admin/daily/summary', [\App\Http\Controllers\Admin\DailyActivitySummaryController::class, 'index'])->middleware('permission:view_daily_activity')->name('admin.daily.summary');
-Route::get('/admin/daily/summary/activity/{definition}', [\App\Http\Controllers\Admin\DailyActivitySummaryController::class, 'activity'])->middleware('permission:view_daily_activity')->name('admin.daily.summary.activity');
-Route::get('/admin/daily/summary/activity/{definition}/branch/{branch}', [\App\Http\Controllers\Admin\DailyActivitySummaryController::class, 'branch'])->middleware('permission:view_daily_activity')->name('admin.daily.summary.activity.branch');
-Route::get('/admin/daily/summary/activity/{definition}/branch/{branch}/agent/{user}', [\App\Http\Controllers\Admin\DailyActivitySummaryController::class, 'agent'])->middleware('permission:view_daily_activity')->name('admin.daily.summary.activity.branch.agent');
+Route::get('/admin/daily/summary', [\App\Http\Controllers\Admin\DailyActivitySummaryController::class, 'index'])->middleware(['permission:view_daily_activity', 'daily.moved:team'])->name('admin.daily.summary');
+Route::get('/admin/daily/summary/activity/{definition}', [\App\Http\Controllers\Admin\DailyActivitySummaryController::class, 'activity'])->middleware(['permission:view_daily_activity', 'daily.moved:team'])->name('admin.daily.summary.activity');
+Route::get('/admin/daily/summary/activity/{definition}/branch/{branch}', [\App\Http\Controllers\Admin\DailyActivitySummaryController::class, 'branch'])->middleware(['permission:view_daily_activity', 'daily.moved:team'])->name('admin.daily.summary.activity.branch');
+Route::get('/admin/daily/summary/activity/{definition}/branch/{branch}/agent/{user}', [\App\Http\Controllers\Admin\DailyActivitySummaryController::class, 'agent'])->middleware(['permission:view_daily_activity', 'daily.moved:team'])->name('admin.daily.summary.activity.branch.agent');
 
 
 Route::get('/agent/daily/print', [\App\Http\Controllers\Agent\DailyActivityController::class, 'printSheet'])
-    ->middleware('permission:access_daily_activity')->name('agent.daily.print');
-        Route::post('/agent/daily', [\App\Http\Controllers\Agent\DailyActivityController::class, 'store'])->middleware('permission:access_daily_activity');
+    ->middleware(['permission:access_daily_activity', 'daily.moved:capture'])->name('agent.daily.print');
+        Route::post('/agent/daily', [\App\Http\Controllers\Agent\DailyActivityController::class, 'store'])->middleware(['permission:access_daily_activity', 'daily.moved:capture']);
 // admin.targets.activity.setup was a dead stub that only ever redirected to
 // admin.targets.activity.definitions. Both names now point at the merged
 // Daily Activities Setup screen (2026-08 consolidation) so any stale link
@@ -2130,9 +2161,9 @@ Route::get('/admin/targets/activity-definitions', function () {
     Route::prefix('admin/daily-activities/setup')
         ->middleware(['permission:manage_targets,manage_activity_mappings'])
         ->group(function () {
-            Route::get('/', [\App\Http\Controllers\Admin\DailyActivitySetupController::class, 'index'])->name('admin.daily-activities.setup');
-            Route::post('/definition', [\App\Http\Controllers\Admin\DailyActivitySetupController::class, 'storeDefinition'])->name('admin.daily-activities.setup.store-definition');
-            Route::put('/definition/{id}', [\App\Http\Controllers\Admin\DailyActivitySetupController::class, 'updateDefinition'])->whereNumber('id')->name('admin.daily-activities.setup.update-definition');
+            Route::get('/', [\App\Http\Controllers\Admin\DailyActivitySetupController::class, 'index'])->middleware('daily.moved:setup')->name('admin.daily-activities.setup');
+            Route::post('/definition', [\App\Http\Controllers\Admin\DailyActivitySetupController::class, 'storeDefinition'])->middleware('daily.moved:setup')->name('admin.daily-activities.setup.store-definition');
+            Route::put('/definition/{id}', [\App\Http\Controllers\Admin\DailyActivitySetupController::class, 'updateDefinition'])->whereNumber('id')->middleware('daily.moved:setup')->name('admin.daily-activities.setup.update-definition');
             Route::put('/mapping/{id}', [\App\Http\Controllers\Admin\DailyActivitySetupController::class, 'updateMapping'])->whereNumber('id')->name('admin.daily-activities.setup.update-mapping');
             Route::post('/mapping/{id}/toggle-active', [\App\Http\Controllers\Admin\DailyActivitySetupController::class, 'toggleMapping'])->whereNumber('id')->name('admin.daily-activities.setup.toggle-mapping');
         });
@@ -3599,6 +3630,24 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     // authenticated user; the list itself is filtered to the tours they can access.
     Route::get('/guided-tours', [\App\Http\Controllers\CoreX\GuidedToursController::class, 'index'])->middleware('feature:guided-tours')->name('corex.guided-tours.index');
 
+    // AT-525 (spec .ai/specs/training-videos.md section 9) - the Training library of auto-generated how-to videos. Signed-in users with training_videos.view;
+    // the files are on the private disk and are streamed here (range requests). Generate / Regenerate needs training_videos.generate (checked in the controller too).
+    Route::prefix('training-library')->name('corex.training-library.')->group(function () {
+        Route::get('/', [\App\Http\Controllers\CoreX\TrainingLibraryController::class, 'index'])->middleware('permission:training_videos.view')->name('index');
+        // CoreX voices (spec 9.20): the system owner makes them with Chatterbox; registered before /{screenKey} so 'voices' is never read as a screen
+        Route::middleware('owner_only')->group(function () {
+            $c = \App\Http\Controllers\CoreX\TrainingVoicesController::class;
+            Route::get('/voices', [$c, 'index'])->name('voices');
+            Route::post('/voices', [$c, 'store'])->name('voices.store');
+            Route::post('/voices/use', [$c, 'useAsSystem'])->name('voices.use');
+            Route::get('/voice-sample/{key}', [$c, 'sample'])->where('key', '[a-z0-9_]+')->name('voice-sample');
+            Route::post('/voices/{voice}/archive', [$c, 'archive'])->whereNumber('voice')->name('voices.archive');
+        });
+        Route::get('/{screenKey}', [\App\Http\Controllers\CoreX\TrainingLibraryController::class, 'show'])->middleware('permission:training_videos.view')->where('screenKey', '[a-z0-9-]+')->name('show');
+        Route::get('/{screenKey}/file/{kind}', [\App\Http\Controllers\CoreX\TrainingLibraryController::class, 'file'])->middleware('permission:training_videos.view')->where('screenKey', '[a-z0-9-]+')->where('kind', 'mp4|jpg|vtt')->name('file');
+        Route::post('/{screenKey}/generate', [\App\Http\Controllers\CoreX\TrainingLibraryController::class, 'generate'])->middleware('permission:training_videos.generate')->where('screenKey', '[a-z0-9-]+')->name('generate');
+    });
+
     // Settings (admin only)
     Route::get('/settings', [CoreXSettingsController::class, 'index'])->middleware(['permission:access_settings', 'agency.required'])->name('corex.settings');
 
@@ -4515,6 +4564,11 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.photos.untag');
         Route::delete('/{rentalInspection}/photos/{photo}', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'archivePhoto'])
             ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.photos.archive');
+        // .ai/specs/rental-inventory.md section 29 - the same bulk photo manager for an inspection: delete, restore, move to an inventory or another room.
+        Route::get('/{rentalInspection}/photo-manager', [\App\Http\Controllers\CoreX\RentalPhotoBulkController::class, 'inspectionIndex'])->name('corex.rental-inspections.photo-manager.index');
+        Route::get('/{rentalInspection}/photo-manager/targets', [\App\Http\Controllers\CoreX\RentalPhotoBulkController::class, 'inspectionTargets'])->name('corex.rental-inspections.photo-manager.targets');
+        Route::post('/{rentalInspection}/photo-manager/act', [\App\Http\Controllers\CoreX\RentalPhotoBulkController::class, 'inspectionAct'])
+            ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.photo-manager.act');
         // AT-433 Part C, .ai/specs/rental-inspections.md §25 — the photo-level
         // note (Defect/Wear and tear/Reference), full CRUD, own controller
         // (RentalInspectionPhotoNoteController), never the item/room-shaped
@@ -4669,6 +4723,11 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         // DELETE .../photos/{photo} exactly.
         Route::delete('/{rentalInventory}/photos/{photo}', [\App\Http\Controllers\CoreX\RentalInventoryCaptureController::class, 'archivePhoto'])
             ->middleware('permission:rental_inventories.create')->name('corex.rental-inventories.photos.destroy');
+        // .ai/specs/rental-inventory.md section 29 - the bulk photo manager: list a page, tick / select all N, delete, restore, move to an inspection.
+        Route::get('/{rentalInventory}/photo-manager', [\App\Http\Controllers\CoreX\RentalPhotoBulkController::class, 'inventoryIndex'])->name('corex.rental-inventories.photo-manager.index');
+        Route::get('/{rentalInventory}/photo-manager/targets', [\App\Http\Controllers\CoreX\RentalPhotoBulkController::class, 'inventoryTargets'])->name('corex.rental-inventories.photo-manager.targets');
+        Route::post('/{rentalInventory}/photo-manager/act', [\App\Http\Controllers\CoreX\RentalPhotoBulkController::class, 'inventoryAct'])
+            ->middleware('permission:rental_inventories.create')->name('corex.rental-inventories.photo-manager.act');
         // Audit 2026-10-19 B32 - one photo set per room: share the move-in inspection's photos of a room instead of photographing it again.
         Route::get('/{rentalInventory}/inspection-photos', [\App\Http\Controllers\CoreX\RentalInventoryCaptureController::class, 'inspectionPhotos'])
             ->middleware('permission:rental_inventories.create')->name('corex.rental-inventories.inspection-photos.index');
@@ -4986,6 +5045,11 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             ->middleware('permission:rental_work_orders.record_approval')->name('corex.rental-work-orders.cost.owner-decision');
         Route::post('/{rentalWorkOrder}/cost/use-same-call', [\App\Http\Controllers\CoreX\RentalWorkOrderCostController::class, 'useSameCall'])
             ->middleware('permission:rental_work_orders.record_approval')->name('corex.rental-work-orders.cost.use-same-call');
+        // section 31.4 - one-click owner authority: "Owner authorised by phone/WhatsApp" and "Send to owner for approval"
+        Route::post('/{rentalWorkOrder}/cost/owner-authorised', [\App\Http\Controllers\CoreX\RentalWorkOrderCostController::class, 'ownerAuthorised'])
+            ->middleware('permission:rental_work_orders.record_approval')->name('corex.rental-work-orders.cost.owner-authorised');
+        Route::post('/{rentalWorkOrder}/cost/send-to-owner', [\App\Http\Controllers\CoreX\RentalWorkOrderCostController::class, 'sendToOwner'])
+            ->middleware('permission:rental_work_orders.record_approval')->name('corex.rental-work-orders.cost.send-to-owner');
         Route::post('/{rentalWorkOrder}/emergency-approval/{approval}/void', [\App\Http\Controllers\CoreX\RentalEmergencyApprovalController::class, 'void'])
             ->middleware('permission:rental_work_orders.record_emergency_approval')->name('corex.rental-work-orders.emergency-approval.void');
         Route::get('/{rentalWorkOrder}/emergency-approval/{approval}/attachment', [\App\Http\Controllers\CoreX\RentalEmergencyApprovalController::class, 'attachment'])
@@ -5152,6 +5216,9 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             ->middleware('permission:rental_job_cards.sign_off')->name('corex.rental-job-cards.tenant-confirm');
         Route::post('/{rentalJobCard}/complete', [\App\Http\Controllers\CoreX\RentalJobCardController::class, 'complete'])
             ->middleware('permission:rental_job_cards.sign_off')->name('corex.rental-job-cards.complete');
+        // section 31.6 - ONE "Close" on the crew route: the agent's sign-off (when not yet given) and the completion in a single press
+        Route::post('/{rentalJobCard}/close', [\App\Http\Controllers\CoreX\RentalJobCardController::class, 'close'])
+            ->middleware('permission:rental_job_cards.sign_off')->name('corex.rental-job-cards.close');
         Route::post('/{rentalJobCard}/cancel', [\App\Http\Controllers\CoreX\RentalJobCardController::class, 'cancel'])
             ->middleware('permission:rental_job_cards.cancel')->name('corex.rental-job-cards.cancel');
         Route::delete('/{rentalJobCard}', [\App\Http\Controllers\CoreX\RentalJobCardController::class, 'destroy'])
@@ -5402,6 +5469,22 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
                 [\App\Http\Controllers\SellerOutreach\EntryPointController::class, 'storeFromProspecting'])
                 ->where('prospectingListingId', '\d+')
                 ->name('store-from-prospecting');
+            // road-to-sold.md 23.23 drop 5 - the screen behind each pill of the pitch popup for this record (JSON).
+            Route::get('/outreach/pitch-steps',
+                [\App\Http\Controllers\SellerOutreach\PitchBookController::class, 'steps'])
+                ->name('pitch-steps');
+            // road-to-sold.md 23.25 / 23.11 - "Stops here (say why)" on every step of the pitch popup: the step's reasons (GET) and the off-ramp itself (POST).
+            Route::get('/outreach/pitch-offramp', [\App\Http\Controllers\RoadToSold\PitchOffRampController::class, 'choices'])->name('pitch-offramp');
+            Route::post('/outreach/pitch-offramp', [\App\Http\Controllers\RoadToSold\PitchOffRampController::class, 'store'])->name('pitch-offramp.store');
+            // road-to-sold.md 23.23 drop 4 - the page after the calendar's own form saved an evaluation inside the pitch popup.
+            Route::get('/outreach/evaluation-booked/{calendarEvent}',
+                [\App\Http\Controllers\SellerOutreach\PitchBookController::class, 'done'])
+                ->whereNumber('calendarEvent')
+                ->name('evaluation-booked');
+            // Spec 13.21 - the "Link a deed" picker, live (fetched on open and on each keystroke; agency-scoped).
+            Route::get('/outreach/deeds',
+                [\App\Http\Controllers\SellerOutreach\EntryPointController::class, 'deedsPicker'])
+                ->name('deeds-picker');
             // MIC ↔ Deeds ↔ Contact loop (Part A, manual link) — remember the deed the agent
             // picks from the "Link a deed" modal so it auto-surfaces on later visits.
             Route::post('/prospecting/{prospectingListingId}/outreach/link-deed',
@@ -5575,6 +5658,38 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/{video}/retry',          [\App\Http\Controllers\Admin\TrainingVideoController::class, 'retry'])->whereNumber('video')->name('retry');
         // "Delete" archives. The row is never removed (non-negotiable #1).
         Route::delete('/{video}',              [\App\Http\Controllers\Admin\TrainingVideoController::class, 'destroy'])->whereNumber('video')->name('destroy');
+    });
+
+    // Ad Studio (AT-527) — CoreX owners menu -> Marketing -> Video ads. One-click video ads for CoreX's own marketing: a script editor per feature,
+    // "Ad N" history with a frozen snapshot, brand settings. System Owner only (owner_only + assertOwner in every action; no permission key by design,
+    // same as Training Videos). Nothing is posted anywhere. Spec: .ai/specs/training-videos.md 9.21
+    Route::middleware('owner_only')->prefix('admin/video-ads')->name('admin.video-ads.')->group(function () {
+        // Static segments (/brand, /new, /duplicate) come before /{ad} or the binding swallows them.
+        Route::get('/brand',                     [\App\Http\Controllers\Admin\VideoAdBrandController::class, 'edit'])->name('brand');
+        Route::put('/brand',                     [\App\Http\Controllers\Admin\VideoAdBrandController::class, 'update'])->name('brand.update');
+        // Facebook (AT-527, spec 9.22): connect the CoreX page via Facebook's own login (the return trip is the already-registered corex.social.oauth.callback), then
+        // Post now / Schedule. Dry run whenever external publishing is off.
+        Route::get('/facebook',                  [\App\Http\Controllers\Admin\VideoAdFacebookController::class, 'index'])->name('facebook');
+        Route::get('/facebook/connect',          [\App\Http\Controllers\Admin\VideoAdFacebookController::class, 'connect'])->name('facebook.connect');
+        Route::get('/facebook/choose-page',      [\App\Http\Controllers\Admin\VideoAdFacebookController::class, 'choosePageForm'])->name('facebook.choose-page');
+        Route::post('/facebook/choose-page',     [\App\Http\Controllers\Admin\VideoAdFacebookController::class, 'choosePage'])->name('facebook.choose-page.save');
+        Route::post('/facebook/disconnect',      [\App\Http\Controllers\Admin\VideoAdFacebookController::class, 'disconnect'])->name('facebook.disconnect');
+        Route::get('/posts',                     [\App\Http\Controllers\Admin\VideoAdPostController::class, 'index'])->name('posts');
+        Route::post('/posts/{post}/cancel',      [\App\Http\Controllers\Admin\VideoAdPostController::class, 'cancel'])->whereNumber('post')->name('posts.cancel');
+        Route::post('/posts/{post}/reschedule',  [\App\Http\Controllers\Admin\VideoAdPostController::class, 'reschedule'])->whereNumber('post')->name('posts.reschedule');
+        Route::get('/',                          [\App\Http\Controllers\Admin\VideoAdController::class, 'index'])->name('index');
+        Route::get('/new/{feature}',             [\App\Http\Controllers\Admin\VideoAdController::class, 'create'])->where('feature', '[a-z0-9\-]+')->name('create');
+        Route::get('/duplicate/{ad}',            [\App\Http\Controllers\Admin\VideoAdController::class, 'duplicate'])->whereNumber('ad')->withTrashed()->name('duplicate');
+        Route::post('/',                         [\App\Http\Controllers\Admin\VideoAdController::class, 'store'])->name('store');
+        Route::get('/{ad}',                      [\App\Http\Controllers\Admin\VideoAdController::class, 'show'])->whereNumber('ad')->withTrashed()->name('show');
+        Route::get('/{ad}/file/{format}/{kind}', [\App\Http\Controllers\Admin\VideoAdController::class, 'file'])->whereNumber('ad')->where('format', '[0-9x]+')->where('kind', 'mp4|jpg')->withTrashed()->name('file');
+        Route::get('/{ad}/download/{format}',    [\App\Http\Controllers\Admin\VideoAdController::class, 'download'])->whereNumber('ad')->where('format', '[0-9x]+')->withTrashed()->name('download');
+        Route::post('/{ad}/post-now',            [\App\Http\Controllers\Admin\VideoAdPostController::class, 'postNow'])->whereNumber('ad')->name('post-now');
+        Route::post('/{ad}/schedule',            [\App\Http\Controllers\Admin\VideoAdPostController::class, 'schedule'])->whereNumber('ad')->name('schedule');
+        Route::post('/{ad}/retry',               [\App\Http\Controllers\Admin\VideoAdController::class, 'retry'])->whereNumber('ad')->name('retry');
+        // "Delete" archives. The row and its files are never removed (non-negotiable #1).
+        Route::delete('/{ad}',                   [\App\Http\Controllers\Admin\VideoAdController::class, 'destroy'])->whereNumber('ad')->name('destroy');
+        Route::post('/{ad}/restore',             [\App\Http\Controllers\Admin\VideoAdController::class, 'restore'])->whereNumber('ad')->withTrashed()->name('restore');
     });
 
     // Dev Settings — system-wide developer overrides (owner-only).
@@ -5880,8 +5995,24 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     // owner_only and DELIBERATELY no permission key — a permission key is grantable
     // via Role Manager, and an agency admin handed it would see (and set) every other
     // agency's commercial terms. Same rationale as Dev Settings / Demo Access below.
+    // System owner > Revenue: signed agencies, prospect pipeline, 12-month cash flow. Owner only, no permission key BY DESIGN (commercial terms).
+    Route::middleware('owner_only')->prefix('admin/revenue')->name('admin.revenue.')->group(function () {
+        $rc = \App\Http\Controllers\Admin\RevenueController::class;
+        Route::get('/', [$rc, 'index'])->name('index');
+        Route::post('/signed', [$rc, 'saveSigned'])->name('signed.store');
+        Route::put('/signed/{record}', [$rc, 'saveSigned'])->whereNumber('record')->name('signed.update');
+        Route::delete('/signed/{record}', [$rc, 'archiveSigned'])->whereNumber('record')->name('signed.archive');
+        Route::post('/signed/{id}/restore', [$rc, 'restoreSigned'])->whereNumber('id')->name('signed.restore');
+        Route::post('/pipeline', [$rc, 'saveProspect'])->name('pipeline.store');
+        Route::put('/pipeline/{prospect}', [$rc, 'saveProspect'])->whereNumber('prospect')->name('pipeline.update');
+        Route::delete('/pipeline/{prospect}', [$rc, 'archiveProspect'])->whereNumber('prospect')->name('pipeline.archive');
+        Route::post('/pipeline/{id}/restore', [$rc, 'restoreProspect'])->whereNumber('id')->name('pipeline.restore');
+        Route::post('/pipeline/{prospect}/convert', [$rc, 'convert'])->whereNumber('prospect')->name('pipeline.convert');
+    });
+
     Route::middleware('owner_only')->prefix('admin/billing')->name('admin.billing.')->group(function () {
         Route::get('/', [\App\Http\Controllers\Admin\AgencyBillingController::class, 'index'])->name('index');
+        Route::post('/prices', [\App\Http\Controllers\Admin\AgencyBillingController::class, 'savePrices'])->name('prices.save');
         Route::put('/{agency}', [\App\Http\Controllers\Admin\AgencyBillingController::class, 'update'])->name('update');
     });
 
@@ -6891,11 +7022,145 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             Route::get('/', [\App\Http\Controllers\RoadToSold\RoadToSoldController::class, 'index'])->name('index');
             Route::post('/outcomes', [\App\Http\Controllers\RoadToSold\RoadToSoldController::class, 'recordOutcome'])->name('outcomes.record');
             Route::post('/add-to-day', [\App\Http\Controllers\RoadToSold\RoadToSoldController::class, 'addToDay'])->name('add-to-day');
+            Route::post('/build-list', [\App\Http\Controllers\RoadToSold\RoadToSoldController::class, 'buildList'])->name('build-list');
+            // 23.16: why did I get these points - the agent's own belt points log
+            Route::get('/points', [\App\Http\Controllers\RoadToSold\BeltPointsController::class, 'log'])->name('points');
+            // 23.14: swap a loaded property for the next one, with a reason
+            Route::post('/list/{item}/swap', [\App\Http\Controllers\RoadToSold\RoadToSoldController::class, 'swap'])->whereNumber('item')->name('swap');
+            // 23.30.3: the first action on a loaded row is the claim ("Find owner")
+            Route::post('/list/{item}/claim', [\App\Http\Controllers\RoadToSold\RoadToSoldController::class, 'claimLoaded'])->whereNumber('item')->name('claim-loaded');
+            // v4 belt (spec 23.13): "Start my Road to Sold", pause and resume - an agent's own, or another agent's with road_to_sold.pause_others
+            Route::post('/activation/start', [\App\Http\Controllers\RoadToSold\ActivationController::class, 'start'])->name('activation.start');
+            Route::post('/activation/pause', [\App\Http\Controllers\RoadToSold\ActivationController::class, 'pause'])->name('activation.pause');
+            Route::post('/activation/resume', [\App\Http\Controllers\RoadToSold\ActivationController::class, 'resume'])->name('activation.resume');
+            // v4 belt (spec 23.12): the me / branch / agency figures behind a tile (JSON, aggregates only)
+            Route::get('/belt/{station}/scopes', [\App\Http\Controllers\RoadToSold\BeltController::class, 'scopes'])->where('station', '[a-z_]+')->name('belt.scopes');
+
+            // Road to Sold v3 (spec 22.4 / 22.9): what the agent does with a prospect from the page. The prospect is found through the
+            // viewer's breadth (own / branch / agency in the query, 404 outside it); every write needs it to be on the viewer's own list.
+            Route::prefix('prospects/{prospect}')->whereNumber('prospect')->name('prospects.')->group(function () {
+                $c = \App\Http\Controllers\RoadToSold\ProspectController::class;
+                Route::get('/step/{step}', [$c, 'step'])->name('step');
+                Route::get('/history', [$c, 'history'])->name('history');
+                Route::post('/park', [$c, 'park'])->name('park');
+                Route::post('/unpark', [$c, 'unpark'])->name('unpark');
+                Route::put('/next-action', [$c, 'nextAction'])->name('next-action');
+                Route::post('/capture', [$c, 'capture'])->name('capture');
+                // Give the property back to the pool (spec 22.6): needs its own key, a reason, and leaves an audit line.
+                Route::post('/release', [$c, 'release'])->middleware('permission:road_to_sold.release_prospects')->name('release');
+            });
+
+            // Captured tasks (v2 phase 2): save, change the note, archive, restore, view a photo. Always the signed-in person's own list;
+            // an id outside their breadth is a 404.
+            Route::prefix('captures')->name('captures.')->group(function () {
+                $c = \App\Http\Controllers\RoadToSold\CaptureController::class;
+                Route::post('/', [$c, 'store'])->name('store');
+                Route::put('/{completion}', [$c, 'update'])->whereNumber('completion')->name('update');
+                Route::delete('/{completion}', [$c, 'archive'])->whereNumber('completion')->name('archive');
+                Route::post('/{completion}/restore', [$c, 'restore'])->whereNumber('completion')->name('restore');
+                Route::post('/{completion}/resubmit', [$c, 'resubmit'])->whereNumber('completion')->name('resubmit');
+                Route::get('/{completion}/photos/{n}', [$c, 'photo'])->whereNumber('completion')->whereNumber('n')->name('photo');
+            });
+            // The manager's review of captured tasks (v2 phase 6). Permission road_to_sold.review_completions; breadth = road_to_sold.view
+            // (branch manager = branch, admin = agency) applied in the query; an id outside it is a 404.
+            Route::prefix('review')->middleware('permission:road_to_sold.review_completions')->name('review.')->group(function () {
+                $c = \App\Http\Controllers\RoadToSold\ReviewController::class;
+                Route::get('/', [$c, 'index'])->name('index');
+                Route::get('/{completion}', [$c, 'show'])->whereNumber('completion')->name('show');
+                Route::post('/{completion}/approve', [$c, 'approve'])->whereNumber('completion')->name('approve');
+                Route::post('/{completion}/send-back', [$c, 'sendBack'])->whereNumber('completion')->name('send-back');
+            });
+            // Level sign-off (v2 phase 4). Permission road_to_sold.signoff_levels; breadth = road_to_sold.view applied in the query;
+            // an agent outside it is a 404. Nobody signs off their own level.
+            Route::prefix('signoffs')->middleware('permission:road_to_sold.signoff_levels')->name('signoffs.')->group(function () {
+                $c = \App\Http\Controllers\RoadToSold\SignoffController::class;
+                Route::get('/', [$c, 'index'])->name('index');
+                Route::get('/{agentLevel}', [$c, 'show'])->whereNumber('agentLevel')->name('show');
+                Route::post('/{agentLevel}/approve', [$c, 'approve'])->whereNumber('agentLevel')->name('approve');
+                Route::post('/{agentLevel}/send-back', [$c, 'sendBack'])->whereNumber('agentLevel')->name('send-back');
+                Route::delete('/{agentLevel}', [$c, 'archive'])->whereNumber('agentLevel')->name('archive');
+                Route::post('/{agentLevel}/restore', [$c, 'restore'])->whereNumber('agentLevel')->name('restore');
+            });
+            // The team funnel, training flags and suggested targets (v2 phase 5). Permission road_to_sold.view_funnel; breadth = road_to_sold.view
+            // through VisibleAgents; an agent outside it is a 404 on every action. A suggestion is only ever accepted by a person.
+            Route::prefix('funnel')->middleware('permission:road_to_sold.view_funnel')->name('funnel.')->group(function () {
+                $c = \App\Http\Controllers\RoadToSold\FunnelController::class;
+                Route::get('/', [$c, 'index'])->name('index');
+                Route::get('/flags', [$c, 'flags'])->name('flags');
+                Route::post('/flags/assign', [$c, 'assign'])->name('assign');
+                Route::post('/flags/note', [$c, 'note'])->name('note');
+                Route::post('/flags/acknowledge', [$c, 'acknowledge'])->name('acknowledge');
+                Route::get('/suggestions', [$c, 'suggestions'])->name('suggestions');
+                Route::post('/suggestions/accept', [$c, 'accept'])->name('suggestions.accept');
+                Route::post('/suggestions/ignore', [$c, 'ignore'])->name('suggestions.ignore');
+            });
             Route::get('/drilldown', [\App\Http\Controllers\RoadToSold\ReportController::class, 'drilldown'])->name('drilldown');
             Route::get('/report', [\App\Http\Controllers\RoadToSold\ReportController::class, 'index'])->name('report');
             Route::get('/report/print', [\App\Http\Controllers\RoadToSold\ReportController::class, 'print'])->name('report.print');
             Route::get('/report/pdf', [\App\Http\Controllers\RoadToSold\ReportController::class, 'pdf'])->name('report.pdf');
             Route::get('/report/xlsx', [\App\Http\Controllers\RoadToSold\ReportController::class, 'xlsx'])->name('report.xlsx');
+
+            // v3 pitch path from a row (22.10, R8): the owner is known -> the composer, else Find owner; "No owner found" is an outcome.
+            Route::get('/prospects/{prospect}/pitch-path', [\App\Http\Controllers\RoadToSold\PitchPathController::class, 'show'])
+                ->whereNumber('prospect')->name('prospects.pitch-path');
+            // v4 (23.12): the belt funnel and where properties are lost - own vs branch vs agency; agents' rows only for the managers who may see them
+            Route::get('/belt-funnel', [\App\Http\Controllers\RoadToSold\BeltFunnelController::class, 'index'])->name('belt-funnel');
+            Route::get('/belt-funnel/list', [\App\Http\Controllers\RoadToSold\BeltFunnelController::class, 'list'])->name('belt-funnel.list');
+
+            // v4 (23.25 / 23.11): the card's "Stops here (say why)" - the same control and the same controller as the pitch popup's
+            Route::get('/offramp', [\App\Http\Controllers\RoadToSold\PitchOffRampController::class, 'choices'])->name('offramp');
+            Route::post('/offramp', [\App\Http\Controllers\RoadToSold\PitchOffRampController::class, 'store'])->name('offramp.store');
+
+            // v4 (23.9): the result of the evaluation / presentation, from the belt card (the one result service)
+            Route::post('/prospects/{prospect}/result', [\App\Http\Controllers\RoadToSold\ProspectController::class, 'result'])
+                ->whereNumber('prospect')->name('prospects.result');
+            // v4 (23.8): "Prepare presentation" opens the generator on THAT property (the property page with its Generate Presentation window already open), not the index
+            // v4 drop 4 (23.23): the Book evaluation step - the calendar's own form, in the pitch popup, with the property, the owner and the agent prefilled
+            Route::get('/prospects/{prospect}/evaluation-path', [\App\Http\Controllers\RoadToSold\PitchPathController::class, 'evaluation'])
+                ->whereNumber('prospect')->name('prospects.evaluation-path');
+            Route::get('/prospects/{prospect}/presentation-path', [\App\Http\Controllers\RoadToSold\PitchPathController::class, 'presentation'])
+                ->whereNumber('prospect')->name('prospects.presentation-path');
+            // v4 (23.25 steps 7-9): the popup's Presentation results, Draft and Active screens - the existing feedback / Result form and the property's gates
+            Route::post('/prospects/{prospect}/create-property', [\App\Http\Controllers\RoadToSold\PitchPathController::class, 'createProperty'])
+                ->whereNumber('prospect')->name('prospects.create-property');
+            Route::get('/prospects/{prospect}/results-path', [\App\Http\Controllers\RoadToSold\PitchPathController::class, 'results'])
+                ->whereNumber('prospect')->name('prospects.results-path');
+            Route::get('/prospects/{prospect}/result-form', [\App\Http\Controllers\RoadToSold\PitchPathController::class, 'resultForm'])
+                ->whereNumber('prospect')->name('prospects.result-form');
+            Route::post('/prospects/{prospect}/popup-result', [\App\Http\Controllers\RoadToSold\PitchPathController::class, 'saveResult'])
+                ->whereNumber('prospect')->name('prospects.popup-result');
+            Route::get('/prospects/{prospect}/property-step/{step}', [\App\Http\Controllers\RoadToSold\PitchPathController::class, 'propertyStep'])
+                ->whereNumber('prospect')->where('step', 'draft|active')->name('prospects.property-step');
+            Route::post('/prospects/{prospect}/no-owner', [\App\Http\Controllers\RoadToSold\PitchPathController::class, 'noOwner'])
+                ->whereNumber('prospect')->name('prospects.no-owner');
+
+            // v4 (23.10): the agency's one result list (won / undecided / lost / not selling), full CRUD with archive and restore
+            Route::prefix('settings/results')
+                ->middleware('permission:road_to_sold.manage_settings')
+                ->name('settings.results.')
+                ->group(function () {
+                    $c = \App\Http\Controllers\RoadToSold\ResultSettingsController::class;
+                    Route::get('/', [$c, 'index'])->name('index');
+                    Route::post('/', [$c, 'store'])->name('store');
+                    Route::put('/{option}', [$c, 'update'])->whereNumber('option')->name('update');
+                    Route::post('/{option}/toggle', [$c, 'toggle'])->whereNumber('option')->name('toggle');
+                    Route::delete('/{option}', [$c, 'archive'])->whereNumber('option')->name('archive');
+                    Route::post('/{option}/restore', [$c, 'restore'])->whereNumber('option')->name('restore');
+                });
+
+            // v4 (23.25 / 23.11): the agency's own off-ramp reasons, one list for every step of the pitch popup (code, words, step, what it counts as), archive and restore
+            Route::prefix('settings/offramp-reasons')
+                ->middleware('permission:road_to_sold.manage_offramp_reasons')
+                ->name('settings.offramps.')
+                ->group(function () {
+                    $c = \App\Http\Controllers\RoadToSold\OffRampSettingsController::class;
+                    Route::get('/', [$c, 'index'])->name('index');
+                    Route::post('/', [$c, 'store'])->name('store');
+                    Route::put('/{reason}', [$c, 'update'])->whereNumber('reason')->name('update');
+                    Route::post('/{reason}/toggle', [$c, 'toggle'])->whereNumber('reason')->name('toggle');
+                    Route::delete('/{reason}', [$c, 'archive'])->whereNumber('reason')->name('archive');
+                    Route::post('/{reason}/restore', [$c, 'restore'])->whereNumber('reason')->name('restore');
+                });
 
             Route::prefix('settings/outcomes')
                 ->middleware('permission:road_to_sold.manage_settings')
@@ -8242,6 +8507,8 @@ Route::middleware(['auth', 'permission:access_prospecting', 'feature:prospecting
         Route::get('/{trackedProperty}', function ($trackedProperty) {
             return redirect('/corex/market-intelligence/opportunities/' . $trackedProperty, 301);
         })->where('trackedProperty', '[0-9]+')->name('show');
+        // Lane B - the agency's own prospecting status on the property (not selling, mandate elsewhere, ...). Same permission as adding a comment.
+        Route::post('/{trackedProperty}/prospecting-status', [\App\Http\Controllers\CoreX\TrackedPropertyController::class, 'setProspectingStatus'])->name('prospecting-status');
         Route::post('/{trackedProperty}/promote', [\App\Http\Controllers\CoreX\TrackedPropertyController::class, 'promote'])->middleware('deny_assistant_property_write')->name('promote'); // AT-267 C2 — promote() creates agency stock
 
         // Phase C3 — address management on the TP detail page.
@@ -8349,6 +8616,19 @@ Route::middleware(['auth', 'permission:address_review.manage'])
             ->whereIn('kind', ['property', 'tracked'])->whereNumber('id')->name('restore');
     });
 
+// Possible matches (spec .ai/specs/property-identity.md §9) — the agency admin's one-line-per-pair review list of
+// property matches CoreX could not be sure about. Same permission as the Stale-claims review (prospecting_setup.manage);
+// every query and every by-id lookup is filtered to the viewer's agency, a direct URL by id outside it is a 404.
+Route::middleware(['auth', 'permission:prospecting_setup.manage'])
+    ->prefix('corex/prospecting/possible-matches')
+    ->name('corex.possible-matches.')
+    ->group(function () {
+        Route::get('/', [\App\Http\Controllers\CoreX\PossibleMatchesController::class, 'index'])->name('index');
+        Route::post('/{id}/confirm', [\App\Http\Controllers\CoreX\PossibleMatchesController::class, 'confirm'])->whereNumber('id')->name('confirm');
+        Route::post('/{id}/reject', [\App\Http\Controllers\CoreX\PossibleMatchesController::class, 'reject'])->whereNumber('id')->name('reject');
+        Route::post('/{id}/restore', [\App\Http\Controllers\CoreX\PossibleMatchesController::class, 'restore'])->whereNumber('id')->name('restore');
+    });
+
 // Deeds-capture duplicate-match take rule (Johan, 2026-08-21) — BM/admin approval
 // queue for a match in the approval band. Same permission gate as the analogous
 // MIC stale-claim review (prospecting_setup.manage) — reused, not invented.
@@ -8385,6 +8665,13 @@ Route::middleware(['auth', 'permission:access_prospecting', 'feature:prospecting
         Route::get('/portal-alerts', [\App\Http\Controllers\CoreX\MarketIntelligenceController::class, 'portalAlertsAwaitingAddress'])
             ->name('portal-alerts');
 
+        // MIC Settings (mic-work-tab.md section 9): areas, refresh interval, tiles shown, score weights, neighbour window, opt-out switch.
+        // Agency admins / managers only (prospecting_setup.manage); everything is per agency.
+        Route::get('/settings', [\App\Http\Controllers\CoreX\MicSettingsController::class, 'edit'])
+            ->middleware('permission:prospecting_setup.manage')->name('settings');
+        Route::put('/settings', [\App\Http\Controllers\CoreX\MicSettingsController::class, 'update'])
+            ->middleware('permission:prospecting_setup.manage')->name('settings.update');
+
         // Phase G2 — BM team dashboard. Permission-gated via the controller.
         Route::get('/team', [\App\Http\Controllers\CoreX\MarketIntelligenceController::class, 'team'])->name('team');
 
@@ -8398,6 +8685,11 @@ Route::middleware(['auth', 'permission:access_prospecting', 'feature:prospecting
         // Agent-facing: release my claim back to MIC because no address could be established.
         Route::post('/claims/{claim}/release-no-address', [\App\Http\Controllers\Prospecting\StaleClaimController::class, 'releaseNoAddress'])
             ->whereNumber('claim')->name('claims.release-no-address');
+
+        // 13.17 "Not for <buyer>": hide a property file for the selected buyer (all his wishlists) and put it back.
+        Route::post('/buyer-hide', [\App\Http\Controllers\CoreX\MicBuyerHideController::class, 'store'])->name('buyer-hide.store');
+        Route::post('/buyer-refresh', [\App\Http\Controllers\CoreX\MicBuyerHideController::class, 'refresh'])->name('buyer-refresh');
+        Route::post('/buyer-hide/{exclusion}/restore', [\App\Http\Controllers\CoreX\MicBuyerHideController::class, 'restore'])->whereNumber('exclusion')->name('buyer-hide.restore');
 
         // Phase G3 — feedback-template JSON for the claim slide-over.
         Route::get('/feedback-templates', [\App\Http\Controllers\CoreX\MarketIntelligenceController::class, 'feedbackTemplates'])->name('feedback-templates');
@@ -8550,8 +8842,15 @@ Route::middleware(['auth', 'permission:access_prospecting', 'feature:prospecting
         Route::post('/claims/{claimId}/release-as-manager', [\App\Http\Controllers\CoreX\MarketIntelligenceController::class, 'releaseAsManager'])
             ->where('claimId', '\d+')
             ->name('claims.release-as-manager');
+        // Road to Sold v4 (23.5): extend a claim hold (once for the agent; a manager may grant more)
+        Route::post('/claims/{claimId}/extend-hold', [\App\Http\Controllers\CoreX\MarketIntelligenceController::class, 'extendHold'])
+            ->where('claimId', '\d+')
+            ->name('claims.extend-hold');
 
         Route::get('/thumbnail/{listing}', [\App\Http\Controllers\CoreX\MarketIntelligenceController::class, 'thumbnail'])->name('thumbnail');
+        // mic-work-tab.md 13.12: "Not the same property" on the Listed-by popover (split one advert off its file) and its undo
+        Route::post('/adverts/{listing}/split', [\App\Http\Controllers\CoreX\MarketIntelligenceController::class, 'splitAdvert'])->whereNumber('listing')->name('adverts.split');
+        Route::post('/adverts/split/{split}/undo', [\App\Http\Controllers\CoreX\MarketIntelligenceController::class, 'undoSplitAdvert'])->whereNumber('split')->name('adverts.split-undo');
         Route::post('/{listing}/claim',    [\App\Http\Controllers\CoreX\MarketIntelligenceController::class, 'claim'])->name('claim');
         Route::post('/{listing}/feedback', [\App\Http\Controllers\CoreX\MarketIntelligenceController::class, 'feedback'])->name('feedback');
         Route::post('/{listing}/release',  [\App\Http\Controllers\CoreX\MarketIntelligenceController::class, 'release'])->name('release');
@@ -8587,6 +8886,9 @@ Route::middleware(['auth', 'permission:access_prospecting', 'feature:prospecting
     Route::post('/claims/{claimId}/release-as-manager', [\App\Http\Controllers\CoreX\MarketIntelligenceController::class, 'releaseAsManager'])
         ->where('claimId', '\d+')
         ->name('claims.release-as-manager');
+    Route::post('/claims/{claimId}/extend-hold', [\App\Http\Controllers\CoreX\MarketIntelligenceController::class, 'extendHold'])
+        ->where('claimId', '\d+')
+        ->name('claims.extend-hold');
 
     Route::get('/thumbnail/{listing}', [\App\Http\Controllers\CoreX\MarketIntelligenceController::class, 'thumbnail'])->name('thumbnail');
     Route::post('/{listing}/claim',    [\App\Http\Controllers\CoreX\MarketIntelligenceController::class, 'claim'])->name('claim');

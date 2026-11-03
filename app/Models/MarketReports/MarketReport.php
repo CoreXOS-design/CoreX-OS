@@ -23,7 +23,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  */
 final class MarketReport extends Model
 {
-    use SoftDeletes, BelongsToAgency;
+    use SoftDeletes, BelongsToAgency, \App\Models\Concerns\FlagsDemoRows;
 
     protected $table = 'market_reports';
 

@@ -1,6 +1,19 @@
 {{-- .ai/specs/rental-portal-access.md §20 — the portal Home, one panel for the tenant AND the owner: who to call, the inspection
      dates, where the lease stands. Reads /api/v1/client/rentals[/landlord]/overview (the person's OWN properties only). --}}
 <div data-portal-home>
+    {{-- section 31.2 - the tenant's Home: "Report a fault" right here (one form, one submit), and every open fault's progress line under it - no tab to find first --}}
+    <template x-if="activeRole === 'tenant'">
+        <div data-portal-home-faults>
+            <button class="btn btn-danger" x-show="!faultWizard.open" data-home-report-fault @click="startFaultReport()">Report a fault</button>
+            @include('rentals.portal._fault-wizard')
+            <template x-for="f in sortedFaults().filter(x => !x.closed && !x.self_resolved)" :key="f.id">
+                <div class="card" data-home-open-fault>
+                    <strong x-text="f.title"></strong> <span class="muted" x-text="'- reported ' + fmtDay(f.reported_at)"></span>
+                    <template x-if="f.progress"><div>@include('rentals.portal._progress', ['p' => 'f.progress'])</div></template>
+                </div>
+            </template>
+        </div>
+    </template>
     <div class="card" data-portal-home-decisions x-show="activeRole === 'landlord' && overview.decisions_waiting > 0" style="padding:12px 16px;">
         <a class="link" href="#" @click.prevent="landlordTab='faults'; loadLandlordFaults()" x-text="overview.decisions_waiting + (overview.decisions_waiting === 1 ? ' decision waiting for you →' : ' decisions waiting for you →')"></a>
     </div>

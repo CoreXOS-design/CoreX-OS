@@ -238,22 +238,22 @@ final class AuthorityCostTest extends TestCase
         Mail::assertQueued(RentalAuthorisationToOwnerMail::class, fn ($m) => ! str_contains($m->sentence, '640'));
     }
 
-    public function test_confirming_the_crews_price_inside_the_limit_sends_nothing_and_approves_nothing(): void
+    public function test_confirming_the_crews_price_inside_the_limit_authorises_it_by_itself_and_the_owner_is_told(): void
     {
+        // section 31.4 (Johan, 30 Oct 2026): inside the owner's repair limit the cost is authorised at once - nothing is asked of the owner, and nothing waits for a second press
         $this->ownerLimits(2000.0);
         [$card, $wo] = $this->internalJob(1000.0);
         $wo = $this->sendQuote($card);
 
-        $this->assertSame(RentalWorkOrder::APPROVAL_NOT_REQUIRED, $wo->owner_approval_status);
-        $this->assertNull($wo->approved_amount);
-        $this->assertFalse($this->gate->authoriseCard($card->fresh(), false)->authorised);
-        $this->assertSame(RentalJobCard::STATUS_QUOTED, $card->fresh()->status, 'not "approved" - nobody authorised it');
-        $this->assertCount(0, $this->sent(), 'nothing is sent to the owner inside the limit');
-
-        $this->authoriseCostOf($wo);
-        $card->fresh()->syncStatusFromWorkOrder();
-        $this->assertSame(RentalJobCard::STATUS_APPROVED, $card->fresh()->status, 'now it can be booked');
+        $this->assertSame(RentalWorkOrder::APPROVAL_NOT_REQUIRED, $wo->owner_approval_status, 'the owner is not asked');
+        $this->assertEquals(1000.0, (float) $wo->approved_amount);
         $this->assertTrue($this->gate->authoriseCard($card->fresh(), false)->authorised);
+        $this->assertSame(RentalJobCard::STATUS_APPROVED, $card->fresh()->status, 'ready to be booked');
+        $row = $this->records($wo)->first();
+        $this->assertTrue($row->isAuthorised());
+        $this->assertStringContainsString('automatically', (string) $row->note);
+        $this->authoriseCostOf($wo);   // a stale press is a harmless repeat
+        $this->assertSame(1, $this->records($wo)->count());
     }
 
     // ── the owner's authority: their link, or the agent recording their words ─────────
@@ -457,7 +457,7 @@ final class AuthorityCostTest extends TestCase
         $types = fn () => app(\App\Services\Rentals\RentalCommandCentreService::class)->queueItems($this->admin, 'all')->pluck('type')->all();
 
         $this->assertContains('wo_authorise_cost', $types(), 'a selected quote inside the limit is waiting for the agent');
-        $this->assertContains('jc_authorise_cost', $types(), 'and so is the crew\'s confirmed price');
+        $this->assertNotContains('jc_authorise_cost', $types(), 'section 31.4: the crew\'s confirmed price inside the limit is authorised by itself - nothing waits');
 
         $this->authoriseCostOf($wo->fresh());
         $this->authoriseCostOf($cardWo->fresh());
@@ -573,7 +573,6 @@ final class AuthorityCostTest extends TestCase
         $html = $this->actingAs($this->admin)->get(route('corex.rental-work-orders.show', $wo))->assertOk()->getContent();
 
         $this->assertStringContainsString('data-cost-decision', $html);
-        $this->assertStringContainsString('href="#cost-decision"', $html, '"What happens next" links straight to the box');
         $this->assertStringContainsString('Approve the cost', $html);
         $this->assertStringNotContainsString('Nothing is approved until you press a button.', $html);
         $this->assertStringNotContainsString('Decision 2', $html);

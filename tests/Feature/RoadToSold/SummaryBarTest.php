@@ -256,14 +256,14 @@ final class SummaryBarTest extends TestCase
         $this->assertSame(0, app(DrilldownService::class)->count('calls_made', [$this->other->id], new Period(CarbonImmutable::parse('2026-10-01'), CarbonImmutable::parse('2026-10-31'), 'x', 'custom'), $bId));
     }
 
-    public function test_the_bar_renders_on_the_page_with_the_drill_modal(): void
+    public function test_the_v3_summary_cards_are_off_the_page_the_tiles_are_the_belt(): void
     {
         $this->log($this->agent, 'no_answer', 2);
 
         $res = $this->actingAs($this->agent)->get(route('road-to-sold.index'));
 
-        $res->assertOk()->assertSee('Calls made')->assertSee('Conversations')->assertSee('Evaluations booked')->assertSee('Listings live');
-        $res->assertSee('buyersReport(', false)->assertSee('Click to see the rows behind this figure', false);
+        // Johan, 2 Nov: one counter for the day - the cards under the tiles are gone; the service still answers the next-action card and the report
+        $res->assertOk()->assertDontSee('data-qa="bar-line"', false)->assertDontSee('Click to see the rows behind this figure', false);
         $res->assertDontSee('Social');
     }
 }

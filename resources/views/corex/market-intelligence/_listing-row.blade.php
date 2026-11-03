@@ -125,6 +125,9 @@
     $isUnclaimed = !$claim && !$tempLock && !($prospected && $showProspectedBadge) && !$isCompanyStock;
 @endphp
 
+@if(($rowMode ?? 'row') === 'advert' && !empty($adv))
+    @include('corex.market-intelligence._advert-card')
+@else
 <article
     class="mi-row"
     data-listing-id="{{ $listing->id }}"
@@ -165,7 +168,10 @@
                style="font-size: 0.9375rem; font-weight: 600; color: var(--text-primary); text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;">
                 {{ $addressShort }}
             </a>
-            <div style="font-size: 0.9375rem; font-weight: 600; color: var(--text-primary); flex-shrink: 0;">{{ $priceLabel }}</div>
+            <div style="display: flex; align-items: baseline; gap: 6px; flex-shrink: 0;">
+                <span style="font-size: 0.9375rem; font-weight: 600; color: var(--text-primary);">{{ $priceLabel }}</span>
+                @include('corex.market-intelligence._row-badges')
+            </div>
         </div>
 
         {{-- Line 2: meta --}}
@@ -175,6 +181,37 @@
 
         {{-- Line 3: state tags + demand microbar --}}
         <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+            {{-- mic-work-tab.md 2.1 B/C/D/E - ADDITIVE: opportunity score + reasons, source icons (with the envelope), Possible match chip, record-card toggle.
+                 Nothing above or below is replaced. --}}
+            @php
+                $xt = $extras ?? null;
+                $xs = $source ?? null;
+                $iconChip = 'display:inline-block; padding: 0 4px; border: 1px solid var(--border); border-radius: 3px; font-size: .625rem; font-weight: 700; line-height: 1.4; color: var(--text-secondary);';
+                $portalsHere = collect($listing->portals ?? [['source' => $listing->portal_source]])->pluck('source')->unique();
+            @endphp
+            <span data-qa="row-additions" @click.stop style="display: inline-flex; align-items: center; gap: 4px; flex-wrap: wrap;">
+                @if($xt && $xt['score'] !== null)
+                    <span data-qa="score-badge" title="Opportunity score" style="font-size: .75rem; font-weight: 700; color: var(--text-primary);">Score {{ number_format($xt['score'], 0) }}</span>
+                    @foreach(array_slice($xt['reasons'], 0, 2) as $rc)<span data-qa="reason-chip" style="font-size: .6875rem; color: var(--text-muted);">· {{ \App\Services\Prospecting\MicWork\MicWorkList::REASON_LABELS[$rc] ?? $rc }}</span>@endforeach
+                @endif
+                <span data-qa="source-icons" style="display: inline-flex; gap: 2px;">
+                    @if($portalsHere->contains('p24'))<span style="{{ $iconChip }}">P24</span>@endif
+                    @if($portalsHere->contains('pp'))<span style="{{ $iconChip }}">PP</span>@endif
+                    @if(!empty($xs['alert']))<span data-qa="envelope" style="{{ $iconChip }} padding: 1px 4px;" title="In a P24 alert email"><svg viewBox="0 0 16 12" width="14" height="10" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" style="display:block;"><rect x="1" y="1" width="14" height="10" rx="1.5"/><path d="M1.5 2.2 8 7l6.5-4.8"/></svg></span>@endif
+                    @if($isCompanyStock)<span style="{{ $iconChip }} color: var(--brand-icon);" title="Our stock">Stock</span>@endif
+                    @if(!empty($xs['deeds']))<span style="{{ $iconChip }}" title="Deeds captured">Deeds</span>@endif
+                </span>
+                @if($xt && !empty($xt['pairs']))
+                    <a href="{{ count($xt['pairs']) === 1 ? route('corex.possible-matches.index', ['pair' => $xt['pairs'][0]]) : route('corex.possible-matches.index', ['file' => $xt['tp']]) }}" data-qa="possible-match-chip"
+                       title="CoreX is not sure this is the same property as another file. Click to review." style="font-size:.625rem; font-weight:700; padding: 0 5px; border: 1px solid var(--ds-amber, #f59e0b); border-radius: 3px; color: var(--ds-amber, #f59e0b); text-decoration:none;">Possible match{{ count($xt['pairs']) > 1 ? ' (' . count($xt['pairs']) . ')' : '' }}</a>
+                @endif
+                @if($xt && $xt['tp'])
+                    <button type="button" data-qa="card-toggle" title="Open the intelligence on this property: buyers, price, adverts, alerts, market, and the full record card"
+                            @click.stop="intel = !intel"
+                            style="font-size: .6875rem; padding: 0 6px; border: 1px solid var(--border); border-radius: 3px; background: transparent; color: var(--brand-icon); cursor: pointer;"><span x-text="intel ? 'Card ▴' : 'Card ▾'">Card ▾</span></button>
+                @endif
+            </span>
+
             {{-- IN STOCK badge — company stock = EXACT portal_ref match to one of
                  our own properties (Johan's model), not the fuzzy address match. --}}
             @if($isCompanyStock)
@@ -184,6 +221,19 @@
                title="This is our agency's own listing — the portal reference matches one of our properties. Click to open the Property record.">
                 IN STOCK
             </a>
+            @endif
+
+            {{-- Where we know this advert from: Email alert / Deeds / Extension, plus the last alert price change when the advert has an alert. --}}
+            @if(!empty($source))
+            <span data-qa="source-tag" style="{{ $source['tag'] === 'Email alert' ? $tagTeal : $tagNeutral }}"
+                  title="{{ $source['tag'] === 'Email alert' ? 'This advert is also in the portal e-mail alerts your agency receives.' : ($source['tag'] === 'Deeds' ? 'The property file has a deeds capture.' : 'Captured with the browser extension only.') }}">
+                {{ $source['tag'] }}
+            </span>
+            @if($source['alert'])
+            <span data-qa="alert-marker" style="{{ $tagNeutral }}" title="Last portal e-mail alert price change for this advert.">
+                alert @if($source['change'])R {{ number_format($source['change']['old'], 0, '.', ',') }} → R {{ number_format($source['change']['new'], 0, '.', ',') }} · {{ $source['change']['date'] }}@elseif($source['last_seen'])· seen {{ $source['last_seen'] }}@endif
+            </span>
+            @endif
             @endif
 
             {{-- Possible-match hint (2026-08-22, Johan — the 43 Ridge investigation:
@@ -388,183 +438,12 @@
         </div>
     </div>
 
-    {{-- Right action zone: chip on top, 3 inline icon buttons below.
-         Company stock → no pitch: the agency's own logo replaces the whole
-         pitch CTA + action-icon cluster (Johan's model). --}}
-    <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 6px;">
-
-        @if($isCompanyStock)
-        <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 3px;"
-             title="This is our agency's own listing (portal reference matches our stock) — no pitch needed.">
-            @if($agencyLogoUrl)
-            <img src="{{ $agencyLogoUrl }}" alt="Company stock"
-                 style="max-height: 30px; max-width: 130px; object-fit: contain; display: block;">
-            @else
-            <span style="{{ $tagTeal }}">OUR LISTING</span>
-            @endif
-            <span style="font-size: 0.625rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.03em;">Company stock</span>
-        </div>
-        @else
-
-        @include('corex.market-intelligence._suggested-action-chip', ['suggested' => $suggested, 'listing' => $listing])
-
-        {{-- Icon group + Claim share ONE line (Johan 2026-08-21 — the icon
-             row previously sat alone with nothing but 1-2 small glyphs on
-             it, wasted vertical space across 1,769 rows). align-self:stretch
-             makes this row take the full 200px column width (its parent is
-             align-items:flex-end, which would otherwise shrink-wrap it);
-             justify-content:space-between then pushes the icon group flush
-             left and Claim flush right — real, non-fixed space between them
-             by construction, so they read as two separate controls, not one
-             cluster, no matter how many icons are showing (Johan has flagged
-             bunched controls twice today). Claim only ever renders when
-             $isUnclaimed, and every icon that can show alongside it then
-             (comment, buyers) requires !$isUnclaimed to be false for eye/
-             phone/whatsapp — so at most 2 small icons ever share this line
-             with Claim, never crowding the fixed 200px column. --}}
-        <div style="display: flex; align-items: center; justify-content: space-between; width: 100%; align-self: stretch;">
-        <div style="display: flex; align-items: center; gap: 4px;">
-            @php
-                $showEye      = $claimedByOther;             // colleague's claim → view detail (F.4 wires)
-                $showPhone    = !$isUnclaimed && !$showEye;  // claimed-by-me, pitched, or pitched-recent
-                $showWhatsapp = $showPhone;
-                $showUsers    = ($tiers['strong'] + $tiers['mid']) > 0;  // always if there are buyers
-            @endphp
-
-            {{-- Comment (relocated here from the middle chip row, same
-                 behaviour/modal/count badge — .ai/specs/mic-property-row-comments.md) --}}
-            @if($listing->tracked_property_id && ($canViewComments ?? false))
-                @php $commentCount = (int) (($commentCounts ?? [])[$listing->tracked_property_id] ?? 0); @endphp
-                <button type="button"
-                        @click.stop="openCommentsModal({{ $listing->tracked_property_id }})"
-                        style="{{ $iconBtnBase }}"
-                        title="{{ $commentCount > 0 ? ($commentCount . ' comment' . ($commentCount === 1 ? '' : 's') . ' on this property — click to view and add.') : 'No comments yet on this property — click to add the first one for other agents.' }}">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink: 0;">
-                        <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/>
-                    </svg><span data-tp-comment-count="{{ $listing->tracked_property_id }}" style="font-weight: 700; margin-left: {{ $commentCount > 0 ? '3px' : '0' }};">{{ $commentCount > 0 ? $commentCount : '' }}</span>
-                </button>
-            @endif
-
-            {{-- Eye / view detail (F.4 will wire to slide-over) --}}
-            @if($showEye)
-            <button type="button"
-                    @click.stop="selected = true"
-                    aria-label="View detail"
-                    title="View detail (slide-over arrives in F.4)"
-                    style="{{ $iconBtnBase }}">
-                <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7z"/>
-                    <circle cx="12" cy="12" r="3"/>
-                </svg>
-            </button>
-            @endif
-
-            {{-- Phone (tel:) --}}
-            @if($showPhone)
-                @if($telHref)
-                <a href="{{ $telHref }}"
-                   onclick="event.stopPropagation();"
-                   aria-label="Call {{ $pitch['recipient_phone'] ?? 'seller' }}"
-                   title="Call {{ $pitch['recipient_phone'] ?? 'seller' }}"
-                   style="{{ $iconBtnBase }}">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92z"/>
-                    </svg>
-                </a>
-                @else
-                <button type="button" disabled
-                        aria-label="No phone available"
-                        title="No linked contact — claim and pitch first"
-                        style="{{ $iconBtnDisabled }}">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92z"/>
-                    </svg>
-                </button>
-                @endif
-            @endif
-
-            {{-- WhatsApp --}}
-            @if($showWhatsapp)
-                @if($waHref && ($outreachWindow['allowed'] ?? true))
-                <a href="{{ $waHref }}" target="_blank" rel="noopener"
-                   onclick="event.stopPropagation();"
-                   aria-label="Open WhatsApp"
-                   title="Open WhatsApp"
-                   style="{{ $iconBtnBase }}">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="currentColor">
-                        <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.71.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 0 1-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 0 1-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 0 1 2.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0 0 12.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 0 0 5.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 0 0-3.48-8.413"/>
-                    </svg>
-                </a>
-                @else
-                {{-- AT-117 §4a — title reflects the real reason: out-of-window vs no contact. --}}
-                <button type="button" disabled
-                        aria-label="WhatsApp unavailable"
-                        title="{{ ($waHref && !($outreachWindow['allowed'] ?? true)) ? ($outreachWindow['message'] ?? 'Outreach sending is closed right now.') : 'No linked contact — claim and pitch first' }}"
-                        style="{{ $iconBtnDisabled }}">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="currentColor">
-                        <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.71.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 0 1-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 0 1-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 0 1 2.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0 0 12.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 0 0 5.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 0 0-3.48-8.413"/>
-                    </svg>
-                </button>
-                @endif
-            @endif
-
-            {{-- Buyers / users (opens buyer-matches panel) --}}
-            @if($showUsers)
-            <button type="button"
-                    @click.stop="openBuyerPanel({{ $listing->id }})"
-                    aria-label="View matched buyers"
-                    title="View {{ $tiers['total'] }} matched buyer{{ $tiers['total'] === 1 ? '' : 's' }}"
-                    style="{{ $iconBtnBase }}">
-                <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/>
-                    <path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
-                </svg>
-            </button>
-            @endif
-        </div>
-
-        {{-- Claim button (Johan 2026-08-19: "pitch now means NOW, claim means
-             I want it but I can't work on it right now") — a real, comfortably
-             sized button on the same line as the icon group, flush right
-             (justify-content:space-between on the wrapper above), clearly a
-             different colour/shape/weight so it can't be hit by mistake next
-             to the icons beside it (outline blue vs Pitch Now's solid green
-             chip above). SAME action the property detail panel's Claim
-             already uses — same route, same controller method, same form —
-             a second, more visible entry point onto it, not a parallel
-             implementation. Gated on $isUnclaimed, the exact same condition
-             the "unclaimed" chip above uses, so this button and that label
-             can never disagree about whether claiming makes sense here
-             (already claimed, already promoted-via-tracked-property-with-a-
-             claim, mid-pitch-lock, prospected/worked history, or company stock
-             all correctly hide it, same as they already hide "unclaimed"). --}}
-        @if($isUnclaimed)
-        <form method="POST" action="{{ route('market-intelligence.claim', $listing->id) }}"
-              data-tour="mic-claim"
-              onclick="event.stopPropagation();"
-              style="margin: 0; flex-shrink: 0;">
-            @csrf
-            {{-- Sizing MUST match _suggested-action-chip.blade.php's $baseChipStyle
-                 exactly (padding, radius, min-width, box-sizing) — Johan
-                 2026-08-21: "make the buttons the same size... it just looks
-                 such a lot better when things square up." min-width fits
-                 "PITCH NOW · HIGH" (the widest label an ordinary agent sees),
-                 so Claim grows to match rather than Pitch Now shrinking; same
-                 geometry, different weight (solid green vs this outline blue)
-                 keeps them square without making them look identical. --}}
-            <button type="submit"
-                    aria-label="Claim this listing — reserve it for yourself without pitching yet"
-                    title="Claim — reserve this listing for yourself. It leaves the canvass list and moves to My Claims; releases automatically if you don't pitch it."
-                    style="display:inline-flex; align-items:center; justify-content:center; gap:5px; padding:6px 12px; font-size:0.75rem; font-weight:600; border-radius:6px; background:var(--surface); border:1px solid var(--border-hover, var(--border)); color:var(--text-secondary); cursor:pointer; white-space:nowrap; min-width:150px; box-sizing:border-box;">
-                <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z"/>
-                </svg>
-                Claim
-            </button>
-        </form>
-        @endif
-        </div>
-
-        @endif {{-- /isCompanyStock --}}
-    </div>
+@include('corex.market-intelligence._row-actions')
 </article>
+{{-- The Card button opens the same intelligence block the Adverts card carries (one partial, two places). --}}
+@if(!empty($adv) && !empty($adv['tp_id']))
+<div x-show="intel" x-cloak data-qa="row-intel-host" style="padding: 8px 14px; background: var(--surface-2); border-bottom: 1px solid var(--border);">
+    <div style="width: 100%; max-width: 28rem; margin-left: auto;">@include('corex.market-intelligence._advert-intel')</div>
+</div>
+@endif
+@endif

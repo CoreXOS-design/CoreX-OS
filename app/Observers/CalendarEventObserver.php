@@ -4,8 +4,11 @@ declare(strict_types=1);
 
 namespace App\Observers;
 
+use App\Events\Evaluation\EvaluationBooked;
+use App\Events\Viewing\ViewingScheduled;
 use App\Models\CommandCenter\CalendarEvent;
 use App\Services\Activity\ProvisionalPointService;
+use App\Support\Events\SafeRaise;
 use Illuminate\Support\Facades\Log;
 
 /**
@@ -36,6 +39,39 @@ final class CalendarEventObserver
                 'method'   => __FUNCTION__,
                 'message'  => $e->getMessage(),
             ]);
+        }
+
+        // Road to Sold step 4: a property evaluation was booked (from the calendar or from a Road to Sold
+        // outcome - both create the same calendar row). One event per booking. Never breaks the save.
+        if ($event->category === 'property_evaluation') {
+            // v4 A4 (road-to-sold.md 23.8): the appointment names its tracked property and belt record (a booking from Road to Sold already did; one made on
+            // the plain calendar is matched to the creating agent's open record for the property, only when exactly one matches)
+            [$trackedId, $prospectId] = app(\App\Services\RoadToSold\BeltLinks::class)->linkEvaluation($event);
+            SafeRaise::dispatch('EvaluationBooked', fn () => new EvaluationBooked(
+                calendarEventId: (int) $event->id,
+                agencyId: $event->agency_id !== null ? (int) $event->agency_id : null,
+                userId: $event->user_id !== null ? (int) $event->user_id : null,
+                propertyId: $event->property_id !== null ? (int) $event->property_id : null,
+                contactId: $event->contact_id !== null ? (int) $event->contact_id : null,
+                startsAt: $event->event_date ? (string) $event->event_date : null,
+                actorUserId: $event->created_by_id !== null ? (int) $event->created_by_id : (auth()->id() ? (int) auth()->id() : null),
+                trackedPropertyId: $trackedId,
+                prospectId: $prospectId,
+            ));
+        }
+
+        // Road to Sold v3 (22.8): a buyer's viewing was put in the calendar. Once per appointment; never breaks the save.
+        if (in_array($event->category, ['viewing', 'viewings', 'buyer_viewing'], true)) {
+            SafeRaise::dispatch('ViewingScheduled', fn () => new ViewingScheduled(
+                calendarEventId: (int) $event->id,
+                propertyId: $event->property_id !== null ? (int) $event->property_id : null,
+                contactId: $event->contact_id !== null ? (int) $event->contact_id : null,
+                agencyId: $event->agency_id !== null ? (int) $event->agency_id : null,
+                branchId: $event->branch_id !== null ? (int) $event->branch_id : null,
+                userId: $event->user_id !== null ? (int) $event->user_id : null,
+                startsAt: $event->event_date ? (string) $event->event_date : null,
+                actorUserId: $event->created_by_id !== null ? (int) $event->created_by_id : (auth()->id() ? (int) auth()->id() : null),
+            ));
         }
     }
 

@@ -1,0 +1,119 @@
+{{-- MIC Work tab (mic-work-tab.md 2.1 C-E): control line + ONE ROW PER PROPERTY FILE, Excel-style, expand in place. Rows come from MicWorkList. --}}
+@php
+    $sortNow = request('sort', $defaultSortKey ?? 'last_seen');
+    $dirNow = request('dir', 'desc');
+    $sortUrl = function (string $key, string $defaultDir = 'desc') use ($sortNow, $dirNow) {
+        $dir = $sortNow === $key ? ($dirNow === 'desc' ? 'asc' : 'desc') : $defaultDir;
+        return route('market-intelligence.work', array_merge(request()->except(['page', 'sort', 'dir']), ['sort' => $key, 'dir' => $dir]));
+    };
+    $arrow = fn (string $key) => $sortNow === $key ? ($dirNow === 'desc' ? ' ▾' : ' ▴') : '';
+    $cols = '40px 84px minmax(180px, 1.5fr) 140px 120px 130px 56px 96px 104px 112px 62px';
+    $money = fn ($v) => 'R ' . number_format((float) $v, 0, '.', ',');
+    $short = fn ($v) => abs($v) >= 1000000 ? 'R' . rtrim(rtrim(number_format(abs($v) / 1000000, 2), '0'), '.') . 'm' : 'R' . number_format(abs($v) / 1000) . 'k';
+    $chip = 'display:inline-block; padding: 0 4px; margin-right: 2px; border: 1px solid var(--border); border-radius: 3px; font-size: .625rem; font-weight: 700; line-height: 1.4; color: var(--text-secondary);';
+    $head = 'font-size: .6875rem; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; color: var(--text-muted); text-decoration: none; white-space: nowrap;';
+    $reasonLabel = ['price_cuts' => 'Price cuts', 'relisted' => 'Re-listed', 'long_dom' => 'Long on market', 'owner_selling' => 'Owner selling', 'mandate_ended' => 'Mandate ended', 'strong_buyers' => 'Strong buyers',
+        'buyers_waiting' => 'Buyers waiting', 'fast_pocket' => 'Fast pocket', 'lead_pocket' => 'Lead pocket', 'pocket_activity' => 'Pocket activity', 'well_known' => 'Well known',
+        'deeds_owner' => 'Deeds owner', 'alert_history' => 'Alert history', 'reachable' => 'Reachable', 'back_on_market' => 'Back on the market', 'unworked' => 'Unworked'];
+@endphp
+
+{{-- C. control line: one search box, status + source chips, clear, count --}}
+<form method="GET" action="{{ route('market-intelligence.work') }}" data-qa="work-control-line"
+      style="display:flex; flex-wrap:wrap; align-items:center; gap: 8px; margin-bottom: 8px;">
+    @foreach(request()->except(['search', 'page']) as $k => $v)
+        @if(!is_array($v))<input type="hidden" name="{{ $k }}" value="{{ $v }}">@endif
+    @endforeach
+    <input type="text" name="search" value="{{ request('search') }}" placeholder="Search address, suburb, agency, ref"
+           style="width: 300px; padding: 4px 8px; font-size: .8125rem; border: 1px solid var(--border); border-radius: 4px; background: var(--surface); color: var(--text-primary);">
+    <button type="submit" class="corex-btn-outline text-xs">Search</button>
+    @php
+        $chipLink = fn (string $label, array $set, bool $on) => '<a href="' . e(route('market-intelligence.work', array_filter(array_merge(request()->except(['page']), $set), fn ($v) => $v !== null && $v !== ''))) . '" style="font-size:.75rem; padding: 2px 8px; border-radius: 10px; text-decoration:none; border:1px solid ' . ($on ? 'var(--brand-icon)' : 'var(--border)') . '; color:' . ($on ? 'var(--brand-icon)' : 'var(--text-secondary)') . ';">' . e($label) . '</a>';
+    @endphp
+    <span style="font-size:.6875rem; color: var(--text-muted);">Status</span>
+    {!! $chipLink('On market', ['is_active' => '1'], request('is_active') === '1') !!}
+    {!! $chipLink('Not seen', ['is_active' => '0'], request('is_active') === '0') !!}
+    {!! $chipLink('All', ['is_active' => 'all'], request('is_active') === 'all') !!}
+    <span style="font-size:.6875rem; color: var(--text-muted);">Source</span>
+    @foreach(\App\Services\Prospecting\PropertySourceFacts::FILTERS as $v => $l)
+        {!! $chipLink($l, ['source' => request('source') === $v ? null : $v], request('source') === $v) !!}
+    @endforeach
+    @if(!empty($isProspectingManager))
+        {!! $chipLink('Show our stock too', ['include_in_stock' => request()->boolean('include_in_stock') ? null : '1'], request()->boolean('include_in_stock')) !!}
+    @endif
+    @if(request()->hasAny(['search', 'source', 'tile', 'is_active', 'suburb', 'address_filter', 'include_in_stock']))
+        <a href="{{ route('market-intelligence.work', ['clear' => 1]) }}" style="font-size:.75rem; color: var(--brand-icon); text-decoration:none;">Clear</a>
+    @endif
+    <span data-qa="work-count" style="margin-left:auto; font-size:.75rem; color: var(--text-muted);">
+        {{ $listings->total() ? number_format($listings->firstItem()) . '-' . number_format($listings->lastItem()) . ' of ' . number_format($listings->total()) : '0' }} properties
+    </span>
+</form>
+
+<div data-qa="work-property-list" style="background: var(--surface); border: 1px solid var(--border); border-radius: 6px; overflow-x: auto;">
+    <div style="min-width: 1240px;">
+        <div style="display:grid; grid-template-columns: {{ $cols }}; gap: 8px; padding: 5px 10px; background: var(--surface-2); border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 2;">
+            @if(\App\Services\Prospecting\MicWork\MicWorkList::hasScores())<a href="{{ $sortUrl('score') }}" style="{{ $head }}">Score{{ $arrow('score') }}</a>@else<span style="{{ $head }}">Score</span>@endif
+            <span style="{{ $head }}">Sources</span>
+            <a href="{{ $sortUrl('address', 'asc') }}" style="{{ $head }}">Address{{ $arrow('address') }}</a>
+            <span style="{{ $head }}">Property</span>
+            <a href="{{ $sortUrl('price') }}" style="{{ $head }}">Price{{ $arrow('price') }}</a>
+            <span style="{{ $head }}">Who's selling</span>
+            <a href="{{ $sortUrl('time') }}" style="{{ $head }}" title="Days on the market, longest first">Time{{ $arrow('time') }}</a>
+            <span style="{{ $head }}">Flags</span>
+            @if(\App\Services\Prospecting\MicWork\MicWorkList::hasFileStats())<a href="{{ $sortUrl('buyers') }}" style="{{ $head }}">Buyers{{ $arrow('buyers') }}</a>@else<span style="{{ $head }}">Buyers</span>@endif
+            <span style="{{ $head }}">Our work</span>
+            <span style="{{ $head }}">Next</span>
+        </div>
+
+        @forelse($listings as $r)
+            <div x-data="{ open: false }" data-qa="work-row" style="border-bottom: 1px solid var(--border);">
+                <div @click="open = !open" style="display:grid; grid-template-columns: {{ $cols }}; gap: 8px; align-items: center; padding: 4px 10px; font-size: .8125rem; cursor: pointer; min-height: 38px; color: var(--text-secondary);">
+                    <span style="font-weight: 700; color: var(--text-primary);">{{ $r['score'] !== null ? number_format($r['score'], 0) : '' }}</span>
+                    <span data-qa="row-sources">
+                        @if($r['p24'])<span style="{{ $chip }}">P24</span>@endif
+                        @if($r['pp'])<span style="{{ $chip }}">PP</span>@endif
+                        @if($r['alert'])<span data-qa="envelope" style="{{ $chip }} padding: 1px 4px;" title="{{ $r['alert_tip'] }}"><svg viewBox="0 0 16 12" width="14" height="10" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" style="display:block;" aria-label="In a P24 alert email"><rect x="1" y="1" width="14" height="10" rx="1.5"/><path d="M1.5 2.2 8 7l6.5-4.8"/></svg></span>@endif
+                        @if($r['own_stock'])<span style="{{ $chip }} color: var(--brand-icon);" title="Our stock">Stock</span>@endif
+                        @if($r['deeds'])<span style="{{ $chip }}" title="Deeds captured">Deeds</span>@endif
+                        @if($r['owner'])<span style="{{ $chip }}" title="Owner selling privately">Owner</span>@endif
+                    </span>
+                    <span style="min-width:0;">
+                        <span style="display:block; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="{{ $r['address'] }}">
+                            @if($r['tp_id'])<a href="{{ route('market-intelligence.opportunities.show', ['tp' => $r['tp_id']]) }}" @click.stop style="color: inherit; text-decoration: none;">{{ $r['address'] }}</a>@else{{ $r['address'] }}@endif
+                            @if($r['suburb'] && !str_contains($r['address'], (string) $r['suburb']))<span style="color: var(--text-muted);"> · {{ $r['suburb'] }}</span>@endif
+                        </span>
+                        @if($r['pair_ids'])<a href="{{ count($r['pair_ids']) === 1 ? route('corex.possible-matches.index', ['pair' => $r['pair_ids'][0]]) : route('corex.possible-matches.index', ['file' => $r['tp_id']]) }}" @click.stop data-qa="possible-match-chip" title="CoreX is not sure this is the same property as another file. Click to review." style="font-size:.625rem; font-weight:700; padding: 0 5px; margin-right: 4px; border: 1px solid var(--ds-amber, #f59e0b); border-radius: 3px; color: var(--ds-amber, #f59e0b); text-decoration:none;">Possible match{{ count($r['pair_ids']) > 1 ? ' (' . count($r['pair_ids']) . ')' : '' }}</a>@endif
+                        @if($r['reasons'])<span style="font-size:.6875rem; color: var(--text-muted);">{{ collect($r['reasons'])->take(2)->map(fn ($c) => $reasonLabel[$c] ?? $c)->implode(' · ') }}</span>@endif
+                    </span>
+                    <span style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                        {{ collect([$r['facts']['type'], $r['facts']['beds'] ? $r['facts']['beds'] . 'bd' : null, $r['facts']['baths'] ? $r['facts']['baths'] . 'ba' : null, $r['facts']['garages'] ? $r['facts']['garages'] . 'g' : null])->filter()->implode(' · ') }}
+                        @if($r['facts']['floor'] || $r['facts']['erf'])<span style="color: var(--text-muted);"> · {{ $r['facts']['floor'] ? number_format((float) $r['facts']['floor']) . ' m²' : '' }}{{ $r['facts']['floor'] && $r['facts']['erf'] ? ' / ' : '' }}{{ $r['facts']['erf'] ? number_format((float) $r['facts']['erf']) . ' erf' : '' }}</span>@endif
+                    </span>
+                    <span style="min-width:0; overflow:hidden; white-space: nowrap;">
+                        <span style="display:block; text-overflow: ellipsis; overflow:hidden;">@if($r['price']){{ $money($r['price']) }}@else - @endif</span>
+                        @if($r['move'])<span data-qa="price-move" style="display:block; font-size:.6875rem; color: {{ $r['move'] < 0 ? 'var(--ds-crimson, #dc2626)' : 'var(--text-muted)' }};" title="Move on the lead advert since it was first seen">{{ $r['move'] < 0 ? '▼' : '▲' }} {{ $short($r['move']) }}@if($r['cuts'] > 1) · {{ $r['cuts'] }} cuts @elseif($r['cuts'] === 1) · 1 cut @endif</span>@endif
+                    </span>
+                    <span style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="{{ implode(', ', $r['agencies']) }}{{ $r['advert_count'] > 1 ? ' - ' . $r['advert_count'] . ' adverts' : '' }}">
+                        @if($r['owner'])Owner @elseif(count($r['agencies']) === 0)- @else{{ $r['agencies'][0] }}{{ count($r['agencies']) > 1 ? ' +' . (count($r['agencies']) - 1) : '' }}@endif{{ $r['advert_count'] > 1 ? ' · ' . $r['advert_count'] . ' adverts' : '' }}
+                    </span>
+                    <span style="white-space: nowrap;" title="Days on the market. A + means at least this long: we first saw it then, and cannot tell how long it was there before.">{{ $r['dom']['label'] }}{{ is_numeric($r['dom']['label']) || str_ends_with($r['dom']['label'], '+') ? ' d' : '' }}</span>
+                    <span style="font-size:.6875rem; color: var(--ds-amber, #f59e0b); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ implode(' · ', $r['flags']) }}</span>
+                    <span title="Buyers matched to this property (own agency)" style="font-size:.75rem; white-space: nowrap;">@if($r['buyers_strong'] !== null){{ $r['buyers_strong'] ? $r['buyers_strong'] . ' strong' : '' }}{{ $r['buyers_strong'] && $r['buyers_mid'] ? ' · ' : '' }}{{ $r['buyers_mid'] ? $r['buyers_mid'] . ' mid' : '' }}@elseif($r['buyers']){{ $r['buyers'] }} matched @endif</span>
+                    <span style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size:.75rem;" title="{{ $r['work_reason'] }}">{{ $r['claimed_by'] ? 'Claimed · ' . $r['claimed_by'] : ($r['work_status'] ? ucfirst(str_replace('_', ' ', $r['work_status'])) : '') }}</span>
+                    <span>
+                        @if($r['tp_id'])<a href="{{ route('market-intelligence.opportunities.show', ['tp' => $r['tp_id']]) }}" @click.stop class="corex-btn-outline text-xs" style="padding: 1px 8px;">{{ $r['claimed_by'] ? 'Open' : ($r['own_stock'] ? 'Open' : 'Claim') }}</a>@endif
+                    </span>
+                </div>
+
+                {{-- E. expand in place --}}
+                <div x-show="open" x-cloak data-qa="row-expand" style="padding: 6px 10px 10px 56px; background: var(--surface-2); font-size: .75rem; color: var(--text-secondary);">
+                    @include('corex.market-intelligence.partials._work-record-card', ['r' => $r, 'money' => $money])
+                </div>
+            </div>
+        @empty
+            <div data-qa="work-empty" style="padding: 28px 12px; text-align: center; font-size: .875rem; color: var(--text-muted);">
+                Nothing matches. <a href="{{ route('market-intelligence.work', ['clear' => 1]) }}" style="color: var(--brand-icon); text-decoration:none;">Clear the filters</a>.
+            </div>
+        @endforelse
+    </div>
+</div>
+<div style="padding: 10px 0;">{{ $listings->withQueryString()->links() }}</div>

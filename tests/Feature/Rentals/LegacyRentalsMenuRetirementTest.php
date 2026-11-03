@@ -78,11 +78,9 @@ class LegacyRentalsMenuRetirementTest extends TestCase
 
     public function test_worksheet_page_no_longer_shows_the_rentals_inclusion_card(): void
     {
-        $user = $this->makeUser();
-        $response = $this->actingAs($user)->get(route('worksheet.index'));
-
-        $response->assertOk();
-        $response->assertDontSee('Rentals (This Period)');
+        // The Worksheet is retired (agency-tracker-rehome.md step 5): its address 301s to My Portal, so the card is checked in the kept view itself.
+        $this->actingAs($this->makeUser())->get(route('worksheet.index'))->assertStatus(301);
+        $this->assertStringNotContainsString('Rentals (This Period)', (string) file_get_contents(resource_path('views/worksheet/index.blade.php')));
     }
 
     public function test_view_rentals_and_access_rental_signatures_permission_keys_are_retired(): void

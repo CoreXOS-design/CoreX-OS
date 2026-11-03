@@ -27,7 +27,7 @@ final class ViewAsBranchScopeTest extends TestCase
     {
         $agency = Agency::create(['name' => 'Own', 'slug' => 'own-' . uniqid()]);
         $branch = Branch::create(['agency_id' => $agency->id, 'name' => 'Own HQ']);
-        Role::create(['name' => 'super_admin', 'label' => 'System Owner', 'is_owner' => true]);
+        Role::unguarded(fn () => Role::create(['name' => 'super_admin', 'label' => 'System Owner', 'is_owner' => true])); // is_owner is deliberately not mass-assignable
         Role::create(['name' => 'agent', 'label' => 'Agent', 'agency_id' => $agency->id]);
 
         $foreignAgency = Agency::create(['name' => 'Foreign', 'slug' => 'foreign-' . uniqid()]);
@@ -48,7 +48,7 @@ final class ViewAsBranchScopeTest extends TestCase
     {
         $agency = Agency::create(['name' => 'Own', 'slug' => 'own-' . uniqid()]);
         $branch = Branch::create(['agency_id' => $agency->id, 'name' => 'Own HQ']);
-        Role::create(['name' => 'super_admin', 'label' => 'System Owner', 'is_owner' => true]);
+        Role::unguarded(fn () => Role::create(['name' => 'super_admin', 'label' => 'System Owner', 'is_owner' => true])); // is_owner is deliberately not mass-assignable
         Role::create(['name' => 'agent', 'label' => 'Agent', 'agency_id' => $agency->id]);
 
         $owner = User::factory()->create(['agency_id' => $agency->id, 'branch_id' => $branch->id, 'role' => 'super_admin']);

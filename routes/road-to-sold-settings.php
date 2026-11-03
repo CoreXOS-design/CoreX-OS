@@ -15,7 +15,7 @@ return function () {
     $rts = 'feature:road-to-sold';
 
     Route::get('/', [\App\Http\Controllers\RoadToSold\SettingsController::class, 'index'])
-        ->middleware([$rts, 'permission:road_to_sold.manage_settings,road_to_sold.manage_areas,road_to_sold.manage_targets'])
+        ->middleware([$rts, 'permission:road_to_sold.manage_settings,road_to_sold.manage_areas,road_to_sold.manage_targets,road_to_sold.manage_recipe'])
         ->name('index');
     Route::put('/general', [\App\Http\Controllers\RoadToSold\SettingsController::class, 'update'])
         ->middleware([$rts, 'permission:road_to_sold.manage_settings'])
@@ -50,6 +50,7 @@ return function () {
         Route::delete('/monthly/agents/{user}', [$c, 'archiveMonthly'])->whereNumber('user')->name('monthly.archive');
         Route::post('/monthly/agents/{user}/restore', [$c, 'restoreMonthly'])->whereNumber('user')->name('monthly.restore');
         Route::put('/monthly/default', [$c, 'updateMonthlyDefault'])->name('monthly.default');
+        Route::put('/monthly/split', [$c, 'splitMonthly'])->name('monthly.split');
         Route::post('/monthly/apply-default', [$c, 'applyMonthlyDefault'])->name('monthly.apply-default');
     });
 
@@ -58,10 +59,62 @@ return function () {
         $c = \App\Http\Controllers\RoadToSold\BudgetsController::class;
         Route::get('/', [$c, 'index'])->name('index');
         Route::put('/agency', [$c, 'saveAgency'])->name('agency');
+        Route::put('/split', [$c, 'split'])->name('split');
         Route::put('/branches/{branch}', [$c, 'saveBranch'])->whereNumber('branch')->name('branch');
         Route::put('/agents/{user}', [$c, 'saveAgent'])->whereNumber('user')->name('agent');
         Route::delete('/agents/{user}', [$c, 'archiveAgent'])->whereNumber('user')->name('agent.archive');
         Route::post('/agents/{user}/restore', [$c, 'restoreAgent'])->whereNumber('user')->name('agent.restore');
         Route::post('/copy-previous', [$c, 'copyPrevious'])->name('copy-previous');
+    });
+
+    // Task targets - an agent's own target for each task on their level, over the level's (v2 phase 5, spec 5.2 / 10.4).
+    Route::middleware([$rts, 'permission:road_to_sold.manage_targets'])->prefix('task-targets')->name('task-targets.')->group(function () {
+        $c = \App\Http\Controllers\RoadToSold\TaskTargetsController::class;
+        Route::get('/', [$c, 'index'])->name('index');
+        Route::put('/agents/{user}/tasks/{task}', [$c, 'save'])->whereNumber('user')->whereNumber('task')->name('save');
+        Route::delete('/agents/{user}/tasks/{task}', [$c, 'clear'])->whereNumber('user')->whereNumber('task')->name('clear');
+        Route::post('/agents/{user}/tasks/{task}/restore', [$c, 'restore'])->whereNumber('user')->whereNumber('task')->name('restore');
+    });
+
+    // Points - what the agency pays for each belt credit (road-to-sold.md 23.16).
+    Route::middleware([$rts, 'permission:road_to_sold.manage_settings'])->prefix('points')->name('points.')->group(function () {
+        $c = \App\Http\Controllers\RoadToSold\BeltPointsController::class;
+        Route::get('/', [$c, 'settings'])->name('index');
+        Route::put('/', [$c, 'save'])->name('save');
+    });
+
+    // Training & flags - the thresholds (saved through the General tab's writer) and the training an agency points at for each funnel ratio (v2 phase 5, spec 9.3).
+    Route::middleware([$rts, 'permission:road_to_sold.manage_settings'])->prefix('flags')->name('flags.')->group(function () {
+        $c = \App\Http\Controllers\RoadToSold\FlagSettingsController::class;
+        Route::get('/', [$c, 'index'])->name('index');
+        Route::post('/pointers', [$c, 'save'])->name('pointer.save');
+        Route::delete('/pointers/{ratio}', [$c, 'archive'])->name('pointer.archive');
+        Route::post('/pointers/{ratio}/restore', [$c, 'restore'])->name('pointer.restore');
+    });
+
+    // Recipe - the 13 steps, the tasks inside them and the levels an agent works through (road-to-sold.md section 5, 10.4, 13.1).
+    Route::middleware([$rts, 'permission:road_to_sold.manage_recipe'])->prefix('recipe')->name('recipe.')->group(function () use ($rts) {
+        $c = \App\Http\Controllers\RoadToSold\RecipeController::class;
+        Route::get('/', [$c, 'index'])->name('index');
+        Route::post('/start', [$c, 'start'])->name('start');
+
+        Route::get('/tasks/create', [$c, 'taskCreate'])->name('tasks.create');
+        Route::post('/tasks', [$c, 'taskStore'])->name('tasks.store');
+        Route::get('/tasks/{task}/edit', [$c, 'taskEdit'])->whereNumber('task')->name('tasks.edit');
+        Route::put('/tasks/{task}', [$c, 'taskUpdate'])->whereNumber('task')->name('tasks.update');
+        Route::delete('/tasks/{task}', [$c, 'taskArchive'])->whereNumber('task')->name('tasks.archive');
+        Route::post('/tasks/{task}/restore', [$c, 'taskRestore'])->whereNumber('task')->withTrashed()->name('tasks.restore');
+        Route::post('/tasks/{task}/restore-default', [$c, 'taskRestoreDefault'])->whereNumber('task')->name('tasks.restore-default');
+
+        Route::put('/steps/{step}', [$c, 'stepUpdate'])->whereNumber('step')->name('steps.update');
+        Route::delete('/steps/{step}', [$c, 'stepArchive'])->whereNumber('step')->name('steps.archive');
+        Route::post('/steps/{step}/restore', [$c, 'stepRestore'])->whereNumber('step')->withTrashed()->name('steps.restore');
+
+        Route::get('/levels/create', [$c, 'levelCreate'])->name('levels.create');
+        Route::post('/levels', [$c, 'levelStore'])->name('levels.store');
+        Route::get('/levels/{level}/edit', [$c, 'levelEdit'])->whereNumber('level')->name('levels.edit');
+        Route::put('/levels/{level}', [$c, 'levelUpdate'])->whereNumber('level')->name('levels.update');
+        Route::delete('/levels/{level}', [$c, 'levelArchive'])->whereNumber('level')->name('levels.archive');
+        Route::post('/levels/{level}/restore', [$c, 'levelRestore'])->whereNumber('level')->withTrashed()->name('levels.restore');
     });
 };

@@ -80,12 +80,6 @@ Notice period default: existing `tenant_notice_period_days` + `_unit` (default 3
 ## Audit fix 2026-10-18 (A-M8)
 `POST /api/v1/leases/{lease}/renewal/tenant-notice` and `/landlord-notice` now go through `LeaseNoticeService::give(..., VIA_AGENT, ...)` exactly like the web action, so the review step applies. **Backward compatible:** the original mobile payload still works - `move_out_date` maps to `intended_end_date`, `note` to `reason`, `notice_date` defaults to today, `notice_outcome` / `show_available_from_on_portals` are accepted and ignored (the reviewer picks the outcome on acceptance). **Deprecated:** the old field names and the ignored outcome; new clients send `notice_date`, `intended_end_date`, `reason`, `attachment`. The response keeps `lease` and adds `notice`. Test: `LeaseNoticeStaffFlowTest`.
 
-## Audit fix 2026-10-20 (finding 5) - reverse and change-outcome need `rental_notices.review`
-
-Recording a notice already needed `rental_notices.review` on every entry (A17). Undoing one did not: `notice/reverse` and `notice/change-outcome` (web `corex.leases.renewal.notice.*`, mobile `v1.leases.renewal.notice.*`) needed only `leases.renew`, so a role that could not record a notice could still reverse an accepted one (which un-ends the lease and re-flips the property status). Both routes now carry `permission:rental_notices.review`, the two web and two API controller methods check it themselves, and the lease screen's "Lease actions" menu offers "Change notice outcome" / "Reverse notice" only to holders. Tests: `tests/Feature/LeaseNotices/NoticesPortalAuditFixesTest.php`.
-
-**Grant migration correction (finding 4).** `2026_11_19_100000` (A17/A28 backfill) used to RESTORE soft-deleted `rental_notices.view` / `.review` rows - handing back grants an administrator had deliberately revoked. It now creates only grants that never existed and leaves a trashed row alone; `down()` is a no-op. Checked on 2026-10-20 against QA1, QA2, Staging and live: the first version restored no revoked grant anywhere, so no clean-up migration was shipped.
-
 ## 11. The agency's EXPIRY NOTICE to the tenant - Consumer Protection Act (AT-489, 21 Oct 2026, cc1)
 
 **Johan's rulings (verbatim in substance):** build CoreX on CPA law. The 40-80 business days in clause 5.1 of the residential lease is the AGENCY'S expiry notice to the tenant (CPA s14(2)(c)), not a termination notice. Counting is CPA s2(6): the first day is excluded, the last day is included, Saturdays, Sundays and South African public holidays do not count. Tenant early cancellation is a separate rule: 20 business days' written notice (s14(2)(b)).
@@ -106,6 +100,15 @@ Recording a notice already needed `rental_notices.review` on every entry (A17). 
 **Tests:** `tests/Feature/Leases/LeaseExpiryNoticeAt489Test.php` (counting across Christmas/New Year and the Sunday-to-Monday rule, settings range + audit + migration conversion, states, the daily send/alert, lease screen, Command Centre, capture screen). Browser proof: the real partial in headless Chromium, the browser's dates compared with the server's.
 
 **Deliberately not built here (flag for Johan):** no tile for "expiry notices overdue" on the Command Centre (the queue row only); the default wording of the notice is the agency's (an agency with no template is alerted, never sent a CoreX-written notice).
+
+
+## Audit fix 2026-10-20 (finding 5) - reverse and change-outcome need `rental_notices.review`
+
+Recording a notice already needed `rental_notices.review` on every entry (A17). Undoing one did not: `notice/reverse` and `notice/change-outcome` (web `corex.leases.renewal.notice.*`, mobile `v1.leases.renewal.notice.*`) needed only `leases.renew`, so a role that could not record a notice could still reverse an accepted one (which un-ends the lease and re-flips the property status). Both routes now carry `permission:rental_notices.review`, the two web and two API controller methods check it themselves, and the lease screen's "Lease actions" menu offers "Change notice outcome" / "Reverse notice" only to holders. Tests: `tests/Feature/LeaseNotices/NoticesPortalAuditFixesTest.php`.
+
+**Grant migration correction (finding 4).** `2026_11_19_100000` (A17/A28 backfill) used to RESTORE soft-deleted `rental_notices.view` / `.review` rows - handing back grants an administrator had deliberately revoked. It now creates only grants that never existed and leaves a trashed row alone; `down()` is a no-op. Checked on 2026-10-20 against QA1, QA2, Staging and live: the first version restored no revoked grant anywhere, so no clean-up migration was shipped.
+
+
 ## AT-495 (21 Oct 2026) - the Notices received tab can record a notice
 
 - **Record a received notice** (header button and the empty state; permission `rental_notices.review` + `leases.view`): a lease picker (search by tenant name, property address or lease number; only leases the user may see - own / branch / agency; a lease that already has an accepted notice, or is not running, is shown with the reason and no action) then two buttons per lease, **Tenant gave notice** / **Landlord not renewing**, which open the lease screen with that dialog already open (`?action=tenant-notice|landlord-notice`, `LeaseActionDialogResolver`). Nothing new is stored by the picker; the dialog is the §5.1 dialog.

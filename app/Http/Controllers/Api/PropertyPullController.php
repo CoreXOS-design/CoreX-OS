@@ -181,6 +181,12 @@ class PropertyPullController extends Controller
             // Restore if soft-deleted
             if ($existing->trashed()) {
                 $existing->restore();
+                app(\App\Services\Audit\PropertyAuditService::class)->log(
+                    $existing, 'property', 'restored_by_reimport', $user,
+                    ['archived' => true], ['archived' => false],
+                    ['portal_ref' => $data['portal_ref'] ?? null],
+                    'Restored by re-import from the portal listing ' . ($data['portal_ref'] ?? ''),
+                );
             }
 
             // Update existing property with fresh data from portal

@@ -622,3 +622,14 @@ The architecture pattern is **single source of truth = `properties` table; every
 - Three new columns on `properties` (erf_number, title_deed_number, municipal_valuation) — small migration.
 
 **Honest closing assessment:** the unflattering finding from this audit is that CoreX already has roughly two-thirds of the data plumbing needed for Market Intelligence — it's just been built in service of presentations, prospecting, and syndication rather than as a unified intelligence layer. The right next move is connective tissue (events + a mapping table + a few backfill listeners), not new ingestion. The Wednesday demo should make that visible by literally putting all the existing fragments on one screen and letting the gap between "data we have" and "data we surface" speak for itself.
+
+---
+
+## Addendum (29 Oct 2026, lane C) - alerts on the property
+
+Every Property24 alert row is tied to its property file by advert number (through the identity door) and a Private Property alert import now exists (`pp:import`). The property screen shows what the alerts say (price, changes, first/last seen, mandated) beside the agency's own notes. Full text: `property-identity.md` section 15.1.
+
+Claims (C2): a deeds capture or a hand-added property that is the same property as one in Market Intelligence claims it for the capturing agent (all its adverts, no activity points, work-record history line, Road to Sold prospect at Found). See `property-identity.md` section 15.2.
+
+Status (C3): the status on a property and the agency's status on the Market Intelligence property are one thing - "Not selling" set either side shows on both, and the history is kept. See `property-identity.md` section 15.3.
+

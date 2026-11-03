@@ -98,7 +98,7 @@ class DealObserver
     /**
      * SPINE-2 — deal soft-delete is a genuine reversal (per Johan's V1
      * rule). Revoke every instant credit tied to this deal subject:
-     * deal.created, deal.stage_advanced, deal.registered.
+     * deal.created, deal.stage_advanced, deal.registered, deal.commission_finalised.
      *
      * Lives here (not in CreditInstantActionListener) because there is no
      * domain event for "deal soft-deleted" — the Eloquent `deleted` model
@@ -111,7 +111,7 @@ class DealObserver
 
         try {
             $svc = app(\App\Services\Activity\InstantPointService::class);
-            foreach (['deal.created', 'deal.stage_advanced', 'deal.registered'] as $slug) {
+            foreach (['deal.created', 'deal.stage_advanced', 'deal.registered', 'deal.commission_finalised'] as $slug) {
                 try {
                     $svc->revoke($slug, $deal, 'deal_archived');
                 } catch (\Throwable $e) {

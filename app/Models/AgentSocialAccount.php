@@ -20,11 +20,13 @@ class AgentSocialAccount extends Model
         'access_token',
         'token_expires_at',
         'is_active',
+        'is_platform',
     ];
 
     protected $casts = [
         'access_token'      => 'encrypted',
         'is_active'         => 'boolean',
+        'is_platform'       => 'boolean',
         'token_expires_at'  => 'datetime',
     ];
 
@@ -35,6 +37,12 @@ class AgentSocialAccount extends Model
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
+    }
+
+    /** AT-527 - the CoreX page connected by a System Owner (never an agency's). */
+    public function scopePlatform($query)
+    {
+        return $query->where('is_platform', true);
     }
 
     public function scopeActive($query)

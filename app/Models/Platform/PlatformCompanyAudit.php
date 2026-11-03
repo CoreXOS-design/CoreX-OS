@@ -2,11 +2,14 @@
 
 namespace App\Models\Platform;
 
+use App\Models\Concerns\StampsOnBehalfOf;
 use Illuminate\Database\Eloquent\Model;
 
 /** Append-only: who changed the platform company record, when, and what (from → to). */
 class PlatformCompanyAudit extends Model
 {
+    use StampsOnBehalfOf;
+
     public $timestamps = false;
     protected $table = 'platform_company_audit';
     protected $fillable = ['user_id', 'action', 'summary', 'changes', 'created_at'];

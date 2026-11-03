@@ -1,0 +1,16 @@
+[Unit]
+Description=CoreX QA1 Laravel queue worker - p24 (SyncP24LocationsJob from the Importer page, up to 1 h; AT-523: it had no worker anywhere) - QA-scoped, do not use for live/staging
+After=network.target mysql.service
+
+[Service]
+User=www-data
+Group=www-data
+Restart=always
+RestartSec=3
+WorkingDirectory=/corex-qa1
+ExecStart=/usr/bin/nice -n 19 /usr/bin/php /corex-qa1/artisan queue:work --queue=p24 --sleep=3 --tries=1 --timeout=3660 --max-time=3600
+StandardOutput=append:/var/log/corex-qa1-queue-p24.log
+StandardError=append:/var/log/corex-qa1-queue-p24.log
+
+[Install]
+WantedBy=multi-user.target
