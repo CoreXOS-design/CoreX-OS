@@ -120,9 +120,12 @@ class AgencyPerformanceReportController extends Controller
      * branch/agent narrowing and the deal-status ticks. Print and the drilldown are built from it, so what
      * prints is what is on screen.
      */
-    private function viewQuery(Request $request, DealStatusSelection $statuses): array
+    private function viewQuery(Request $request, DealStatusSelection $statuses, bool $company = true): array
     {
-        $q = array_filter($request->only(['period', 'start', 'end', 'compare', 'compare_start', 'compare_end', 'branch_id', 'user_id']),
+        // The branch and agent pages have no comparison selector or branch/agent narrowing of their own (they always compare to the
+        // preceding period), so they carry only the period and the ticks.
+        $keys = $company ? ['period', 'start', 'end', 'compare', 'compare_start', 'compare_end', 'branch_id', 'user_id'] : ['period', 'start', 'end'];
+        $q = array_filter($request->only($keys),
             fn ($v) => $v !== null && $v !== '' && !is_array($v));
 
         return $q + $statuses->toQuery();
@@ -219,8 +222,10 @@ class AgencyPerformanceReportController extends Controller
         $ceiling = $scopes->ceiling($actor);
 
         [$period, $preset] = $this->resolvePeriod($request, $periods);
+        // The company report's deal-status ticks follow the reader onto the branch and agent pages (same ?status[]).
+        $statuses = DealStatusSelection::fromRequest($request);
 
-        $report = $service->branchJourney((int) $agencyId, $branch, $period, $ceiling);
+        $report = $service->branchJourney((int) $agencyId, $branch, $period, $ceiling, $statuses);
         abort_if($report['branch'] === null, 404);
 
         // AT-366-E — this branch's buyer-activity summary, pulled from the same
@@ -235,6 +240,8 @@ class AgencyPerformanceReportController extends Controller
             ],
             'preset'  => $preset,
             'presets' => PeriodResolver::PRESETS,
+            'statuses' => $statuses,
+            'viewQuery' => $this->viewQuery($request, $statuses, false),
         ]);
     }
 
@@ -254,8 +261,9 @@ class AgencyPerformanceReportController extends Controller
         abort_unless($scopes->canViewAgent($actor, (int) $user->id), 403);
 
         [$period, $preset] = $this->resolvePeriod($request, $periods);
+        $statuses = DealStatusSelection::fromRequest($request);
 
-        $journey = $service->agentJourney((int) $agencyId, (int) $user->id, $period, $scopes->ceiling($actor));
+        $journey = $service->agentJourney((int) $agencyId, (int) $user->id, $period, $scopes->ceiling($actor), $statuses);
         abort_if($journey['agent'] === null, 404);
 
         // AT-366-E — the agent's full period-scoped buyer-activity picture (Q7).
@@ -266,6 +274,8 @@ class AgencyPerformanceReportController extends Controller
             'buyer'   => $buyerActivity,
             'preset'  => $preset,
             'presets' => PeriodResolver::PRESETS,
+            'statuses' => $statuses,
+            'viewQuery' => $this->viewQuery($request, $statuses, false),
         ]);
     }
 
@@ -327,11 +337,13 @@ class AgencyPerformanceReportController extends Controller
         abort_unless($scopes->canViewAgent($actor, (int) $user->id), 403); // see agent()
 
         [$period, $preset] = $this->resolvePeriod($request, $periods);
+        $statuses = DealStatusSelection::fromRequest($request);
 
-        $journey = $service->agentJourney((int) $agencyId, (int) $user->id, $period, $scopes->ceiling($actor));
+        $journey = $service->agentJourney((int) $agencyId, (int) $user->id, $period, $scopes->ceiling($actor), $statuses);
         abort_if($journey['agent'] === null, 404);
 
         return view('performance.agency-report.print-agent', [
+            'statuses' => $statuses,
             'journey' => $journey,
             'agency'  => \App\Models\Agency::withoutGlobalScopes()->find((int) $agencyId),
             'preset'  => $preset,

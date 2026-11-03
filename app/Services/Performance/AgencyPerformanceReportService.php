@@ -17,6 +17,8 @@ use App\Services\Performance\Providers\DealStatusAware;
  */
 class AgencyPerformanceReportService
 {
+    public const AGENT_SHARE_LABEL = 'Commission (agent share, ex-VAT)';
+
     public function __construct(
         private readonly HierarchyResolver $hierarchy,
         private readonly MetricProviderRegistry $registry,
@@ -71,7 +73,14 @@ class AgencyPerformanceReportService
                 ? $provider->forUsersWithStatuses($userIds, $period, $statuses)
                 : $provider->forUsers($userIds, $period);
         }
-        $metricMeta = array_map(fn ($p) => ['key' => $p->key(), 'label' => $p->label()], $providers);
+        // 'column_label' is the heading to put over the number a row/column/agent card actually holds. For commission that
+        // number is the AGENT share (CommissionGrossProvider::forUsers returns the agent's own money line), not the gross
+        // the company Commission card headlines, so it says so. 'label' (the card/drilldown name) is unchanged.
+        $metricMeta = array_map(fn ($p) => [
+            'key' => $p->key(),
+            'label' => $p->label(),
+            'column_label' => $p->key() === 'commission_gross_ex_vat' ? self::AGENT_SHARE_LABEL : $p->label(),
+        ], $providers);
 
         // AT-366 §A — per-agent deal status breakdown (qty+value per bucket) for the toggle bar.
         $breakdown = $this->dealStatus->forUsers($userIds, $period, $scope->agencyId);
@@ -195,13 +204,14 @@ class AgencyPerformanceReportService
      * AT-366-C — one agent's journey for the period, each metric paired with its
      * value in the equal-length preceding period (delta = trend). Returns
      * ['agent' => null] when the user is not an in-scope agency member (owners
-     * excluded), so the caller can 404.
+     * excluded), so the caller can 404. $statuses = the deal-status ticks (null = every status), applied to
+     * both periods so the trend compares like with like.
      */
-    public function agentJourney(int $agencyId, int $userId, Period $period, ?PerformanceScope $ceiling = null): array
+    public function agentJourney(int $agencyId, int $userId, Period $period, ?PerformanceScope $ceiling = null, ?DealStatusSelection $statuses = null): array
     {
         $scope    = $ceiling ? $ceiling->withFilters(null, $userId) : new PerformanceScope($agencyId, null, $userId);
-        $current  = $this->build($scope, $period);
-        $previous = $this->build($scope, $period->previous());
+        $current  = $this->build($scope, $period, $statuses);
+        $previous = $this->build($scope, $period->previous(), $statuses);
 
         $curAgent  = $current['agents'][0] ?? null;
         $prevAgent = $previous['agents'][0] ?? null;
@@ -216,7 +226,7 @@ class AgencyPerformanceReportService
             $prev = $prevAgent['metrics'][$m['key']] ?? 0;
             $metrics[] = [
                 'key'      => $m['key'],
-                'label'    => $m['label'],
+                'label'    => $m['column_label'],
                 'value'    => $cur,
                 'previous' => $prev,
                 'delta'    => $cur - $prev,
@@ -246,11 +256,11 @@ class AgencyPerformanceReportService
      * which can differ after a move). $branchKey is a numeric branch id or the
      * 'unassigned' sentinel. Returns ['branch' => null] for an unknown branch.
      */
-    public function branchJourney(int $agencyId, string $branchKey, Period $period, ?PerformanceScope $ceiling = null): array
+    public function branchJourney(int $agencyId, string $branchKey, Period $period, ?PerformanceScope $ceiling = null, ?DealStatusSelection $statuses = null): array
     {
         $scope    = $ceiling ? $ceiling->withFilters(null, null) : new PerformanceScope($agencyId);
-        $current  = $this->build($scope, $period);
-        $previous = $this->build($scope, $period->previous());
+        $current  = $this->build($scope, $period, $statuses);
+        $previous = $this->build($scope, $period->previous(), $statuses);
 
         $branchNames = $this->hierarchy->branchNames($agencyId);
 
@@ -276,7 +286,7 @@ class AgencyPerformanceReportService
             $prev = $prevMetrics[$m['key']] ?? 0;
             $metrics[] = [
                 'key'      => $m['key'],
-                'label'    => $m['label'],
+                'label'    => $m['column_label'],
                 'value'    => $cur,
                 'previous' => $prev,
                 'delta'    => $cur - $prev,

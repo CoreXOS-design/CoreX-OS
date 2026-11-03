@@ -97,7 +97,7 @@ class ProspectService
      * Take a property for the agent. Returns the prospect, or null when another agent owns it (the caller then takes its next candidate).
      * Idempotent for the same agent. A property that was closed or released is free again and restarts at "found".
      *
-     * @param array{prospecting_listing_id?:?int,property_id?:?int,selection?:?string,reason?:?string,reason_facts?:?array,stage?:string,actor?:?User} $attrs
+     * @param array{prospecting_listing_id?:?int,property_id?:?int,selection?:?string,reason?:?string,reason_facts?:?array,stage?:string,actor?:?User,entered_at?:?CarbonInterface} $attrs
      */
     public function place(User $agent, int $trackedPropertyId, string $track = 'sales', array $attrs = []): ?RtsProspect
     {
@@ -138,7 +138,7 @@ class ProspectService
                     'tracked_property_id' => $trackedPropertyId,
                     'prospecting_listing_id' => $attrs['prospecting_listing_id'] ?? null,
                     'property_id' => $attrs['property_id'] ?? null,
-                    'stage' => $stage, 'stage_entered_at' => now(),
+                    'stage' => $stage, 'stage_entered_at' => $this->enteredAt($attrs['entered_at'] ?? null),
                     'selection' => $attrs['selection'] ?? null,
                     'reason' => isset($attrs['reason']) ? mb_substr((string) $attrs['reason'], 0, 255) : null,
                     'reason_facts' => $attrs['reason_facts'] ?? null,
@@ -180,7 +180,7 @@ class ProspectService
      * Move to a later stage. Forward only; the same (stage, subject) twice writes nothing; an earlier stage is refused unless $allowBack
      * (a lost deal). Returns true when the prospect moved. A parked prospect that makes real progress is brought back first.
      *
-     * @param array{event_class?:string,subject_type?:string,subject_id?:int,note?:string,next_at?:?CarbonInterface,next_label?:?string,meta?:array} $source
+     * @param array{event_class?:string,subject_type?:string,subject_id?:int,note?:string,next_at?:?CarbonInterface,next_label?:?string,meta?:array,entered_at?:?CarbonInterface} $source
      */
     public function advance(RtsProspect $p, string $stage, ?User $actor = null, array $source = [], bool $allowBack = false): bool
     {
@@ -201,7 +201,7 @@ class ProspectService
             }
             $label = array_key_exists('next_label', $source) ? $source['next_label'] : ProspectStages::defaultNext($stage);
             $p->forceFill([
-                'stage' => $stage, 'stage_entered_at' => now(), 'tries' => 0,
+                'stage' => $stage, 'stage_entered_at' => $this->enteredAt($source['entered_at'] ?? null), 'tries' => 0,
                 'next_action_key' => $label ? 'stage' : null, 'next_action_label' => $label,
                 'next_action_at' => $source['next_at'] ?? null,
                 'parked_at' => null, 'parked_until' => null, 'park_reason_id' => null, 'park_reason_label' => null,
@@ -214,6 +214,12 @@ class ProspectService
 
             return true;
         });
+    }
+
+    /** When the record entered its station: the date the caller says the story began (a claim taken in April), never in the future, else now. */
+    private function enteredAt(?CarbonInterface $at): CarbonInterface
+    {
+        return $at !== null && $at->lt(now()) ? $at : now();
     }
 
     /** Set (or clear) the next action by hand. */

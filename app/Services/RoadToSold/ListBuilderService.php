@@ -14,6 +14,7 @@ use App\Services\RoadToSold\Contracts\FollowUpSource;
 use App\Services\RoadToSold\Contracts\SuggestionGuard;
 use App\Services\RoadToSold\Contracts\WorkCalendar;
 use App\Services\RoadToSold\Selections\Candidate;
+use App\Services\RoadToSold\Selections\MyClaimsSelection;
 use App\Services\RoadToSold\Selections\SelectionContext;
 use App\Services\RoadToSold\Support\BuilderSettings;
 use App\Services\RoadToSold\Support\OtherAgentStock;
@@ -184,11 +185,13 @@ class ListBuilderService
      */
     private function fillTopDown(User $user, int $agencyId, Carbon $day, string $track, BuilderSettings $settings, int $remaining, callable $take): void
     {
-        foreach ($settings->enabledSelectionKeys as $key) {
+        // 23.24: the agent's own claims come first (switchable: "Fill my day from my claims first"), then the agency's selections in their order
+        $keys = $settings->fillFromClaimsFirst ? array_merge([MyClaimsSelection::KEY], $settings->enabledSelectionKeys) : $settings->enabledSelectionKeys;
+        foreach ($keys as $key) {
             if ($remaining <= 0) {
                 break;
             }
-            $selection = $this->registry->get($key);
+            $selection = $key === MyClaimsSelection::KEY ? $this->registry->claims() : $this->registry->get($key);
             if ($selection === null) {
                 // An enabled source with no code behind it is a setup fault: say so, loudly, and carry on with the rest.
                 Log::error('Road to Sold: an enabled selection has no implementation (skipped)', ['selection' => $key, 'user_id' => $user->id]);
@@ -232,7 +235,8 @@ class ListBuilderService
         }
         $settings = ($this->settingsResolver)($user, $track);
         if ($only !== null) {   // capacity check: ask only these sources (stored selection keys)
-            $settings = $settings->with(['enabledSelectionKeys' => array_values(array_intersect($settings->enabledSelectionKeys, $only))]);
+            $settings = $settings->with(['enabledSelectionKeys' => array_values(array_intersect($settings->enabledSelectionKeys, $only)),
+                'fillFromClaimsFirst' => $settings->fillFromClaimsFirst && in_array(MyClaimsSelection::KEY, $only, true)]);
         }
         $this->stock = new OtherAgentStock($agencyId, $user->dataIdentityIds());
         $taken = [];

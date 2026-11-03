@@ -68,7 +68,7 @@
         <thead>
             <tr>
                 <th class="l">Branch</th>
-                @foreach($report['metrics'] as $m)<th>{{ $m['label'] }}</th>@endforeach
+                @foreach($report['metrics'] as $m)<th>{{ $m['column_label'] ?? $m['label'] }}</th>@endforeach
             </tr>
         </thead>
         <tbody>
@@ -90,7 +90,7 @@
             <tr>
                 <th class="l">Agent</th>
                 <th class="l">Branch</th>
-                @foreach($report['metrics'] as $m)<th>{{ $m['label'] }}</th>@endforeach
+                @foreach($report['metrics'] as $m)<th>{{ $m['column_label'] ?? $m['label'] }}</th>@endforeach
             </tr>
         </thead>
         <tbody>

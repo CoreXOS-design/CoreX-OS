@@ -55,6 +55,7 @@ class RtsSetting extends Model
         'flag_min_sample', 'flag_below_pct', 'flag_window_days', 'suggest_window_weeks', 'suggest_growth_pct',
         'expired_competitor_lookback_days', 'prospect_stall_days', 'agent_start_required', 'source_for_colleagues',
         'claim_hold_days', 'claim_warn_days', 'claim_extension_days', 'claim_extensions_allowed', 'owner_requires_deed', 'default_callback_days', 'flag_offramp_excess_pct',
+        'due_claimed_days', 'due_owner_days', 'due_contacted_days', 'due_held_days', 'fill_from_claims_first',
     ];
 
     protected $casts = [
@@ -102,6 +103,11 @@ class RtsSetting extends Model
         'owner_requires_deed'          => 'boolean',
         'default_callback_days'        => 'integer',
         'flag_offramp_excess_pct'      => 'integer',
+        'due_claimed_days'             => 'integer',
+        'due_owner_days'               => 'integer',
+        'due_contacted_days'           => 'integer',
+        'due_held_days'                => 'integer',
+        'fill_from_claims_first'       => 'boolean',
         'flag_min_sample'              => 'integer',
         'flag_below_pct'               => 'integer',
         'flag_window_days'             => 'integer',
@@ -161,6 +167,11 @@ class RtsSetting extends Model
         if (! self::hasSourceForColleaguesColumn()) {
             unset($out['source_for_colleagues']);
         }
+        if (! self::hasConveyorColumns()) {
+            foreach (['due_claimed_days', 'due_owner_days', 'due_contacted_days', 'due_held_days', 'fill_from_claims_first'] as $c) {
+                unset($out[$c]);
+            }
+        }
 
         return $out;
     }
@@ -187,6 +198,14 @@ class RtsSetting extends Model
         static $has = null;
 
         return $has ??= \Illuminate\Support\Facades\Schema::hasColumn((new static())->getTable(), 'owner_requires_deed');
+    }
+
+    /** The conveyor settings (23.24: the next-step windows and the claims-first switch) are columns added by migration; until they exist the standard numbers apply. */
+    public static function hasConveyorColumns(): bool
+    {
+        static $has = null;
+
+        return $has ??= \Illuminate\Support\Facades\Schema::hasColumn((new static())->getTable(), 'due_claimed_days');
     }
 
     /** The v4 claim-hold settings (23.15) are columns added by migration; until they exist the claim rules run as before. */
@@ -237,6 +256,11 @@ class RtsSetting extends Model
         'owner_requires_deed'          => true,    // 23.6: the Owner station needs a deed record as well as the owner contact
         'flag_offramp_excess_pct'      => 25,      // 23.12: the training flag fires when an agent's off-ramp rate at a station is this percent above the branch / agency rate
         'default_callback_days'        => 3,       // 23.7: working days ahead the call-back date of a Market Intelligence "contacted" feedback is set
+        'due_claimed_days'             => 5,       // 23.24: working days after the claim to find the owner (a property with no next-step date set is late after this)
+        'due_owner_days'               => 3,       // 23.24: working days after the owner is found to make the first contact
+        'due_contacted_days'           => 7,       // 23.24: days after the contact to book the evaluation
+        'due_held_days'                => 2,       // 23.24: working days after the evaluation to give the result
+        'fill_from_claims_first'       => true,    // 23.24: the day's list is filled from the agent's own claims before any other source
         'flag_min_sample'              => 20,
         'flag_below_pct'               => 60,
         'flag_window_days'             => 30,

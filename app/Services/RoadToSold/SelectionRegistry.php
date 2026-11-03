@@ -6,6 +6,7 @@ use App\Services\RoadToSold\Selections\BuyerSourcingSelection;
 use App\Services\RoadToSold\Selections\ExpiredCompetitorSelection;
 use App\Services\RoadToSold\Selections\HotPocketSelection;
 use App\Services\RoadToSold\Selections\LongOnMarketSelection;
+use App\Services\RoadToSold\Selections\MyClaimsSelection;
 use App\Services\RoadToSold\Selections\MyExpiredStockSelection;
 use App\Services\RoadToSold\Selections\MyStockNotSellingSelection;
 use App\Services\RoadToSold\Selections\NewOnMarketSelection;
@@ -39,6 +40,12 @@ final class SelectionRegistry
         ] as $s) {
             $this->selections[$s->key()] = $s;
         }
+    }
+
+    /** The day feed's first source (23.24): the agent's own claims. Not one of the ten reorderable sources, so it is not in all(). */
+    public function claims(): Selection
+    {
+        return new MyClaimsSelection();
     }
 
     public function get(string $key): ?Selection

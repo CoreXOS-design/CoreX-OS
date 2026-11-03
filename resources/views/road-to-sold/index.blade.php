@@ -60,8 +60,15 @@
                         @endif
                     </span>
                 @endif
-                @if($counts['any'] > 0 && ! $isCaptures)
-                    <span class="text-xs" style="color: var(--text-primary);"><strong>{{ $counts['worked'] }} of {{ $counts['target_items'] }}</strong> worked {{ $date->isToday() ? 'today' : 'on ' . $date->format('j M') }}@if($counts['added'] > 0)<span style="color: var(--text-muted);"> · {{ $counts['added_worked'] }} of {{ $counts['added'] }} added on top</span>@endif</span>
+                @php
+                    // 23.24: the day in one line - the same three figures the tiles show (moved along = line 2 of every tile but Loaded; late = line 3)
+                    $beltTiles = collect($belt ?? []);
+                    $movedAlong = (int) ($movedAlong ?? 0);   // distinct records that moved on today (ConveyorService::movedAlong), not the sum of the tiles' lines
+                    $lateAll = (int) $beltTiles->sum('late');
+                    $loadedT = $beltTiles->firstWhere('key', 'loaded');
+                @endphp
+                @if(! $isCaptures && ($counts['any'] > 0 || $beltTiles->isNotEmpty()))
+                    <span class="text-xs" style="color: var(--text-primary);" data-qa="today-line">{{ $date->isToday() ? 'Today' : $date->format('j M') }}: <strong>{{ $counts['any'] > 0 ? $counts['worked'] : ($loadedT['moved'] ?? 0) }} of {{ $counts['any'] > 0 ? $counts['target_items'] : ($loadedT['target'] ?? 0) }}</strong> worked @if($counts['added'] > 0)<span style="color: var(--text-muted);"> ({{ $counts['added_worked'] }} of {{ $counts['added'] }} added on top)</span>@endif · <strong data-qa="today-moved">{{ $movedAlong }}</strong> moved along · <strong data-qa="today-late" @if($lateAll > 0) style="color: var(--ds-red, #f87171);" @endif>{{ $lateAll }}</strong> late</span>
                 @endif
                 @if($progress['counted'] > 0)<span class="text-xs" style="color: var(--text-primary);"><strong>{{ $progress['met'] }} of {{ $progress['counted'] }}</strong> targets met</span>@endif
                 @if($progress['level'] || (($pointsTotals['month'] ?? 0) > 0))
@@ -343,38 +350,7 @@
             @forelse($rowsPage as $r)
                 @php $lo = $r['last_outcome']; $ownerMissing = $viewingOwn ? ($ownerBlocked[(int) $r['tracked_property_id']] ?? null) : null; @endphp
                 <tr style="border-top: 1px solid var(--border);">
-                    <td class="px-3 py-2 font-semibold" style="color: var(--text-primary); min-width: 12rem;" data-qa="intake-why">
-                        <div class="rts-clamp2" title="{{ $r['why'] }}">@if(($r['origin'] ?? null) === 'follow_up')<span class="rts-chip">Follow-up</span> @endif{{ $r['why'] ?: '-' }}</div>
-                    </td>
-                    <td class="px-3 py-2" style="color: var(--text-primary);">
-                        <div class="font-semibold rts-nw" title="{{ $r['address'] }}">{{ $r['street'] !== '' ? $r['street'] : $r['address'] }}</div>
-                        @if($r['street'] !== '' && $r['suburb'])<div class="rts-nw" style="color: var(--text-muted);">{{ $r['suburb'] }}</div>@endif
-                    </td>
-                    {{-- price, days on market and the listing agency share one cell (22.22): the row's actions stay on screen at 1366 wide --}}
-                    <td class="px-3 py-2" style="color: var(--text-primary);" data-qa="intake-market">
-                        <div class="font-semibold rts-nw" title="Price">{{ $money($r['price']) ?: '-' }}</div>
-                        <div class="rts-nw" style="color: var(--text-muted);" title="{{ $r['dom'] !== null ? $r['dom'] . ' days on market' : 'Days on market not known' }}{{ $r['agency_name'] ? ' - listed with ' . $r['agency_name'] : '' }}">{{ $r['dom'] !== null ? $r['dom'] . ' days' : '-' }}@if($r['agency_name']) · {{ $r['agency_name'] }}@endif</div>
-                    </td>
-                    <td class="px-3 py-2" style="color: var(--text-primary);">
-                        @if($r['owner_name'])
-                            <div class="font-semibold">{{ $r['owner_name'] }}</div>
-                            @if($r['owner_phone'])<div style="color: var(--text-muted);">{{ $r['owner_phone'] }}</div>@endif
-                        @elseif($r['find_owner_url'] && ! empty($intakeProspects[$r['tracked_property_id']]))
-                            <span style="color: var(--text-muted);">Not known yet</span>
-                        @elseif($r['find_owner_url'])
-                            <a href="{{ $r['find_owner_url'] }}" class="corex-btn-outline corex-btn-xs" data-rts-popup data-step-label="Find the owner - {{ $r['address'] }}">Find the owner</a>
-                        @else
-                            -
-                        @endif
-                    </td>
-                    <td class="px-3 py-2 rts-col-last" style="color: var(--text-primary);">
-                        @if($lo)
-                            <div title="{{ $lo['note'] }}">{{ $lo['label'] }}@if($lo['streak'] > 1) <span style="color: var(--text-muted);">({{ $lo['streak'] }} in a row)</span>@endif</div>
-                            <div style="color: var(--text-muted);">{{ $lo['when']->format('j M') }}@if($lo['by']) · {{ $lo['by'] }}@endif</div>
-                        @else
-                            -
-                        @endif
-                    </td>
+                    @include('road-to-sold._row-cells')
                     <td class="px-3 py-2 text-right">
                         <div class="flex items-center justify-end gap-2">
                             @if(! empty($history[$r['tracked_property_id']]))
@@ -612,7 +588,7 @@
 // again and swapped in, so nothing the agent had open is lost and the row "moves to Owner found" without a reload.
 window.__cxpNoReload = true;
 window.rtsRefreshLive = function () {
-    var sels = ['[data-qa="belt-tiles"]', '[data-qa="intake-table"]', '[data-qa="block-prospects"]'];
+    var sels = ['[data-qa="belt-tiles"]', '[data-qa="today-line"]', '[data-qa="intake-table"]', '[data-qa="station-list"]', '[data-qa="block-prospects"]'];
     return fetch(window.location.href, { credentials: 'same-origin', headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'text/html' } })
         .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); })
         .then(function (html) {

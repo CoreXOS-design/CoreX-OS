@@ -8,6 +8,7 @@ use App\Models\RoadToSold\RtsProspect;
 use App\Models\Scopes\AgencyScope;
 use App\Models\User;
 use App\Services\Features\AgencyFeatureService;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
@@ -90,10 +91,13 @@ class ClaimBeltService
                 return null;   // that story is over (do not contact, registered...); a late claim does not restart it
             }
 
+            // the record sits at Claimed since the day the claim was TAKEN (an older claim brought onto the belt now is not "0 days")
+            $enteredAt = $stage === ProspectStages::CLAIMED && $c->claimed_at ? Carbon::instance($c->claimed_at) : null;
             $p = $this->prospects->place($agent, $trackedId, 'sales', [
                 'prospecting_listing_id' => (int) $c->prospecting_listing_id, 'property_id' => $c->property_id,
                 'selection' => $selection, 'stage' => $stage,
                 'reason' => $reason ?? 'Claimed in Market Intelligence on ' . now()->format('j M Y'), 'actor' => $agent,
+                'entered_at' => $enteredAt,
             ]);
             if (! $p) {
                 return null;   // another agent's record (22.6)
@@ -101,6 +105,7 @@ class ClaimBeltService
             if (ProspectStages::order((string) $p->stage) < ProspectStages::order($stage)) {
                 $this->prospects->advance($p, $stage, $agent, [
                     'event_class' => 'ClaimCreated', 'subject_type' => 'prospecting_claim', 'subject_id' => (int) $c->id, 'note' => 'Claimed in Market Intelligence',
+                    'entered_at' => $enteredAt,
                 ]);
                 $p->refresh();
             }

@@ -14,7 +14,7 @@
                 {{-- 2026-08-19 (Johan) — the trap metrics live here: 'lost'/'lost_value'
                      rising is BAD (direction=lower_is_better), so $c['good'] — not the raw
                      sign of delta — decides red vs green. --}}
-                <x-performance-delta :c="$c" :phrase="$comparisonMeta['phrase'] ?? ''" :money="$m['currency']" />
+                <x-performance-delta :c="$c" :phrase="$comparisonMeta['phrase'] ?? ''" :money="$m['currency']" :previous-label="$comparisonMeta['range'] ?? null" />
             </div>
         @endforeach
     </div>

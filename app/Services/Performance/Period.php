@@ -24,7 +24,9 @@ class Period
         $prevEnd  = $this->start->subSecond();
         $prevStart = $prevEnd->subSeconds($seconds);
 
-        return new self($prevStart, $prevEnd, 'Previous: ' . $this->label, $this->preset);
+        // The label names the PREVIOUS window's own dates. It used to repeat this period's label, so a page read
+        // "vs Previous: 2026-10-01 → 2026-10-31" while comparing against September.
+        return new self($prevStart, $prevEnd, 'Previous: ' . self::range($prevStart, $prevEnd), $this->preset);
     }
 
     /** 2026-08-19 — this period's start/end shifted back exactly one calendar year. */
@@ -33,9 +35,14 @@ class Period
         return new self(
             $this->start->subYear(),
             $this->end->subYear(),
-            'Same period last year: ' . $this->label,
+            'Same period last year: ' . self::range($this->start->subYear(), $this->end->subYear()),
             $this->preset,
         );
+    }
+
+    private static function range(CarbonImmutable $start, CarbonImmutable $end): string
+    {
+        return $start->toDateString() . ' → ' . $end->toDateString();
     }
 
     /** Whole-day length, for the unequal-length-ranges comparison warning. */

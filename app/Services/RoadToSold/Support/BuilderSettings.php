@@ -50,6 +50,8 @@ final class BuilderSettings
         public readonly array $onMarketStatuses = RtsSetting::LIST_DEFAULTS['on_market_statuses'],
         /** 23.15: `off` | `branch` | `agency` - whose buyers feed the agent's stock after their own */
         public readonly string $sourceForColleagues = 'agency',
+        /** 23.24: fill the day from the agent's own claims before any other source */
+        public readonly bool $fillFromClaimsFirst = true,
     ) {
     }
 
@@ -85,6 +87,7 @@ final class BuilderSettings
             buyerActiveStates: $s->activeBuyerStates(),
             onMarketStatuses: $s->onMarketStatuses(),
             sourceForColleagues: $s->sourceForColleagues(),
+            fillFromClaimsFirst: $s->fillFromClaimsFirst(),
         );
     }
 

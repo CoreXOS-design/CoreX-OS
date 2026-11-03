@@ -281,6 +281,13 @@ class SettingsController extends Controller
             $rules['claim_extension_days']     = ['sometimes', 'integer', 'min:1', 'max:365'];
             $rules['claim_extensions_allowed'] = ['sometimes', 'integer', 'min:0', 'max:10'];
         }
+        if (RtsSetting::hasConveyorColumns()) {
+            $rules['due_claimed_days']      = ['sometimes', 'integer', 'min:1', 'max:60'];
+            $rules['due_owner_days']        = ['sometimes', 'integer', 'min:1', 'max:60'];
+            $rules['due_contacted_days']    = ['sometimes', 'integer', 'min:1', 'max:90'];
+            $rules['due_held_days']         = ['sometimes', 'integer', 'min:1', 'max:60'];
+            $rules['fill_from_claims_first'] = ['sometimes', 'boolean'];
+        }
         // The four tick-lists: at least one choice, only known choices. A posted blank (the hidden marker
         // that lets "everything unticked" reach the server) is dropped before the check.
         foreach (RtsSetting::listChoices() as $field => $choices) {
@@ -613,6 +620,11 @@ class SettingsController extends Controller
         'claim_warn_days'         => 'Working days before the hold ends that the agent is told',
         'claim_extension_days'    => 'Working days one extension adds to a claim hold',
         'claim_extensions_allowed' => 'Extensions an agent may take on one claim',
+        'due_claimed_days'        => 'Working days a claimed property may wait for its owner to be found before it is late',
+        'due_owner_days'          => 'Working days an owner found may wait for the first contact before it is late',
+        'due_contacted_days'      => 'Days a contacted property may wait for the evaluation to be booked before it is late',
+        'due_held_days'           => 'Working days an evaluation held may wait for its result before it is late',
+        'fill_from_claims_first'  => 'Fill an agent\'s day from their own claims first',
         'levels_signoff_required' => 'A manager signs off each level',
         'level_periods_required'  => 'Weeks on target before a level is put forward',
         'flag_min_sample'         => 'Fewest events before a ratio can be flagged',
