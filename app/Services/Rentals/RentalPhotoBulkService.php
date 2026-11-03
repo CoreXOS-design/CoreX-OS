@@ -102,7 +102,13 @@ class RentalPhotoBulkService
             $guards = $kind === 'inventory'
                 ? [['rental_inventory_photos', (int) $photo->id], ['rental_inventories', (int) $photo->rental_inventory_id]]
                 : [['rental_inspection_photos', (int) $photo->id], ['rental_inspections', (int) $photo->rental_inspection_id]];
+            // a deleted photo is shown in the "Show deleted" list so it can be restored: its link is guarded by the parent record only (the photo row's
+            // own guard would answer 404 for an archived row). Staff-only, signed, short-lived, and the list itself is gated by the screen's permissions.
+            if ($photo->trashed()) {
+                $guards = array_slice($guards, 1);
+            }
             $thumb = $images->signedUrl($raw, $photo->agency_id, $guards, null, PrivateImageService::VARIANT_THUMB);
+            $full = $photo->trashed() ? $images->signedUrl($raw, $photo->agency_id, $guards) : $full;
         }
 
         return [

@@ -168,6 +168,8 @@ final class RentalPhotoBulkTest extends TestCase
         $deleted = $this->getJson(route('corex.rental-inventories.photo-manager.index', [$this->inventory, 'deleted' => 1]))->assertOk()->json();
         $this->assertSame(4, $deleted['total']);
         $ids = array_column($deleted['items'], 'id');
+        $this->assertStringContainsString('/private-image/', $deleted['items'][0]['thumb'], 'a deleted photo still shows, so it can be restored');
+        $this->assertTrue($deleted['items'][0]['deleted']);
 
         $this->act(['action' => 'restore', 'scope' => 'ids', 'ids' => array_slice($ids, 0, 2)])->assertOk()->assertJsonPath('affected', 2);
         $this->assertSame(5, RentalInventoryPhoto::count());
