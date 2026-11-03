@@ -630,7 +630,6 @@ class RoadToSoldController extends Controller
     }
 
     /** "Swap" on a loaded property (23.14): it leaves the list with the reason, the property is released, and the next candidate takes its place. Own list only. */
-<<<<<<< HEAD
     /**
      * "Find owner" on a loaded row (23.30.3): the first action on the row is the claim - out of the Market Intelligence pool, hold clock started, record moved
      * Loaded -> Claimed in one transaction. The button is built on the screen (cc4); this is the action behind it.
@@ -653,10 +652,7 @@ class RoadToSoldController extends Controller
         return $request->expectsJson() ? response()->json(['ok' => true, 'message' => $r['message'], 'already' => $r['already'], 'stage' => $r['prospect']?->stage]) : back()->with('rts_ok', $r['message']);
     }
 
-    public function swap(Request $request, int $item): RedirectResponse
-=======
     public function swap(Request $request, int $item): RedirectResponse|\Illuminate\Http\JsonResponse
->>>>>>> origin/QA1
     {
         // v4 (road-to-sold.md 23.11): a swap is the Stock loaded off-ramp - the agency's own reason for that station (wrong area, no address, I already know it, other),
         // plus a few words when it is "other". The old free-text box still works (the words become an "other" with that note), so an old tab or the API is not broken.
