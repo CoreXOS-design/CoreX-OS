@@ -137,7 +137,7 @@
         blob_2:       'M62 4 C85 10 98 34 92 58 C86 84 60 98 36 92 C12 86 3 62 8 40 C14 16 40 2 62 4 Z',
         blob_3:       'M30 8 C52 2 84 6 94 30 C100 54 88 80 64 92 C40 99 14 90 6 66 C2 42 10 18 30 8 Z',
         // §22 premium poster: a painted brush stroke (two looks) and a panel with one slanted edge. Plain SVG paths, so the export draws them.
-        brush_stroke_1: 'M2 30 C10 16 30 24 50 15 S90 10 98 22 L96 34 C99 41 94 46 97 54 L99 65 C80 75 60 69 40 80 S12 86 3 75 L5 62 C1 54 5 44 2 30 Z',
+        brush_stroke_1: 'M10 27.1 L12.6 26.7 L15.2 26.6 L17.9 26.9 L20.5 26.6 L23.1 26.4 L25.7 26.6 L28.3 25.4 L30.9 25.2 L33.6 26.2 L36.2 25.7 L38.8 25.8 L41.4 25 L44 25.2 L46.6 24.5 L49.3 24.4 L51.9 24.4 L54.5 23.8 L57.1 23.8 L59.7 24.4 L62.4 23.9 L65 24 L67.6 24.4 L70.2 23 L72.8 23.1 L75.4 23.7 L78.1 23.2 L80.7 22.4 L83.3 23 L85.9 22.2 L88.5 22 L91.1 22.1 L93.8 21.7 L96.4 21.5 L99 22.3 L99 21.5 L98.5 26.3 L97 27.8 L96.5 30.7 L96 32.2 L95.5 35 L99 36.5 L98.5 39.3 L99 40.8 L98.5 43.7 L97 45.2 L96.5 48 L94 49.5 L93.5 52.3 L98 53.8 L97.5 56.7 L95 58.2 L94.5 61 L96 62.5 L95.5 65.3 L97 66.8 L96.5 69.7 L99 71.2 L98.5 74 L98 75.5 L98 76.5 L95.2 77.6 L92.4 76.1 L89.5 76.5 L86.7 77 L83.9 72.4 L81.1 72.5 L78.2 76 L75.4 76 L72.6 76.9 L69.8 72 L66.9 75.4 L64.1 75.9 L61.3 75.3 L58.5 75.3 L55.6 71.7 L52.8 76 L50 75.7 L47.2 75.2 L44.4 74.5 L41.5 74.9 L38.7 74.7 L35.9 75.9 L33.1 75.2 L30.2 74.1 L27.4 74.3 L24.6 73.9 L21.8 74.3 L18.9 74.3 L16.1 73.8 L13.3 74.6 L10.5 74.4 L7.6 74 L4.8 74 L2 74.7 L2 76.8 L5.5 73.7 L5 72.5 L12.5 69.3 L12 68.1 L3.5 65 L3 63.8 L7.5 60.7 L7 59.5 L5.5 56.3 L5 55.1 L8.5 52 L8 50.8 L4.5 47.7 L4 46.5 L3.5 43.3 L3 42.1 L5.5 39 L5 37.8 L8.5 34.7 L8 33.5 L3.5 30.3 L3 29.1 L10.5 26 L10 24.8 Z',
         brush_stroke_2: 'M0 22 L8 12 L16 20 L26 9 L38 18 L50 8 L62 16 L74 9 L86 18 L100 11 L97 40 L100 60 L92 71 L82 63 L70 77 L58 67 L46 81 L34 70 L22 79 L10 68 L0 75 L4 50 Z',
         cut_panel_left:  'M0 0 H100 L90 100 H0 Z',
         cut_panel_right: 'M0 0 H100 V100 H10 Z'
@@ -818,6 +818,16 @@
      * not: an Agent-2 slot on a single-agent listing renders EMPTY, never the words
      * "Agent 2 · Name" printed onto a real ad.
      */
+    /**
+     * A script face written in capitals runs together ("FORSALE") and loses its shape; capitalised it reads as the lettering it is
+     * ("For Sale"). Listing values arrive in capitals, so CSS capitalize alone would leave them alone: when a script face is set to
+     * capitalize, the words are lower-cased first. Every other face and setting is printed exactly as it always was.
+     */
+    function scriptCase(el, s) {
+        if (!s || el.textTransform !== 'capitalize' || !/^(Great Vibes|Dancing Script)$/.test(el.fontFamily || '')) return s;
+        return String(s).toLowerCase().replace(/(^|[\s\-\/(])([a-zà-ÿ])/g, function (m, a, b) { return a + b.toUpperCase(); });
+    }
+
     function textValue(el, prop, opts) {
         prop = prop || {};
         opts = opts || {};
@@ -1973,7 +1983,7 @@
         var iconEl = el.icon && ICONS[el.icon] ? iconHtml(el) : '';
         return '<div style="' + textStyle(el) + '">'
              + iconEl
-             + '<span style="' + (iconEl ? '' : 'width:100%;') + '">' + esc(textValue(el, prop, opts)) + '</span></div>';
+             + '<span style="' + (iconEl ? '' : 'width:100%;') + '">' + esc(scriptCase(el, textValue(el, prop, opts))) + '</span></div>';
     }
 
     /** The inline icon swatch for a text element carrying `el.icon`. */

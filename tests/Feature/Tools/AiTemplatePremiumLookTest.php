@@ -77,6 +77,28 @@ final class AiTemplatePremiumLookTest extends TestCase
         $this->assertEquals(1, $this->badge($r['layout'])['bgOpacity']);
     }
 
+    public function test_a_script_badge_left_uppercase_is_written_capitalised(): void
+    {
+        $r = (new AdLayoutValidator())->validateAndRepair($this->option([
+            ['field' => 'shape', 'shapeType' => 'brush_stroke_1', 'bg' => '#c9a84c', 'x' => 500, 'y' => 20, 'w' => 480, 'h' => 200, 'zIndex' => 3],
+            ['field' => 'status_badge', 'x' => 520, 'y' => 70, 'w' => 440, 'h' => 80, 'zIndex' => 6, 'fontFamily' => 'Great Vibes', 'fontSize' => 54, 'color' => '#0b0b0b'],
+        ]), 'pinterest');
+
+        $this->assertTrue($r['ok'], implode(' | ', $r['errors']));
+        $this->assertSame('capitalize', $this->badge($r['layout'])['textTransform']);
+        $this->assertStringContainsString('written capitalised', implode(' | ', $r['repairs']));
+    }
+
+    public function test_a_plain_font_badge_stays_uppercase(): void
+    {
+        $r = (new AdLayoutValidator())->validateAndRepair($this->option([
+            ['field' => 'status_badge', 'x' => 520, 'y' => 70, 'w' => 300, 'h' => 60, 'zIndex' => 6, 'fontSize' => 30],
+        ]), 'pinterest');
+
+        $this->assertTrue($r['ok'], implode(' | ', $r['errors']));
+        $this->assertSame('uppercase', $this->badge($r['layout'])['textTransform']);
+    }
+
     public function test_the_prompt_tells_the_model_about_the_default_pill(): void
     {
         $this->assertStringContainsString('bgOpacity" 0', (string) (AdLayoutValidator::FIELDS['status_badge']['help'] ?? ''));

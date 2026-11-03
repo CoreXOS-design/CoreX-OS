@@ -885,6 +885,11 @@ final class AdLayoutValidator
             } elseif (in_array($field, ['custom_text', 'badge'], true) && mb_strlen(trim(strip_tags((string) ($raw['text'] ?? '')))) > self::MAX_SCRIPT_TEXT) {
                 $why = 'a script font is only readable on a few words';
             }
+            if ($why === null && ($raw['textTransform'] ?? $d['textTransform']) === 'uppercase') {
+                // Script capitals run together and lose their shape; the lettering is made to be read capitalised ("For Sale").
+                $raw['textTransform'] = 'capitalize';
+                $repairs[]            = "{$tag}: a script font reads badly in capitals only, so it is written capitalised.";
+            }
             if ($why !== null) {
                 unset($raw['fontFamily']);
                 $repairs[] = "{$tag}: {$why}, so the standard font was used.";

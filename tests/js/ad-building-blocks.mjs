@@ -321,6 +321,12 @@ section('§22 premium poster blocks');
     // Each of the reference poster's amenities gets an icon of its own, not the generic tick.
     const icons = K.contentHtml(Object.assign({ id: 'p3', x: 0, y: 0, w: 960, h: 120, zIndex: 1, fontFamily: 'Figtree', field: 'feature_strip', stripCount: 8 }, {}), Object.assign({}, P22, { beds: '', baths: '', features_list: ['Spacious Lounge', 'Fitted Blinds', 'Fitted Kitchen', 'Parking Bay'] }), {});
     ok('feature_strip draws its own icons for lounge and blinds (a sofa and slats, not a tick)', !icons.includes('M9 16.17') && /M5 9a3 3 0 0 1 3-3h8/.test(icons) && /M4 3h16v2H4z/.test(icons), icons.slice(0, 300));
+    // A script face in capitals runs together ("FORSALE"); capitalised it reads as lettering. Only script + capitalize is touched.
+    const badgeEl = (o) => Object.assign({ id: 'b1', field: 'status_badge', x: 0, y: 0, w: 300, h: 80, zIndex: 1, fontSize: 40 }, o);
+    const sc = (o) => K.contentHtml(badgeEl(o), { status_badge: 'FOR SALE' }, {});
+    ok('script face + capitalize prints "For Sale" from the listing\'s capitals', sc({ fontFamily: 'Great Vibes', textTransform: 'capitalize' }).includes('>For Sale<'), sc({ fontFamily: 'Great Vibes', textTransform: 'capitalize' }));
+    ok('a script face left uppercase is printed as it always was', sc({ fontFamily: 'Great Vibes', textTransform: 'uppercase' }).includes('>FOR SALE<'));
+    ok('a plain face with capitalize is left alone (listing capitals stay capitals)', sc({ fontFamily: 'Montserrat', textTransform: 'capitalize' }).includes('>FOR SALE<'));
     ok('feature_strip stripCount caps the cells', (e({ field: 'feature_strip', stripCount: 3 }).match(/border-radius:50%/g) || []).length === 3);
     ok('feature_strip with nothing on the listing is blank on a real ad', K.isBlankElement({ field: 'feature_strip', stripCount: 8 }, {}, {}) === true);
     ok('feature_strip shows sample cells in the builder', K.contentHtml({ id: 's', field: 'feature_strip', w: 960, h: 120, stripCount: 8 }, {}, { placeholders: true }).includes('Secure Complex'));

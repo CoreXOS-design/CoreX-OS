@@ -3043,3 +3043,10 @@ Generation #10 (the best so far) still differed from the picture in three visibl
 5. `PROMPT_VERSION` -> `at456b10-v6-poster` (the column holds 18 characters: a longer label failed every generation in the tests).
 - The 38-character suburb worst case was kept: real listings reach it ("PORT SHEPSTONE CENTRAL, PORT SHEPSTONE").
 - Not proved: the effect on the AI's own answers needs a real run on Staging.
+
+### 22.14 The "For Sale" block: capitalised script and a real brush swipe (2026-11-03)
+
+Generation #11 matched the picture closely except the "For Sale" block (compared side by side with the picture):
+1. **Script in capitals.** The status badge defaults to uppercase, so Great Vibes printed "FOR SALE" - capitals run together and lose their shape. The picture reads "For Sale". The validator now writes a script face capitalised (`textTransform` capitalize) when it would otherwise be uppercase (repair note "written capitalised"); the render kernel's `scriptCase()` lower-cases the listing's capitals before CSS capitalize so it really prints "For Sale". Only a script face with capitalize is touched; every other face and setting prints exactly as before. The worked example and its prompt now say so.
+2. **The stroke read as a smooth banner.** `brush_stroke_1` is redrawn as a painted swipe: long near-straight edges with fine bristle noise, and thin horizontal bristle streaks at both ends (the picture's brush work), still one SVG path so the export draws it. (An earlier spiky attempt looked like a comic splat and was dropped.)
+- Proof: header rendered next to the picture's; `tests/js/ad-building-blocks.mjs` (script + capitalize -> "For Sale", uppercase and plain faces unchanged), `AiTemplatePremiumLookTest`.

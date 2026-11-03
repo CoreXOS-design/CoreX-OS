@@ -37,7 +37,7 @@ final class AdPosterExemplar
                 // A gold brush stroke with gradient fill. It paints only the middle band of its box, so the box is about 2.5 times the
                 // height of the words on it; the status badge and the suburb sit inside that band, the badge with its pill switched off.
                 $el('shape', 540, 0, 460, 300, ['shapeType' => 'brush_stroke_1', 'bg' => '#d4af37', 'zIndex' => 3] + $gold),
-                $el('status_badge', 580, 84, 380, 70, ['fontFamily' => 'Great Vibes', 'fontSize' => 54, 'fontWeight' => '700', 'color' => '#111111', 'bgOpacity' => 0, 'textAlign' => 'center', 'zIndex' => 6]),
+                $el('status_badge', 580, 84, 380, 70, ['fontFamily' => 'Great Vibes', 'fontSize' => 54, 'fontWeight' => '700', 'color' => '#111111', 'textTransform' => 'capitalize', 'bgOpacity' => 0, 'textAlign' => 'center', 'zIndex' => 6]),
                 $el('suburb', 580, 154, 380, 64, ['fontFamily' => 'Playfair Display', 'fontSize' => 22, 'fontWeight' => '700', 'color' => '#111111', 'textTransform' => 'uppercase', 'letterSpacing' => 0.04, 'lineHeight' => 1.1, 'textAlign' => 'center', 'zIndex' => 6]),
                 // Location line (the agent's "note for this ad") on a dark bar, price on a dark block with gold rules.
                 $el('color_block', 0, 500, 640, 72, ['bg' => $black, 'zIndex' => 3]),

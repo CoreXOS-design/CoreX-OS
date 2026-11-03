@@ -1163,6 +1163,7 @@ PROMPT;
             . "Copy the TECHNIQUE, never the look: take every position, proportion, colour, font and the number of photos and icons from YOUR picture, and use this only to see how to express them. The points it demonstrates:\n"
             . "- A brush stroke only paints the middle of its box, so its box is about 2.5 times the height of the words on it; the status_badge and the suburb sit inside that band, and the badge has bgOpacity 0 so its default red pill does not cover the stroke. A suburb can be up to 38 characters (with its town), so give it room for two lines.\n"
             . "- cut_panel_left hugs the LEFT of the canvas and its right edge leans inward towards the bottom; cut_panel_right is the mirror (use the one that matches the picture).\n"
+            . "- A script face (Great Vibes / Dancing Script) is written capitalised, like \"For Sale\": set textTransform to capitalize - script in capitals only is hard to read.\n"
             . "- A gold or metallic look is shapeGradient true with gradFrom / gradTo / gradAngle; text stays a flat colour.\n"
             . "- Words that sit on a panel or block are inside it, the round agent photo, the mosaic and the icon strip never overlap another element, and nothing runs past the canvas.\n"
             . "```json\n" . $json . "\n```\n";
