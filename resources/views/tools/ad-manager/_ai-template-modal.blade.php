@@ -72,7 +72,8 @@
                             <span class="aitp-hint" x-text="styleHint()"></span>
                         </label>
 
-                        <label style="display:block;">
+                        {{-- With a picture chosen, size and style are hidden: this row then takes the whole width (the form is a 3-column grid, and a long note in one narrow column ran together). --}}
+                        <label style="display:block;" :class="{ 'aitp-full': file }">
                             <span class="aitp-lbl">Reference image (optional)</span>
                             <input type="file" accept="image/jpeg,image/png" :disabled="loading" @change="pickFile($event)" class="aitp-field" style="padding:6px 8px; font-size:12px;">
                             <span class="aitp-hint">JPG or PNG, up to 5 MB. The design is matched to the picture as closely as possible; the picture is deleted after 7 days.</span>
