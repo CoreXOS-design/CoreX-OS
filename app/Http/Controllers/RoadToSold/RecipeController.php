@@ -46,6 +46,9 @@ class RecipeController extends Controller
         $track   = Routing::track();
         $section = in_array($request->query('section'), self::SECTIONS, true) ? $request->query('section') : 'tasks';
         $started = $this->recipe->isStarted($agencyId, $track);
+        if ($started) {
+            $this->recipe->rewordForAppointments($agencyId, $track);   // belt wording: the old seeded "evaluation" labels read "appointment" (the agency's own wording is never touched)
+        }
 
         $data = [
             'tabs'    => SettingsController::tabsFor($request->user(), 'recipe'),

@@ -67,7 +67,7 @@ class FunnelService
         'offramp_claimed'   => ['Loses properties after claiming',        'find',              null, null, 'working a claim through to the owner'],
         'offramp_owner'     => ['Loses properties at Owner found',        'find_owner',        null, null, 'finding and linking the owner'],
         'offramp_contacted' => ['Loses properties at Contacted',          'contact_outcome',   null, null, 'turning a first contact into an appointment'],
-        'offramp_booked'    => ['Loses properties at Evaluation booked',  'evaluation_booked', null, null, 'keeping appointments'],
+        'offramp_booked'    => ['Loses properties at Booked        ',  'evaluation_booked', null, null, 'keeping appointments'],
         'offramp_held'      => ['Loses properties after the appointment',  'presentation',      null, null, 'winning the seller after the appointment'],
     ];
 

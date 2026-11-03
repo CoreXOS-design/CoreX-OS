@@ -39,6 +39,16 @@ class RecipeService
      *
      * @return array{steps:int,tasks:int,levels:int}  how many rows were created
      */
+    /**
+     * Belt wording (3 Nov 2026): the belt says "appointment". A step / task still carrying the old SEEDED wording is reworded; an agency's own wording is never touched (labels only, keys untouched).
+     */
+    public function rewordForAppointments(int $agencyId, string $track = 'sales'): void
+    {
+        DB::table('rts_steps')->where('agency_id', $agencyId)->where('track', $track)->where('key', 'evaluation_booked')->where('label', 'Evaluation')->update(['label' => 'Appointment']);
+        DB::table('rts_tasks')->where('agency_id', $agencyId)->where('track', $track)->where('label', 'Book an evaluation')->update(['label' => 'Book an appointment']);
+        DB::table('rts_tasks')->where('agency_id', $agencyId)->where('track', $track)->where('label', 'Do an evaluation')->update(['label' => 'Hold an appointment']);
+    }
+
     public function start(int $agencyId, string $track = 'sales', bool $withDefaultTasks = true): array
     {
         $made = ['steps' => 0, 'tasks' => 0, 'levels' => 0];
