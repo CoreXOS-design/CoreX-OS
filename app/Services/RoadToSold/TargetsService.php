@@ -231,30 +231,44 @@ final class TargetsService
         ];
     }
 
+    /** Screen labels of the belt stations in the targets table (the stored keys never change). */
+    public const PANEL_LABELS = ['booked' => 'Appointment booked', 'held' => 'Appointment held'];
+
     /**
-     * The panel beside the targets (23.29.4): one row per belt station for a scope - how many sit at the station now, how many reached it in the window, the conversion to the
-     * next station, what it should be this month and per working day, and the agency's override.
+     * The panel beside the targets (23.29.4): ONE dense row per belt station for a scope. Every figure is a whole number (properties are counted: derived figures round UP), and there
+     * is ONE "should be this month" per station (override > recipe task target > worked out; for Stock loaded the worked-out need, with the hand-set intake shown as "set N/day").
+     * "est." sits on a station's own conversion rate only where the standard (seed) rate was used.
      *
-     * @return array{rows:list<array<string,mixed>>,figures:array<string,mixed>,window_days:int,min_sample:int,line:array<string,mixed>}
+     * @return array{rows:list<array<string,mixed>>,figures:array<string,mixed>,window_days:int,min_sample:int,line:array<string,mixed>,overrides:array<string,float>}
      */
     public function panel(User $agent, string $scope, CarbonInterface $day, string $track = 'sales'): array
     {
         $agencyId = (int) ($agent->effectiveAgencyId() ?: 0);
         $settings = SettingsService::forAgency($agencyId, $track);
         $fig = $this->forScope($agent, $scope, $day, $track);
+        $wd = max(1, (int) $fig['working_days']);
         $ids = array_column($this->people($agent, $scope), 'id');
         $byStage = $ids === [] ? [] : DB::table('rts_prospects')->where('agency_id', $agencyId)->where('track', $track)->whereIn('user_id', $ids)
             ->whereNull('deleted_at')->whereNull('closed_at')->whereNull('released_at')->whereNull('parked_at')->selectRaw('stage, COUNT(*) as n')->groupBy('stage')->pluck('n', 'stage')->all();
+        $overrides = $settings->stepOverrides();
         $rows = [];
         foreach (self::CHAIN as $st) {
             $now = 0;
             foreach (BeltFunnelService::STATIONS[$st][2] as $stage) {
                 $now += (int) ($byStage[$stage] ?? 0);
             }
-            $rows[] = ['station' => $st, 'label' => BeltFunnelService::STATIONS[$st][0], 'now' => $now] + $fig['stations'][$st];
+            $f = $fig['stations'][$st];
+            $should = $st === 'loaded' ? $f['derived_month'] : $f['month'];
+            $rows[] = [
+                'station' => $st, 'label' => self::PANEL_LABELS[$st] ?? BeltFunnelService::STATIONS[$st][0], 'now' => $now, 'reached' => (int) $f['reached'],
+                'rate_next' => $f['rate_next'], 'rate_estimate' => (bool) $f['rate_estimate'],
+                'should_month' => (int) ceil($should - 1e-9), 'should_day' => (int) ceil($should / $wd - 1e-9),
+                'source' => $f['source'], 'override' => $overrides[$st] ?? null,
+                'set_day' => $st === 'loaded' ? (int) ceil($f['month'] / $wd - 1e-9) : null,   // the hand-set MIC intake per day (the weekday targets), read-only here
+            ];
         }
 
-        return ['rows' => $rows, 'figures' => $fig, 'window_days' => $settings->targetWindowDays(), 'min_sample' => $settings->targetMinSample(), 'line' => $this->perListingLine($agent, $day, $track)];
+        return ['rows' => $rows, 'figures' => $fig, 'window_days' => $settings->targetWindowDays(), 'min_sample' => $settings->targetMinSample(), 'line' => $this->perListingLine($agent, $day, $track), 'overrides' => $overrides];
     }
 
     /**
@@ -352,9 +366,9 @@ final class TargetsService
         $agency = $this->perListing($agent, 'agency', $day, $track);
         $n = fn (float $v): int => (int) ceil(round($v, 6));
         $est = $me['estimate'] || ($branch['estimate'] ?? false) || $agency['estimate'];
-        $text = 'To list 1 property: you need ' . $n($me['need']) . ' from MIC'
-            . ($branch !== null ? ' · branch avg ' . $n($branch['need']) : '') . ' · agency avg ' . $n($agency['need']) . ($est ? ' (estimate)' : '');
+        $plain = 'To list 1 property: you need ' . $n($me['need']) . ' from MIC'
+            . ($branch !== null ? ' · branch avg ' . $n($branch['need']) : '') . ' · agency avg ' . $n($agency['need']);
 
-        return ['me' => $n($me['need']), 'branch' => $branch !== null ? $n($branch['need']) : null, 'agency' => $n($agency['need']), 'estimate' => $est, 'text' => $text];
+        return ['me' => $n($me['need']), 'branch' => $branch !== null ? $n($branch['need']) : null, 'agency' => $n($agency['need']), 'estimate' => $est, 'plain' => $plain, 'text' => $plain . ($est ? ' (estimate)' : '')];
     }
 }

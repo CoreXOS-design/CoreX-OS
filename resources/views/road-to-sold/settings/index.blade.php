@@ -337,7 +337,7 @@
                         @endforeach
                     </div>
                     @php
-                        $stepLabels = ['loaded' => 'Stock loaded', 'claimed' => 'Claimed', 'owner' => 'Owner found', 'contacted' => 'Contacted', 'booked' => 'Evaluation booked', 'prepared' => 'Presentation prepared', 'held' => 'Evaluation held', 'won' => 'Result: won', 'draft' => 'Draft', 'active' => 'Active'];
+                        $stepLabels = ['loaded' => 'Stock loaded', 'claimed' => 'Claimed', 'owner' => 'Owner found', 'contacted' => 'Contacted', 'booked' => 'Appointment booked', 'prepared' => 'Presentation prepared', 'held' => 'Appointment held', 'won' => 'Result: won', 'draft' => 'Draft', 'active' => 'Active'];
                         $stdRates = \App\Services\RoadToSold\TargetsService::DEFAULT_RATES;
                         $myRates = $settings->stepRates();
                         $myOver = $settings->stepOverrides();

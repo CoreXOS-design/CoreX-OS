@@ -54,44 +54,57 @@
     @endunless
 
 
-    {{-- ───────────────────── Belt targets: what is actually happening (23.29.4) ───────────────────── --}}
+    {{-- ───────────────────── Belt targets: one dense row per station (23.29.4) ───────────────────── --}}
     @if(! empty($beltPanel))
-    <section id="belt-targets" class="space-y-3" data-qa="belt-targets-panel">
-        <div>
-            <h2 class="text-base font-bold" style="color:var(--text-primary);">The belt against these targets</h2>
-            <p class="text-xs" data-qa="belt-targets-line" style="color:var(--text-secondary);">{{ $beltPanel['line']['text'] }}</p>
-        </div>
-        <div class="overflow-x-auto rounded-md" style="background:var(--surface); border:1px solid var(--border);">
-            <table class="w-full text-sm" style="border-collapse: collapse;">
-                <thead>
-                    <tr class="text-xs text-left" style="color: var(--text-muted);">
-                        <th class="px-3 py-2">Station</th>
-                        <th class="px-3 py-2 text-right">At the station now</th>
-                        <th class="px-3 py-2 text-right">Reached in {{ $beltPanel['window_days'] }} days</th>
-                        <th class="px-3 py-2 text-right">Goes on to the next</th>
-                        <th class="px-3 py-2 text-right">Should be this month</th>
-                        <th class="px-3 py-2 text-right">A day ({{ $beltPanel['figures']['working_days'] }} working days)</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    @foreach($beltPanel['rows'] as $br)
-                        @php $f1 = fn ($v) => rtrim(rtrim(number_format((float) $v, 1, '.', ''), '0'), '.'); @endphp
-                        <tr style="border-top: 1px solid var(--border);" data-qa="belt-row-{{ $br['station'] }}">
-                            <td class="px-3 py-2" style="color: var(--text-primary);">{{ $br['label'] }}</td>
-                            <td class="px-3 py-2 text-right tabular-nums">{{ $br['now'] }}</td>
-                            <td class="px-3 py-2 text-right tabular-nums">{{ $br['reached'] }}</td>
-                            <td class="px-3 py-2 text-right tabular-nums">{{ $br['rate_next'] !== null ? $f1($br['rate_next']) . '%' . ($br['rate_estimate'] ? ' est.' : '') : '-' }}</td>
-                            <td class="px-3 py-2 text-right tabular-nums" title="{{ in_array($br['source'], ['override', 'recipe'], true) ? 'set by the agency; worked out: ' . $f1($br['derived_month']) : ($br['source'] === 'set' ? 'MIC intake per day x working days (your weekday targets); worked out: ' . $f1($br['derived_month']) : 'worked out from the Listings target') }}">
-                                {{ $f1($br['month']) }}{{ $br['estimate'] ? ' est.' : '' }}@if(in_array($br['source'], ['override', 'recipe'], true)) <span class="text-xs" style="color: var(--text-muted);">(set)</span>@endif
-                                @if($br['source'] === 'set') <span class="text-xs" style="color: var(--text-muted);">(need {{ $f1($br['derived_month']) }})</span>@endif
-                            </td>
-                            <td class="px-3 py-2 text-right tabular-nums">{{ $f1($br['day']) }}</td>
+    <section id="belt-targets" data-qa="belt-targets-panel">
+        <form method="POST" action="{{ route($rb . 'general.update') }}">
+            @csrf @method('PUT')
+            <input type="hidden" name="back_to" value="targets">
+            <div class="flex items-baseline justify-between gap-3 mb-1">
+                <div class="text-xs font-semibold" data-qa="belt-targets-line" style="color:var(--text-primary);">{{ $beltPanel['line']['plain'] }}</div>
+                <a class="text-xs underline" style="color:var(--text-muted);" href="{{ route($rb . 'index', ['section' => 'belttargets']) }}">Rates and window</a>
+            </div>
+            <div class="overflow-x-auto" style="background:var(--surface); border:1px solid var(--border); border-radius:6px;">
+                <table class="w-full text-xs" style="border-collapse: collapse;" data-qa="belt-targets-table">
+                    <thead>
+                        <tr class="text-left" style="color: var(--text-muted);">
+                            <th class="px-2 py-1">Station</th>
+                            <th class="px-2 py-1 text-right">Here now</th>
+                            <th class="px-2 py-1 text-right">Reached {{ $beltPanel['window_days'] }}d</th>
+                            <th class="px-2 py-1 text-right">% to next</th>
+                            <th class="px-2 py-1 text-right">Should be / month</th>
+                            <th class="px-2 py-1 text-right">Per day</th>
+                            <th class="px-2 py-1 text-right">Own target / agent / month</th>
                         </tr>
-                    @endforeach
-                </tbody>
-            </table>
-        </div>
-        <p class="text-xs" style="color:var(--text-muted);">Worked back from {{ $beltPanel['figures']['listings'] }} listings a month through the conversion rates of the last {{ $beltPanel['window_days'] }} days. A step with fewer than {{ $beltPanel['min_sample'] }} records through it uses the standard rate and says "est.". Change the window, the standard rates and any step's own target under <a class="underline" href="{{ route($rb . 'index', ['section' => 'belttargets']) }}">Settings &gt; Belt targets</a>.</p>
+                    </thead>
+                    <tbody>
+                        @foreach($beltPanel['rows'] as $br)
+                            <tr style="border-top: 1px solid var(--border);" data-qa="belt-row-{{ $br['station'] }}">
+                                <td class="px-2 py-1" style="color: var(--text-primary);">{{ $br['label'] }}</td>
+                                <td class="px-2 py-1 text-right tabular-nums">{{ $br['now'] }}</td>
+                                <td class="px-2 py-1 text-right tabular-nums">{{ $br['reached'] }}</td>
+                                <td class="px-2 py-1 text-right tabular-nums">@if($br['rate_next'] !== null){{ rtrim(rtrim(number_format($br['rate_next'], 1, '.', ''), '0'), '.') }}%@if($br['rate_estimate']) <span style="color: var(--text-muted);">est.</span>@endif @else - @endif</td>
+                                <td class="px-2 py-1 text-right tabular-nums font-semibold" style="color: var(--text-primary);">{{ $br['should_month'] }}</td>
+                                <td class="px-2 py-1 text-right tabular-nums">{{ $br['should_day'] }}</td>
+                                <td class="px-2 py-1 text-right">
+                                    @if($br['station'] === 'loaded')
+                                        <span style="color: var(--text-muted);">set {{ $br['set_day'] }}/day below</span>
+                                    @elseif($canEditDefault)
+                                        <input type="number" step="1" min="0" max="100000" name="target_overrides[{{ $br['station'] }}]" value="{{ old('target_overrides.' . $br['station'], isset($br['override']) ? (int) $br['override'] : '') }}" data-qa="override-{{ $br['station'] }}"
+                                               placeholder="{{ $br['source'] === 'recipe' ? 'recipe' : '' }}" class="w-20 rounded px-1 py-0.5 text-xs text-right" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                    @else
+                                        <span style="color: var(--text-muted);">{{ isset($br['override']) ? (int) $br['override'] : '' }}</span>
+                                    @endif
+                                </td>
+                            </tr>
+                        @endforeach
+                    </tbody>
+                </table>
+            </div>
+            @if($canEditDefault)
+                <div class="mt-1 text-right"><button type="submit" class="corex-btn-outline text-xs px-3 py-1" data-qa="belt-targets-save">Save own targets</button></div>
+            @endif
+        </form>
     </section>
     @endif
 

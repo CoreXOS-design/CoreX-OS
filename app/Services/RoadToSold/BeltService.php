@@ -268,8 +268,8 @@ final class BeltService
                 $tg = $this->targets->stationTarget($agent, $key, $s['key'], $day, $track);
                 if ($tg !== null) {
                     $row['rate_next'] = $tg['rate_next'];
-                    $row['estimate'] = $tg['estimate'] || $tg['rate_estimate'];
-                    $row['derived'] = $s['key'] === 'loaded' ? $tg['derived_day'] : $tg['derived_month'];
+                    $row['estimate'] = (bool) $tg['rate_estimate'];   // est. only where the seed rate was used at this station
+                    $row['derived'] = (int) ceil(($s['key'] === 'loaded' ? $tg['derived_day'] : $tg['derived_month']) - 1e-9);
                     $row['source'] = $tg['source'];
                     if ($s['key'] !== 'loaded' && $tg['month'] > 0) {
                         $row['target'] = (int) ceil($tg['month']);
@@ -290,14 +290,14 @@ final class BeltService
         if ($tg === null) {
             return null;
         }
-        $f = fn ($v) => rtrim(rtrim(number_format((float) $v, 1, '.', ''), '0'), '.');
+        $f = fn ($v) => (string) (int) ceil((float) $v - 1e-9);   // properties are counted: whole numbers, rounded up
         if ($key === 'loaded') {
-            return 'set ' . $f($tg['day']) . '/day · need ' . $f($tg['derived_day']) . ($tg['estimate'] ? ' est.' : '');
+            return 'set ' . $f($tg['day']) . '/day · need ' . $f($tg['derived_day']);
         }
         $word = in_array($tg['source'], ['override', 'recipe'], true) ? 'set ' : 'should be ';
         $conv = $tg['rate_next'] !== null ? ' · ' . $f($tg['rate_next']) . '% on' . ($tg['rate_estimate'] ? ' est.' : '') : '';
 
-        return $word . $f($tg['month']) . '/mo' . ($tg['estimate'] ? ' est.' : '') . $conv;
+        return $word . $f($tg['month']) . '/mo' . $conv;
     }
 
     /** The filters of a station list (23.24): the first seven stations read to do / moved on / late / all; the last four read at the station / today / this month / all. */

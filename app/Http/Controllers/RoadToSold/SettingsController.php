@@ -133,6 +133,9 @@ class SettingsController extends Controller
 
         // The Training & flags tab saves its thresholds through this same writer and comes back to its own tab.
         $home = $request->input('back_to') === 'flags' && \Illuminate\Support\Facades\Route::has(Routing::base() . 'flags.index') ? 'flags.index' : 'index';
+        if ($request->input('back_to') === 'targets' && \Illuminate\Support\Facades\Route::has(Routing::base() . 'targets.index')) {
+            $home = 'targets.index';   // the belt table on the Targets screen saves its step targets through this same writer
+        }
 
         return redirect()->route(Routing::base() . $home)->with('success', 'Road to Sold settings saved.');
     }

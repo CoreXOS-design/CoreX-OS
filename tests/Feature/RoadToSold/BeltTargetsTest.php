@@ -207,6 +207,31 @@ final class BeltTargetsTest extends TestCase
         $this->assertSame('override', app(TargetsService::class)->forScope($this->agent, 'me', Carbon::now())['stations']['contacted']['source'], "the settings' own per-step target beats the recipe's");
     }
 
+    public function test_the_panel_is_one_row_per_station_whole_numbers_rounded_up_with_est_on_the_seed_rate_only(): void
+    {
+        $this->listings($this->agent, 5);   // the standard rates: 2.5% MIC -> Active, February 2026 = 20 working days
+        $p = app(TargetsService::class)->panel($this->agent, 'me', Carbon::now());
+        $by = collect($p['rows'])->keyBy('station');
+
+        $this->assertCount(10, $p['rows'], 'one row per station from Stock loaded to Active');
+        // the walk back of 23.29.3 with the seed rates (their product is 2.495%, so 5 listings need 200.4 from MIC), each figure rounded UP
+        $this->assertSame([201, 81, 49, 39, 20, 18, 17, 7, 7, 5], $by->pluck('should_month')->values()->all());
+        $this->assertSame([11, 5, 3, 2, 1, 1, 1, 1, 1, 1], $by->pluck('should_day')->values()->all(), 'a day: the month figure over the 20 working days, rounded up');
+        foreach ($p['rows'] as $r) {
+            $this->assertIsInt($r['should_month']);
+            $this->assertIsInt($r['should_day']);
+        }
+        $this->assertSame('Appointment booked', $by['booked']['label'], 'screen label only');
+        $this->assertSame('Appointment held', $by['held']['label']);
+        $this->assertSame('Stock loaded', $by['loaded']['label']);
+        $this->assertSame(201, $by['loaded']['should_month'], 'ONE figure for Stock loaded: what the walk back needs, the same arithmetic as the one line');
+        $this->assertSame(5, $by['loaded']['set_day'], 'the hand-set intake stays the weekday target, shown beside it');
+        $this->assertTrue($by['claimed']['rate_estimate'], 'no history: the seed rate, labelled est. at this station');
+        $this->assertFalse($by['active']['rate_estimate'], 'the last station has no rate');
+        $this->assertSame('To list 1 property: you need 41 from MIC · branch avg 41 · agency avg 41', $p['line']['plain'], 'the same rates as the table: 1 / 2.495% = 40.1, rounded up; 5 listings = 5 x 40.1 = 200.4, rounded up to the table\'s 201');
+        $this->assertStringNotContainsString('estimate', $p['line']['plain'], 'the label sits per station, not once for the page');
+    }
+
     public function test_the_settings_are_added_with_the_standard_numbers(): void
     {
         $s = SettingsService::forAgency($this->agency->id);

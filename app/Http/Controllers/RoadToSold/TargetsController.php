@@ -108,6 +108,9 @@ class TargetsController extends Controller
             return $row;
         });
 
+        // the first-visit tour sits over the dense belt table: hold it back here (a tour asked for by hand from the "?" menu still opens)
+        view()->share('tourHoldAutoStart', true);
+
         return view('road-to-sold.settings.targets', [
             'monthly'  => $this->monthlyData($request, $viewer, $agents, $settings),
             'tabs'     => SettingsController::tabsFor($viewer, 'targets'),
