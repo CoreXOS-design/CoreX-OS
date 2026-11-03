@@ -7,8 +7,8 @@ use App\Services\TrainingVideos\Auto\TrainingScriptValidator;
 use Tests\TestCase;
 
 /**
- * AT-526 prep (31 Oct): the draft tour scripts for the whole Setup Wizard, the essential Settings and Role Manager. They are written and checked but INERT - narrated and approved are both
- * false, so there is no Guide me button, no voice clip and no video until Johan approves the pilot and the voice. Every one must pass cc1's validator (plain words, a why on every step, two
+ * AT-526 / AT-525: the tour scripts for the whole Setup Wizard, the essential Settings and Role Manager. Finalised 3 Nov: approved for the video (Johan to spot-check), narrated (Guide me)
+ * still off except on the pilot until the voice is agreed. Every one must pass cc1's validator (plain words, a why on every step, two
  * minutes at most) and carry the tour keys.
  */
 final class NarratedTourDraftScriptsTest extends TestCase
@@ -50,11 +50,24 @@ final class NarratedTourDraftScriptsTest extends TestCase
         }
     }
 
-    public function test_the_drafts_are_inert_until_johan_approves_no_button_no_clips_no_video(): void
+    public function test_the_finalised_scripts_are_approved_for_video_but_the_narrated_tour_stays_off_except_the_pilot(): void
     {
         foreach ($this->drafts() as $s) {
-            $this->assertFalse($s->narrated(), $s->key() . ' must not offer Guide me yet');
-            $this->assertFalse($s->approved(), $s->key() . ' must not be generated as a video yet');
+            $this->assertTrue($s->approved(), $s->key() . ' was finalised on 3 Nov and must be approved for the video');
+            $this->assertSame($s->key() === 'agency-setup-identity', $s->narrated(), $s->key() . ': Guide me is offered only on the pilot until Johan agrees the voice');
+        }
+    }
+
+    public function test_every_finalised_script_records_as_the_training_admin_and_follows_the_route_convention(): void
+    {
+        foreach ($this->drafts() as $s) {
+            $this->assertSame('admin', $s->loginAs(), $s->key() . ' opens an admin-only screen, so the recorder must sign in as the training admin');
+            if (str_starts_with($s->key(), 'agency-setup-')) {
+                $this->assertNull($s->route(), $s->key() . ': Setup Wizard steps share one route name, so they are found by url');
+                $this->assertStringStartsWith('/corex/agency-setup/step/', $s->url());
+            } else {
+                $this->assertNotNull($s->route(), $s->key() . ' needs a route so the Watch how button finds it');
+            }
         }
     }
 

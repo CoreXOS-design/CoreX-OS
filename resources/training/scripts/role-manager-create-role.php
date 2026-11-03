@@ -1,8 +1,8 @@
 <?php
 
 /**
- * AT-526 - DRAFT narrated-tour script (prep only, 31 Oct). `narrated` and `approved` are both false: no "Guide me" button, no voice clips, no video until Johan approves the pilot and
- * the CoreX voice. Plain words (training-videos.md 9.13). To go live: set narrated => true (tour) and approved => true (video) after Johan has read the wording.
+ * AT-526 / AT-525 training script - FINALISED 3 Nov by lane, Johan to spot-check videos. Selectors checked against the live screen on QA1 (as the training admin);
+ * wording follows the plain-words rule (training-videos.md 9.13): short lines, what to click or type, and a "why". Invented sample data only. Under the two-minute cap.
  */
 return [
     'key' => 'role-manager-create-role',
@@ -12,8 +12,8 @@ return [
     'specs' => ['.ai/specs/roles-permissions.md'],
     'audience' => [],
     'related' => [],
-    'login_as' => 'agent',
-    'approved' => false,
+    'login_as' => 'admin',
+    'approved' => true,
     'narrated' => false,
     'intro' => 'Here is how to create a role and give it to someone on your team.',
     'steps' => [
@@ -42,10 +42,17 @@ return [
         ],
         [
             'selector' => '[data-tour="rm-role-save"]',
+            'action' => 'highlight',
+            'done' => 'none',
+            'narration' => 'Then press Create Role.',
+            'why' => 'The role then shows in every list in CoreX.',
+        ],
+        [
+            'selector' => 'button[type="button"]:has(+ [data-tour="rm-role-save"])',
             'action' => 'click',
             'done' => 'click',
-            'narration' => 'Press Create Role.',
-            'why' => 'The role then shows in every list in CoreX.',
+            'narration' => 'This is only practice, so press Cancel instead.',
+            'why' => 'Nothing is saved until you press Create Role.',
         ],
         [
             'selector' => '[data-tour="rm-tab-permissions"]',
@@ -87,9 +94,9 @@ return [
         ],
         [
             'selector' => '.user-role-form button[type="submit"]',
-            'action' => 'click',
-            'done' => 'click',
-            'narration' => 'Press Save next to their name.',
+            'action' => 'highlight',
+            'done' => 'none',
+            'narration' => 'Then press Save next to their name.',
             'why' => 'The change applies to that person only.',
         ],
     ],

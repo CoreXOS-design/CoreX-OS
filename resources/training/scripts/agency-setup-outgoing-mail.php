@@ -1,42 +1,53 @@
 <?php
 
 /**
- * AT-526 - DRAFT narrated-tour script (prep only, 31 Oct). `narrated` and `approved` are both false: no "Guide me" button, no voice clips, no video until Johan approves the pilot and
- * the CoreX voice. Plain words (training-videos.md 9.13). To go live: set narrated => true (tour) and approved => true (video) after Johan has read the wording.
+ * AT-526 / AT-525 training script - FINALISED 3 Nov by lane, Johan to spot-check videos. Selectors checked against the live screen on QA1 (as the training admin);
+ * wording follows the plain-words rule (training-videos.md 9.13): short lines, what to click or type, and a "why". Invented sample data only. Under the two-minute cap.
  */
 return [
     'key' => 'agency-setup-outgoing-mail',
     'title' => 'Send mail from your own address',
+    // route: none on purpose - all the Setup Wizard steps share the route name corex.agency-setup.step, so a route match would pick the wrong step's video.
+    // The "Watch how" button finds this one by its url below (TrainingScriptRepository::forPath).
     'url' => '/corex/agency-setup/step/outgoing_mail',
     'specs' => ['.ai/specs/agency-onboarding-setup.md'],
     'audience' => [],
     'related' => [],
-    'login_as' => 'agent',
-    'approved' => false,
+    'login_as' => 'admin',
+    'approved' => true,
     'narrated' => false,
     'intro' => 'Now connect your own mailbox, so emails go out under your name.',
     'steps' => [
         [
-            'selector' => 'label:has(#f_outgoing_enabled)',
+            'selector' => 'div:has(> label > input[name="outgoing_enabled"])',
             'action' => 'highlight',
             'done' => 'none',
             'narration' => 'Switch this on to send mail from your own mailbox.',
-            'why' => 'Signing invitations come from your own address, so fewer are rejected.',
+            'why' => 'Signing invitations come from your own address, so fewer are lost to spam.',
         ],
         [
             'selector' => '#f_email_address',
             'action' => 'type',
             'done' => 'input',
-            'value' => 'office@youragency.example',
+            'value' => 'office@bluegumrealty.example',
             'narration' => 'Type the email address you send from.',
             'why' => 'This is the address your clients will see.',
         ],
         [
             'selector' => '#f_smtp_host',
-            'action' => 'highlight',
-            'done' => 'none',
+            'action' => 'type',
+            'done' => 'input',
+            'value' => 'mail.bluegumrealty.example',
             'narration' => 'Type the outgoing mail server. Whoever hosts your email can tell you.',
             'why' => 'CoreX needs it to send mail for you.',
+        ],
+        [
+            'selector' => '#f_username',
+            'action' => 'type',
+            'done' => 'input',
+            'value' => 'office@bluegumrealty.example',
+            'narration' => 'Type the mailbox username.',
+            'why' => 'It proves to the mail server that the mailbox is yours.',
         ],
         [
             'selector' => '#f_password',
@@ -50,8 +61,8 @@ return [
             'action' => 'highlight',
             'done' => 'none',
             'narration' => 'Press Save and continue.',
-            'why' => 'Your choices are kept and you move on to the next step.',
+            'why' => 'Your answers are kept, and you move on to the next screen.',
         ],
     ],
-    'outro' => 'Good. Carry on to the next step when you are ready.',
+    'outro' => 'Next: reminders.',
 ];

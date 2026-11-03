@@ -1,18 +1,20 @@
 <?php
 
 /**
- * AT-526 - DRAFT narrated-tour script (prep only, 31 Oct). `narrated` and `approved` are both false: no "Guide me" button, no voice clips, no video until Johan approves the pilot and
- * the CoreX voice. Plain words (training-videos.md 9.13). To go live: set narrated => true (tour) and approved => true (video) after Johan has read the wording.
+ * AT-526 / AT-525 training script - FINALISED 3 Nov by lane, Johan to spot-check videos. Selectors checked against the live screen on QA1 (as the training admin);
+ * wording follows the plain-words rule (training-videos.md 9.13): short lines, what to click or type, and a "why". Invented sample data only. Under the two-minute cap.
  */
 return [
     'key' => 'agency-setup-proforma',
     'title' => 'Set up your invoices',
+    // route: none on purpose - all the Setup Wizard steps share the route name corex.agency-setup.step, so a route match would pick the wrong step's video.
+    // The "Watch how" button finds this one by its url below (TrainingScriptRepository::forPath).
     'url' => '/corex/agency-setup/step/proforma',
     'specs' => ['.ai/specs/agency-onboarding-setup.md'],
     'audience' => [],
     'related' => [],
-    'login_as' => 'agent',
-    'approved' => false,
+    'login_as' => 'admin',
+    'approved' => true,
     'narrated' => false,
     'intro' => 'Now set up how your proforma invoices look.',
     'steps' => [
@@ -20,9 +22,16 @@ return [
             'selector' => '#f_number_prefix',
             'action' => 'type',
             'done' => 'input',
-            'value' => 'INV',
+            'value' => 'BR-',
             'narration' => 'Type the letters your invoice numbers start with.',
             'why' => 'You and your clients can tell your invoices apart.',
+        ],
+        [
+            'selector' => '#f_start_number',
+            'action' => 'highlight',
+            'done' => 'none',
+            'narration' => 'Type the number to start counting from.',
+            'why' => 'If you already have invoices, carry on from your last one.',
         ],
         [
             'selector' => '#f_due_date_rule',
@@ -33,8 +42,9 @@ return [
         ],
         [
             'selector' => '#f_bank_details',
-            'action' => 'highlight',
-            'done' => 'none',
+            'action' => 'type',
+            'done' => 'input',
+            'value' => 'Sample Bank, account 000 000 0000',
             'narration' => 'Type your bank details.',
             'why' => 'Your clients need them to pay you.',
         ],
@@ -43,8 +53,8 @@ return [
             'action' => 'highlight',
             'done' => 'none',
             'narration' => 'Press Save and continue.',
-            'why' => 'Your choices are kept and you move on to the next step.',
+            'why' => 'Your answers are kept, and you move on to the next screen.',
         ],
     ],
-    'outro' => 'Good. Carry on to the next step when you are ready.',
+    'outro' => 'Next: your rentals.',
 ];
