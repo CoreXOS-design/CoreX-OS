@@ -1736,6 +1736,13 @@ final class EntryPointController extends Controller
         $sellers = app(\App\Services\Prospecting\ComposeSellerService::class)
             ->linkedSellers($agencyId, (int) $property->id);
 
+        // road-to-sold.md 23.30: inside the popup there is no Pitch step - choosing the seller is the top of the Contact screen, so go straight to it (the primary seller first)
+        if (\App\Support\Embed::on() && $sellers !== []) {
+            $first = collect($sellers)->sortByDesc(fn ($s) => (int) ! empty($s['is_primary']))->first();
+
+            return redirect()->to(route('seller-outreach.composer.show', ['contact' => $first['contact_id'], 'property_id' => $property->id] + app(\App\Services\RoadToSold\PitchPathService::class)->carry($request)));
+        }
+
         return view('seller-outreach.entry.pitch-ready', [
             'property' => $property,
             'sellers'  => $sellers,

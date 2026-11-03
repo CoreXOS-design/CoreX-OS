@@ -56,6 +56,10 @@ final class PitchCardResolver
      */
     public function peekAttributes(?int $listingId = null, ?int $propertyId = null, ?int $trackedId = null): string
     {
+        // inside the pitch popup the fold-out is the popup's own header (one component, every step; road-to-sold.md 23.30): the screens print no second one
+        if (\App\Support\Embed::on()) {
+            return '';
+        }
         $agencyId = (int) (auth()->user()?->effectiveAgencyId() ?: 0);
         $id = $agencyId > 0 ? $this->forIds($agencyId, $listingId, $propertyId, $trackedId) : null;
 

@@ -137,13 +137,12 @@ final class PitchPopupRound2Test extends TestCase
 
         $this->assertStringContainsString('_pitch_card=' . $this->listingId, (string) $r['property']);
         $this->assertStringContainsString('/outreach/compose', (string) $r['owner']);
-        $this->assertStringContainsString('/outreach/pitch-ready', (string) $r['pitch']);
         $this->assertStringContainsString('/contacts/' . $this->owner->id . '/outreach/compose', (string) $r['contact']);
         $this->assertStringContainsString('pitch_book=1', (string) $r['evaluation']);
 
         DB::table('prospecting_listings')->where('id', $this->listingId)->update(['matched_property_id' => null]);
         $bare = $this->actingAs($this->agent)->getJson(route('seller-outreach.entry.pitch-steps', ['listing' => $this->listingId]))->assertOk()->json('steps');
-        $this->assertNull($bare['pitch'], 'no CoreX property for the advert yet: no pitch-to-sellers screen, so a plain label');
+        $this->assertArrayNotHasKey('pitch', $bare, 'there is no Pitch step any more (23.30)');
 
         $other = $this->makeAgent();
         $theirs = $this->actingAs($other)->getJson(route('seller-outreach.entry.pitch-steps', ['prospect' => $this->prospect->id]))->assertOk()->json('steps');

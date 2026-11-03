@@ -89,6 +89,11 @@
             <h1 class="text-base font-bold" style="color: var(--text-primary);" data-qa="step-heading">Contact</h1>
         @endif
 
+        {{-- road-to-sold.md 23.30: the old Pitch step is the top of Contact - who to contact (one seller = one preselected line; more = one click selects) --}}
+        @if($inPopup && !empty($property))
+            @include('seller-outreach._seller-chooser', ['property' => $property, 'contact' => $contact])
+        @endif
+
         {{-- The property this pitch is about; a click shows its MIC card (road-to-sold.md 23.23) --}}
         @if(!empty($property))
             @php $__peek = app(\App\Services\Prospecting\MicWork\PitchCardResolver::class)->peekAttributes(null, (int) $property->id); @endphp
