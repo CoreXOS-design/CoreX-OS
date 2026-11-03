@@ -3,7 +3,7 @@
 @if(! empty($perListing) || $canAct || count($roster ?? []) > 0 || count($activationHistory ?? []) > 0)
             <div class="rts-belt-tools" style="position: relative;" x-data="{ pause: false, roster: false, hist: false }" @keydown.escape.window="pause = false; roster = false; hist = false" @click.outside="pause = false; roster = false; hist = false">
                 @if(! empty($perListing))
-                    <span class="rts-perlist" title="{{ $perListing['text'] }}" data-qa="rts-per-listing">{{ $perListing['text'] }}</span>
+                    <span class="rts-perlist" title="{{ $perListing['text'] }}" data-qa="rts-per-listing">{{ $perListing['short'] ?? $perListing['text'] }}</span>
                 @endif
                 @if($canAct && $aState !== 'paused')
                     <button type="button" class="underline" style="background: none; border: 0; padding: 0; cursor: pointer; color: var(--text-secondary);" @click="pause = !pause; roster = false" data-qa="belt-pause-open">{{ $viewingOwn ? 'Pause my Road to Sold' : 'Pause ' . $agentName }}</button>

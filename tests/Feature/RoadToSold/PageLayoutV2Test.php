@@ -211,4 +211,39 @@ final class PageLayoutV2Test extends TestCase
         $this->assertStringContainsString('rts-belt-tools', $head);
         $this->assertStringNotContainsString('class="rts-belt-line"', $html, 'the old separate line is gone');
     }
+
+    public function test_a_get_stock_station_list_opens_under_get_stock_even_when_sell_or_maintain_is_remembered(): void
+    {
+        $this->page(['belt' => 'sell']);   // Sell is now the remembered belt
+        $this->assertSame('sell', app(BeltPreferenceService::class)->get($this->agent));
+        $draft = $this->page(['station' => 'draft']);
+        $this->assertSame('get', $this->heads($draft)['open'], 'a Get-stock station list opens the Get belt, not the remembered Sell belt');
+        $this->assertStringContainsString('data-qa="station-list"', $draft);
+        $this->assertStringContainsString('<div class="rts-belt-row" data-qa="belt-tiles"', $draft);
+        $this->assertStringNotContainsString('data-qa="belt-tiles-sell"', $draft);
+        $this->assertSame('sell', app(BeltPreferenceService::class)->get($this->agent), 'the visit followed the station - the memory is not overwritten');
+        $this->assertSame('maintain', $this->heads($this->page(['station' => 'portals']))['open'], 'a Maintain station opens the Maintain belt');
+        $this->assertSame('sell', $this->heads($this->page())['open'], 'a plain visit still opens the remembered belt');
+        $this->assertSame('get', $this->heads($this->page(['station' => 'claimed']))['open']);
+    }
+
+    public function test_the_late_line_of_the_end_stations_is_plain_text_never_a_link_to_another_list(): void
+    {
+        $html = $this->page();
+        foreach (['draft', 'active', 'advertised'] as $k) {
+            $this->assertMatchesRegularExpression('/<span class="ln " data-qa="belt-line-' . $k . '-late">0 late<\/span>/', $html, "{$k}: 0 late is not a link");
+            $this->assertDoesNotMatchRegularExpression('/<a [^>]*data-qa="belt-line-' . $k . '-late"/', $html, "{$k}: no link on the late line");
+        }
+        $this->assertMatchesRegularExpression('/<a href="[^"]*station=claimed&amp;filter=late" class="ln " data-qa="belt-line-claimed-late">/', $html, 'a station with a late rule keeps its late link');
+    }
+
+    public function test_the_per_listing_line_in_the_heading_is_short_with_the_full_sentence_on_hover(): void
+    {
+        $line = app(\App\Services\RoadToSold\TargetsService::class)->perListingLine($this->agent, now());
+        $this->assertMatchesRegularExpression('/^To list 1: you need \d+ from MIC( · branch \d+)? · agency \d+( \(est\.\))?$/u', $line['short']);
+        $this->assertLessThan(strlen($line['text']), strlen($line['short']));
+        $this->assertStringStartsWith('To list 1 property: you need', $line['text'], 'the full wording is kept');
+        $html = $this->page();
+        $this->assertMatchesRegularExpression('/title="To list 1 property: you need[^"]*" data-qa="rts-per-listing">To list 1: you need/', $html);
+    }
 }
