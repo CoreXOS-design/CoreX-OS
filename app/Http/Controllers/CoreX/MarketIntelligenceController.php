@@ -4220,15 +4220,17 @@ class MarketIntelligenceController extends Controller
         // as before and the reason is written into its notes.
         if ($newStatus === ProspectingClaim::STATUS_LOST) {
             $belt = $claim->rts_prospect_id ? \App\Models\RoadToSold\RtsProspect::withoutGlobalScopes()->find($claim->rts_prospect_id) : null;
+            // a "lost" is something learned in the conversation: the Contact step's reasons (the agency's own list, "Other" last)
             $station = $belt ? \App\Services\RoadToSold\ParkReasonService::stationOfStage((string) $belt->stage) : 'contacted';
-            $reasons = app(\App\Services\RoadToSold\ParkReasonService::class)->choices((int) $claim->agency_id, 'sales', $station);
+            $reasonSvc = app(\App\Services\RoadToSold\ParkReasonService::class);
+            $reasons = \App\Models\RoadToSold\RtsParkReason::hasStepColumns() ? $reasonSvc->forStep((int) $claim->agency_id, 'sales', 4) : $reasonSvc->choices((int) $claim->agency_id, 'sales', $station);
             $picked = $reasons->firstWhere('key', (string) $request->input('reason'));
             if (! $picked) {
                 return back()->with('error', 'Say why you are closing this property: pick a reason (' . $reasons->pluck('label')->take(4)->implode(', ') . ' ...).')
                     ->with('mic_lost_reasons', $reasons->map(fn ($r) => ['key' => $r->key, 'label' => $r->label])->values()->all());
             }
             if ($belt && $belt->closed_at === null && $belt->released_at === null) {
-                $r = app(\App\Services\RoadToSold\ResultService::class)->offRamp($belt, $picked->key, $request->notes, $user, 'mic_feedback');
+                $r = app(\App\Services\RoadToSold\ResultService::class)->offRamp($belt, $picked->key, $request->notes, $user, 'mic_feedback', \App\Models\RoadToSold\RtsParkReason::hasStepColumns() ? 4 : null);
                 if (! $r['ok']) {
                     return back()->with('error', $r['message']);
                 }

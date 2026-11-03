@@ -189,6 +189,11 @@ class ParkReasonService
             ['key' => 'mandate_elsewhere',     'step' => 4, 'label' => 'Sole mandate elsewhere',         'counts_as' => $n, 'days' => 90],
             ['key' => 'sold_elsewhere',        'step' => 4, 'label' => 'Already sold',                   'counts_as' => $n, 'days' => 180],
             ['key' => 'off_market',            'step' => 4, 'label' => 'Not on the market any more',     'counts_as' => $n, 'days' => 180, 'station' => 'popup'],
+            ['key' => 'not_interested',        'step' => 4, 'label' => 'Not interested',                 'counts_as' => $n, 'days' => 180],
+            ['key' => 'already_listed_open',    'step' => 4, 'label' => 'Already listed - open mandate',  'counts_as' => $n, 'days' => 90],
+            ['key' => 'selling_privately',     'step' => 4, 'label' => 'Selling privately',              'counts_as' => $n, 'days' => 30],
+            ['key' => 'do_not_contact',        'step' => 4, 'label' => 'Do not contact',                 'counts_as' => $n, 'days' => 0],
+            ['key' => 'not_now',               'step' => 4, 'label' => 'Not now',                        'counts_as' => $n, 'days' => 7],
             ['key' => 'other_step_4',          'step' => 4, 'label' => 'Other',                          'counts_as' => $n, 'days' => 90, 'other' => true, 'station' => 'popup'],
 
             ['key' => 'seller_cannot_be_met',  'step' => 5, 'label' => 'Seller cannot be met',           'counts_as' => $n, 'days' => 30, 'station' => 'popup'],
@@ -214,6 +219,19 @@ class ParkReasonService
         ];
     }
 
+    /** A reason that is offered at a second step as well (the revisit / park result "Not now" is a Contact AND a Presentation results reason). */
+    public const STEP_ALSO = [7 => ['not_now']];
+
+    /** Johan's words for the reasons that existed before (3 Nov): a row still carrying the OLD default wording is reworded once; an agency's own wording is never touched. */
+    public const LABEL_UPGRADES = [
+        'not_selling_now'    => ['Not selling now' => 'Spoke - not selling'],
+        'mandate_elsewhere'  => ['Mandate with another agency' => 'Sole mandate elsewhere'],
+        'sold_elsewhere'     => ['Sold elsewhere' => 'Already sold'],
+        'price_unrealistic'  => ['Price unrealistic' => 'Overpriced'],
+        'chose_other_agency' => ['Seller chose another agency' => 'Lost to another agency'],
+        'cannot_be_reached'  => ['Cannot be reached' => 'Cannot make contact'],
+    ];
+
     /** @var array<string,bool> */
     private static array $stepSeeded = [];
 
@@ -237,6 +255,10 @@ class ParkReasonService
                     if ($row->step === null) {
                         $row->forceFill(['step' => $r['step'], 'counts_as' => $r['counts_as'], 'is_other' => (bool) ($r['other'] ?? false)])->saveQuietly();
                     }
+                    $up = self::LABEL_UPGRADES[$r['key']][(string) $row->label] ?? null;
+                    if ($up !== null) {
+                        $row->forceFill(['label' => $up])->saveQuietly();
+                    }
 
                     continue;
                 }
@@ -247,6 +269,10 @@ class ParkReasonService
                 ]);
             }
         });
+        // the old any-station "Other" is retired: each step's own Other replaces it (records that used it keep their wording; byKey still resolves the code). Once - an agency
+        // that switches it back on (the list screen records who) keeps it.
+        RtsParkReason::withoutGlobalScopes()->where('agency_id', $agencyId)->where('track', $track)->where('key', 'other')->whereNull('step')->where('is_active', true)->whereNull('updated_by_user_id')
+            ->update(['is_active' => false]);
         self::$stepSeeded[$agencyId . '|' . $track] = true;
     }
 
@@ -257,7 +283,7 @@ class ParkReasonService
         $eff = self::STEP_BORROWS[$step] ?? $step;
 
         return RtsParkReason::withoutGlobalScopes()->where('agency_id', $agencyId)->where('track', $track)->whereNull('deleted_at')->where('is_active', true)
-            ->where('step', $eff)->orderBy('is_other')->orderBy('sort_order')->orderBy('id')->get();
+            ->where(fn ($w) => $w->where('step', $eff)->orWhereIn('key', self::STEP_ALSO[$eff] ?? []))->orderBy('is_other')->orderBy('sort_order')->orderBy('id')->get();
     }
 
     public static function forgetMemo(): void
@@ -293,7 +319,9 @@ class ParkReasonService
     public function byKey(int $agencyId, string $track, ?string $key): ?RtsParkReason
     {
         $choices = $this->choices($agencyId, $track);
+        $exact = $choices->firstWhere('key', (string) $key)
+            ?? ($key ? RtsParkReason::withoutGlobalScopes()->withTrashed()->where('agency_id', $agencyId)->where('track', $track)->where('key', (string) $key)->first() : null);
 
-        return $choices->firstWhere('key', (string) $key) ?? $choices->firstWhere('key', 'other') ?? $choices->first();
+        return $exact ?? $choices->firstWhere('key', 'other') ?? $choices->first();
     }
 }

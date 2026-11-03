@@ -7021,6 +7021,10 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             Route::get('/belt-funnel', [\App\Http\Controllers\RoadToSold\BeltFunnelController::class, 'index'])->name('belt-funnel');
             Route::get('/belt-funnel/list', [\App\Http\Controllers\RoadToSold\BeltFunnelController::class, 'list'])->name('belt-funnel.list');
 
+            // v4 (23.25 / 23.11): the card's "Stops here (say why)" - the same control and the same controller as the pitch popup's
+            Route::get('/offramp', [\App\Http\Controllers\RoadToSold\PitchOffRampController::class, 'choices'])->name('offramp');
+            Route::post('/offramp', [\App\Http\Controllers\RoadToSold\PitchOffRampController::class, 'store'])->name('offramp.store');
+
             // v4 (23.9): the result of the evaluation / presentation, from the belt card (the one result service)
             Route::post('/prospects/{prospect}/result', [\App\Http\Controllers\RoadToSold\ProspectController::class, 'result'])
                 ->whereNumber('prospect')->name('prospects.result');

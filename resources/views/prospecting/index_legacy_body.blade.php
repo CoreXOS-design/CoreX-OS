@@ -763,7 +763,7 @@
                             class="w-full rounded-md px-3 py-2 text-sm"
                             style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
                         <option value="">Pick a reason</option>
-                        @foreach(app(\App\Services\RoadToSold\ParkReasonService::class)->choices((int) (auth()->user()->effectiveAgencyId() ?: 0), 'sales', 'contacted') as $lr)
+                        @foreach((\App\Models\RoadToSold\RtsParkReason::hasStepColumns() ? app(\App\Services\RoadToSold\ParkReasonService::class)->forStep((int) (auth()->user()->effectiveAgencyId() ?: 0), 'sales', 4) : app(\App\Services\RoadToSold\ParkReasonService::class)->choices((int) (auth()->user()->effectiveAgencyId() ?: 0), 'sales', 'contacted')) as $lr)
                             <option value="{{ $lr->key }}">{{ $lr->label }}</option>
                         @endforeach
                     </select>

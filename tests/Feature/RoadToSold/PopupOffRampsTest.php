@@ -102,6 +102,48 @@ final class PopupOffRampsTest extends TestCase
         $this->assertSame($this->svc()->forStep($this->agency->id, 'sales', 7)->pluck('key')->all(), $this->svc()->forStep($this->agency->id, 'sales', 6)->pluck('key')->all(), 'Presentation shows the results list');
     }
 
+    public function test_the_old_codes_are_placed_the_old_other_is_retired_and_johans_words_replace_the_old_labels(): void
+    {
+        $label = fn (string $k) => RtsParkReason::withoutGlobalScopes()->where('agency_id', $this->agency->id)->where('key', $k)->value('label');
+        $this->svc()->ensureDefaults($this->agency->id);
+        RtsParkReason::withoutGlobalScopes()->where('agency_id', $this->agency->id)->where('key', 'cannot_be_reached')->update(['label' => 'We could not reach them']);   // the agency's own wording
+        ParkReasonService::forgetMemo();
+        $this->svc()->ensureStepReasons($this->agency->id);
+
+        $four = $this->svc()->forStep($this->agency->id, 'sales', 4)->pluck('key')->all();
+        foreach (['not_interested', 'already_listed_open', 'selling_privately', 'do_not_contact', 'not_now'] as $k) { $this->assertContains($k, $four, "$k is at Contact"); }
+        $this->assertContains('not_now', $this->svc()->forStep($this->agency->id, 'sales', 7)->pluck('key')->all(), 'Not now is also a Presentation results reason');
+        $this->assertSame(1, $this->svc()->forStep($this->agency->id, 'sales', 4)->where('is_other', true)->count());
+
+        $this->assertSame('Spoke - not selling', $label('not_selling_now'));
+        $this->assertSame('Sole mandate elsewhere', $label('mandate_elsewhere'));
+        $this->assertSame('Already sold', $label('sold_elsewhere'));
+        $this->assertSame('Overpriced', $label('price_unrealistic'));
+        $this->assertSame('Lost to another agency', $label('chose_other_agency'));
+        $this->assertSame('We could not reach them', $label('cannot_be_reached'), "an agency's own wording is never touched");
+
+        $this->assertNotContains('other', array_column($this->actingAs($this->agent)->getJson(route('seller-outreach.entry.pitch-offramp', ['tracked' => $this->record()[0]->tracked_property_id, 'step' => 4]))->json('reasons'), 'key'));
+        $this->assertFalse((bool) RtsParkReason::withoutGlobalScopes()->where('agency_id', $this->agency->id)->where('key', 'other')->value('is_active'), 'the old generic Other is retired');
+        $this->assertSame('other', $this->svc()->byKey($this->agency->id, 'sales', 'other')->key, 'old records keep their wording: the code still resolves');
+    }
+
+    public function test_the_control_unfolds_inside_the_popup_and_the_card_uses_the_same_one(): void
+    {
+        $js = (string) file_get_contents(public_path('js/pitch-offramp.js'));
+        $this->assertStringContainsString("'cxo-fold'", $js);
+        $this->assertStringNotContainsString('position:absolute', $js, 'no floating panel');
+        $this->assertStringContainsString('type: \'radio\'', $js, 'the reasons are radios');
+        $this->assertStringContainsString('window.CorexOffRamp = { mount: mount }', $js);
+        $card = (string) file_get_contents(resource_path('views/road-to-sold/_block-prospects.blade.php'));
+        $this->assertStringContainsString('CorexOffRamp.mount', $card);
+        $this->assertStringContainsString('road-to-sold.offramp', $card);
+
+        [$p] = $this->record(S::CONTACTED);
+        $this->actingAs($this->agent)->getJson(route('road-to-sold.offramp', ['prospect' => $p->id, 'step' => 5]))->assertOk()->assertJsonPath('record.id', $p->id);
+        $this->actingAs($this->agent)->postJson(route('road-to-sold.offramp.store'), ['prospect' => $p->id, 'step' => 5, 'reason' => 'seller_cannot_be_met'])->assertOk();
+        $this->assertNotNull($p->fresh()->parked_at);
+    }
+
     public function test_the_defaults_per_step_are_the_rulings(): void
     {
         $keys = fn (int $s) => $this->svc()->forStep($this->agency->id, 'sales', $s)->pluck('key')->all();

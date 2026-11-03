@@ -23,7 +23,7 @@
     $cards = collect($lineChips)->mapWithKeys(fn ($c) => [$c['id'] => [
         'id' => $c['id'], 'tp' => $c['tracked_property_id'], 'address' => $c['address'], 'suburb' => $c['suburb'], 'owner' => $c['owner_name'], 'phone' => $c['owner_phone'],
         'price' => $moneyFmt($c['price']), 'stage' => $c['stage'], 'stage_label' => $c['stage_label'], 'agent' => $c['agent_name'], 'next' => $c['next_action'],
-        'station' => \App\Services\RoadToSold\ParkReasonService::stationOfStage($c['stage']),
+        'station' => \App\Services\RoadToSold\ParkReasonService::stationOfStage($c['stage']), 'offramp_step' => \App\Services\RoadToSold\ParkReasonService::stepOfStage($c['stage']),
         'blocker' => in_array($c['stage'], ['draft', 'active'], true) ? (function () use ($c) {   // v4 (23.11): the system names why a stuck draft / active record is stuck
             $b = app(\App\Services\RoadToSold\BlockerService::class)->firstBlocker(\App\Models\RoadToSold\RtsProspect::withoutGlobalScopes()->findOrFail($c['id']));
             return $b ? (collect(\App\Services\RoadToSold\ParkReasonService::stationDefaults())->firstWhere('key', $b['key'])['label'] ?? $b['key']) . ($b['detail'] ? ' - ' . $b['detail'] : '') : null;
@@ -220,7 +220,7 @@
                                 </template>
                                 <button type="button" class="corex-btn-outline corex-btn-xs text-left" @click="more = false; openNext(card.id, card.next, card.next_at)">Next action</button>
                                 <button type="button" class="corex-btn-outline corex-btn-xs text-left" data-qa="prospect-move" @click="more = false; openMove()">Move to...</button>
-                                <button type="button" class="corex-btn-outline corex-btn-xs text-left" @click="more = false; openPark(card.id, card.address)">Set aside</button>
+                                <button type="button" class="corex-btn-outline corex-btn-xs text-left" data-qa="card-stops-here" @click="more = false; openPark(card.id, card.address)">Stops here (say why)</button>
                             @endif
                             <button type="button" class="corex-btn-outline corex-btn-xs text-left" :data-step-url="card.history_url" :data-step-label="'History - ' + card.address" @click="cardId = null; more = false; $dispatch('rts-step', $el.dataset)">History</button>
                             @if($canRelease ?? false)
@@ -271,24 +271,12 @@
 
     @include('road-to-sold._result-modal')
 
-    {{-- Set aside (park) --}}
-    <div x-show="parkOpen" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4" style="background: rgba(0,0,0,0.45);" @keydown.escape.window="parkOpen = false">
-        <form method="POST" :action="'{{ dirname(dirname(route('road-to-sold.prospects.result', 0))) }}/' + id + '/park'" class="w-full max-w-md rounded-md p-5 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">
-            @csrf
-            @if($track !== 'sales')<input type="hidden" name="track" value="{{ $track }}">@endif
-            <h2 class="text-sm font-bold" style="color: var(--text-primary);">Set aside</h2>
+    {{-- v4 (23.25 / 23.11): "Stops here (say why)" - the SAME control as the pitch popup's (public/js/pitch-offramp.js), the reasons of the step the record is working on --}}
+    <div x-show="parkOpen" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4" style="background: rgba(0,0,0,0.45);" @keydown.escape.window="parkOpen = false" data-qa="offramp-card">
+        <div class="w-full rounded-md p-4 space-y-2" style="max-width: 44rem; background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
             <div class="text-xs" style="color: var(--text-muted);" x-text="address"></div>
-            <div><label class="block text-xs font-semibold mb-1" style="color: var(--text-muted);" for="pk-reason">Why</label>
-                <select id="pk-reason" name="reason" x-model="reason" @change="pickReason()" required class="w-full rounded-md px-3 py-2 text-xs" style="{{ $inputStyle }}">
-                    <option value="">Pick a reason</option>
-                    <template x-for="r in reasonsHere" :key="r.key"><option :value="r.key" x-text="r.label"></option></template>
-                </select></div>
-            <div><label class="block text-xs font-semibold mb-1" style="color: var(--text-muted);" for="pk-until">Bring it back on</label>
-                <input id="pk-until" type="date" name="until" x-model="until" class="rounded-md px-3 py-2 text-xs" style="{{ $inputStyle }}"></div>
-            <div><label class="block text-xs font-semibold mb-1" style="color: var(--text-muted);" for="pk-note">Note</label>
-                <input id="pk-note" name="note" maxlength="255" class="w-full rounded-md px-3 py-2 text-xs" style="{{ $inputStyle }}"></div>
-            <div class="flex items-center justify-end gap-2"><button type="button" class="corex-btn-outline corex-btn-xs" @click="parkOpen = false">Cancel</button><button type="submit" class="corex-btn-primary corex-btn-xs">Set aside</button></div>
-        </form>
+            <div x-ref="offHost" class="cxo-fold" style="max-height: 60vh;"></div>
+        </div>
     </div>
 </div>
 <script>
@@ -315,7 +303,11 @@ function rtsProspectActions(reasons, cards, stations) {
         openCard(id) { this.cardId = id; this.more = false; },
         openMove() { this.moveOpen = true; },
         openNext(id, label, at) { this.id = id; this.label = label || ''; this.at = at || ''; this.nextOpen = true; },
-        openPark(id, address) { this.id = id; this.address = address; this.reason = ''; this.until = ''; this.parkOpen = true; },
+        openPark(id, address) {
+            var self = this; this.id = id; this.address = address; this.reason = ''; this.until = ''; this.parkOpen = true;
+            var c = this.cards[id] || {}; var q = new URLSearchParams(); q.set('prospect', String(id));
+            this.$nextTick(function () { if (window.CorexOffRamp) { window.CorexOffRamp.mount(self.$refs.offHost, { url: @js(route('road-to-sold.offramp')), query: q, step: c.offramp_step || 2, onCancel: function () { self.parkOpen = false; }, onDone: function () { window.location.reload(); } }); } });
+        },
         pickReason() {
             var r = this.reasons.find(x => x.key === this.reason);
             if (r && r.days) { var d = new Date(); d.setDate(d.getDate() + r.days); this.until = d.toISOString().slice(0, 10); }

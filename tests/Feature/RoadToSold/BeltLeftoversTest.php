@@ -86,7 +86,7 @@ final class BeltLeftoversTest extends TestCase
         [$p, $claim, $listing] = $this->claimed();
 
         $this->actingAs($this->agent)->post(route('market-intelligence.feedback', $listing), ['status' => 'lost'])->assertSessionHas('error');
-        $this->actingAs($this->agent)->post(route('market-intelligence.feedback', $listing), ['status' => 'lost', 'reason' => 'wrong_number'])->assertSessionHas('error');   // another station's reason
+        $this->actingAs($this->agent)->post(route('market-intelligence.feedback', $listing), ['status' => 'lost', 'reason' => 'wont_sign_documents'])->assertSessionHas('error');   // another station's reason
 
         $this->assertTrue((bool) $claim->fresh()->is_active, 'still held');
         $this->assertNull($p->fresh()->parked_at);
@@ -106,7 +106,7 @@ final class BeltLeftoversTest extends TestCase
         $this->assertSame('2027-01-28', $p->parked_until->toDateString(), 'its own 90 days');
         $claim->refresh();
         $this->assertFalse((bool) $claim->is_active);
-        $this->assertSame(ProspectingClaim::STATUS_LOST, $claim->status);
+        $this->assertSame(ProspectingClaim::STATUS_NOT_INTERESTED, $claim->status);
         $this->assertSame(1, DB::table('rts_prospect_events')->where('prospect_id', $p->id)->where('kind', 'result')->count());
         $this->assertNotNull($claim->feedback_at);
         $this->assertSame('Listed with Anna', $claim->notes);
@@ -317,7 +317,7 @@ final class BeltLeftoversTest extends TestCase
         $this->assertStringContainsString('data-qa="card-more"', $html);
         $menu = strpos($html, 'data-qa="card-more-menu"');
         $this->assertLessThan(strpos($html, 'data-qa="prospect-move"'), $menu, 'Move to... sits behind More');
-        $this->assertLessThan(strpos($html, 'Set aside</button>'), $menu, 'Set aside sits behind More');
+        $this->assertLessThan(strpos($html, 'Stops here (say why)</button>'), $menu, 'Stops here sits behind More');
     }
 
     public function test_a_swap_is_not_offered_on_a_row_already_started_but_is_on_a_fresh_one(): void
