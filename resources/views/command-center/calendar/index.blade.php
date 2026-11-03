@@ -120,7 +120,9 @@
 
     @if($feedbackPopup)
     <style>
-        [data-qa="cal-root"] > *:not([data-qa="feedback-modal"]) { display: none !important; }
+        html, body { overflow: hidden !important; }
+        [data-qa="cal-root"] { visibility: hidden !important; }
+        [data-qa="feedback-modal"], [data-qa="feedback-modal"] * { visibility: visible !important; }
         [data-qa="feedback-modal"] { position: fixed !important; inset: 0 !important; padding: 0 !important; align-items: stretch !important; justify-content: stretch !important; }
         [data-qa="feedback-modal"] > [data-qa="feedback-backdrop"] { display: none !important; }
         [data-qa="feedback-panel"] { max-width: none !important; max-height: none !important; width: 100% !important; height: 100% !important; border: 0 !important; border-radius: 0 !important; box-shadow: none !important; }

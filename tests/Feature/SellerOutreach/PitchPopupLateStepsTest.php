@@ -256,7 +256,7 @@ final class PitchPopupLateStepsTest extends TestCase
         $q = ['capture_feedback' => $event->id, 'rts_prospect' => $this->prospect->id, 'rts_stage' => 'appointment_set'];
 
         $h = $this->actingAs($this->agent)->get(route('command-center.calendar', $q + ['embed' => 1]))->assertOk()->getContent();
-        $this->assertStringContainsString('[data-qa="cal-root"] > *:not([data-qa="feedback-modal"]) { display: none !important; }', $h, 'nothing of the calendar is shown');
+        $this->assertStringContainsString('[data-qa="cal-root"] { visibility: hidden !important; }', $h, 'nothing of the calendar is shown');
         $this->assertStringContainsString('data-qa="feedback-heading">Appointment feedback<', $h);
         $this->assertStringContainsString('The appointment was held', $h);
         $this->assertStringNotContainsString('The evaluation was held', $h);
@@ -267,7 +267,7 @@ final class PitchPopupLateStepsTest extends TestCase
         $plain = $this->actingAs($this->agent)->get(route('command-center.calendar', $q))->assertOk()->getContent();
         $this->assertStringContainsString('Capture Feedback', $plain);
         $this->assertStringContainsString('The evaluation was held', $plain, 'the calendar page itself is unchanged');
-        $this->assertStringNotContainsString('[data-qa="cal-root"] > *:not', $plain);
+        $this->assertStringNotContainsString('[data-qa="cal-root"] { visibility: hidden', $plain);
     }
 
     public function test_step_6_is_the_generate_presentation_window_alone_inside_the_popup(): void
