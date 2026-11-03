@@ -208,9 +208,11 @@ function rtsStepModal() {
         open(d) {
             if (!d || !d.stepUrl) { return; }
             // the pitch steps (find the owner, pitch) run in the ONE pitch popup, starting at the MIC card when the property has an advert (road-to-sold.md 23.23)
-            if ((/\/prospects\/\d+\/step\/(pitch|find_owner|evaluation|presentation|evaluation_feedback|results|draft|active)(\?|$)/.test(d.stepUrl) || /\/outreach\/compose(\?|$)/.test(d.stepUrl)) && window.CorexPitch) {
-                var __sm = d.stepUrl.match(/\/step\/(evaluation|presentation|evaluation_feedback|results|draft|active)(\?|$)/);   // a button that names a later step opens THERE; the others open at the record's own stage
-                window.CorexPitch.open({ step: __sm ? __sm[1] : null, next: new URL(d.stepUrl, window.location.href).toString(), tracked: __sm ? null : (d.tracked || null), label: d.stepLabel || 'Pitch' });
+            if ((/\/prospects\/\d+\/step\/(pitch|contact|find_owner|evaluation|presentation|evaluation_feedback|results|draft|active)(\?|$)/.test(d.stepUrl) || /\/outreach\/compose(\?|$)/.test(d.stepUrl)) && window.CorexPitch) {
+                // Belt v2: the row's button names the step it opens: Find owner -> Owner, Contact -> Contact, a later step opens THERE; the others open at the record's own stage
+                var __sm = d.stepUrl.match(/\/step\/(find_owner|contact|evaluation|presentation|evaluation_feedback|results|draft|active)(\?|$)/);
+                var __later = __sm && __sm[1] !== 'find_owner';
+                window.CorexPitch.open({ step: __sm ? (__sm[1] === 'find_owner' ? 'owner' : __sm[1]) : null, next: new URL(d.stepUrl, window.location.href).toString(), tracked: __later ? null : (d.tracked || null), label: d.stepLabel || 'Pitch' });
                 return;
             }
             this.label = d.stepLabel || 'Road to Sold step';

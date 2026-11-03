@@ -31,7 +31,6 @@
         // v4 (23.12): ONE next action per station - Loaded / Claimed: Find owner; Owner found: Log contact; Contacted: Book evaluation; Booked / Prepared: Evaluation
         // feedback; Held: Result (it is never offered before the evaluation happened). Everything else sits behind "More".
         'primary_kind' => match (true) {
-            $c['stage'] === 'owner_found' => 'log_contact',
             in_array($c['stage'], ['evaluation_done', 'presentation_given', 'presentation_feedback'], true) => 'result',
             default => 'step',
         },
@@ -200,11 +199,8 @@
                             <button type="button" class="corex-btn-primary corex-btn-xs" data-qa="prospect-step" :data-step-url="card.step_url" :data-tracked="card.card ? card.tp : ''" :data-step-label="card.step_label + ' - ' + card.address"
                                     @click="cardId = null; $dispatch('rts-step', $el.dataset)" x-text="card.step_label"></button>
                         </template>
-                        <template x-if="card.primary_kind === 'log_contact'">
-                            <button type="button" class="corex-btn-primary corex-btn-xs" data-qa="prospect-log-contact" :data-tp="card.tp" :data-address="card.address" @click="cardId = null; openContact($el.dataset)">Log contact</button>
-                        </template>
                         <template x-if="card.primary_kind === 'result'">
-                            <button type="button" class="corex-btn-primary corex-btn-xs" data-qa="prospect-result" @click="openResult(card.id, card.address)">Result</button>
+                            <button type="button" class="corex-btn-primary corex-btn-xs" data-qa="prospect-result" @click="openResult(card.id, card.address)">Record result</button>
                         </template>
                     @endif
                     <div class="relative" @click.outside="more = false" @keydown.escape="more = false">
@@ -214,9 +210,6 @@
                                 <template x-if="card.primary_kind !== 'step'">
                                     <button type="button" class="corex-btn-outline corex-btn-xs text-left" data-qa="prospect-step" :data-step-url="card.step_url" :data-tracked="card.card ? card.tp : ''" :data-step-label="card.step_label + ' - ' + card.address"
                                             @click="cardId = null; more = false; $dispatch('rts-step', $el.dataset)" x-text="card.step_label"></button>
-                                </template>
-                                <template x-if="card.show_log && card.primary_kind !== 'log_contact'">
-                                    <button type="button" class="corex-btn-outline corex-btn-xs text-left" :data-tp="card.tp" :data-address="card.address" @click="cardId = null; more = false; openContact($el.dataset)">Log contact</button>
                                 </template>
                                 <button type="button" class="corex-btn-outline corex-btn-xs text-left" @click="more = false; openNext(card.id, card.next, card.next_at)">Next action</button>
                                 <button type="button" class="corex-btn-outline corex-btn-xs text-left" data-qa="prospect-move" @click="more = false; openMove()">Move to...</button>

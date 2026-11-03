@@ -229,7 +229,8 @@ final class ChannelOutcomeTest extends TestCase
         $tp->update(['owner_contact_id' => $owner->id, 'deeds_captured_at' => now()]);
 
         $open = $this->pageAs($this->agent)->assertOk();
-        $open->assertSee('data-qa="log-contact"', false)->assertSee('Log contact')->assertDontSee('data-qa="log-contact-blocked"', false);
+        // Belt v2: a Today's work row has ONE button (Find owner); the Log contact popup is reached from inside the popup's Contact step, so no row button here
+        $open->assertDontSee('data-qa="log-contact"', false)->assertDontSee('data-qa="log-contact-blocked"', false);
         $open->assertSee('How did you contact them?')->assertSee('name="channel"', false);
         $open->assertDontSee('Contacted client');
     }

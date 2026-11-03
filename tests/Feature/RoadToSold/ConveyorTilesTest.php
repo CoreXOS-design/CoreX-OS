@@ -179,7 +179,7 @@ final class ConveyorTilesTest extends TestCase
         foreach (['claimed', 'owner', 'contacted', 'booked', 'prepared', 'held'] as $k) {
             $this->assertSame((int) $reached[BeltFunnelService::nextStation($k)], $t[$k]['moved'], "{$k}: the tile and the funnel agree");
         }
-        foreach (['won', 'draft', 'active', 'advertised'] as $k) {
+        foreach (['draft', 'active', 'advertised'] as $k) {
             $this->assertSame((int) $reached[$k], $t[$k]['moved'], "{$k}: reached today agrees with the funnel");
         }
     }
@@ -196,11 +196,7 @@ final class ConveyorTilesTest extends TestCase
         DB::table('rts_prospect_events')->where('prospect_id', $c->id)->update(['occurred_at' => '2026-09-20 10:00:00']);
 
         $t = $this->tiles();
-        $this->assertSame('arrival', $t['won']['kind']);
-        $this->assertSame(2, $t['won']['month'], 'two reached Won this month');
-        $this->assertSame(1, $t['won']['moved'], 'one of them today (the line reads "today")');
-        $this->assertSame(['2 this month', '1 today'], array_column($t['won']['lines'], 'text'));
-        $this->assertSame(0, $t['won']['late']);
+        $this->assertFalse($t->has('won'), 'Belt v2: no Won tile - a Won result passes through the station straight to Draft (the funnel still counts it)');
         $this->assertCount(2, $t['draft']['lines'], 'no late line on the last four');
     }
 
@@ -277,10 +273,10 @@ final class ConveyorTilesTest extends TestCase
         $this->at(S::APPOINTMENT_SET, 'Booked Row');
         $this->at(S::EVALUATION_DONE, 'Held Row');
         $label = fn (string $station) => preg_match('/data-qa="station-action"[^>]*data-action="([^"]+)"/', $this->actingAs($this->agent)->get(route('road-to-sold.index', ['block' => 'station', 'station' => $station]))->getContent(), $m) ? $m[1] : null;
-        $this->assertSame('Log contact', $label('owner'));
+        $this->assertSame('Contact', $label('owner'));
         $this->assertSame('Book appointment', $label('contacted'));
-        $this->assertSame('Appointment feedback', $label('booked'));
-        $this->assertSame('Result', $label('held'));
+        $this->assertSame('Prepare presentation', $label('booked'));
+        $this->assertSame('Record result', $label('held'));
         $held = $this->actingAs($this->agent)->get(route('road-to-sold.index', ['block' => 'station', 'station' => 'held']))->getContent();
         $this->assertStringContainsString('data-qa="result-modal"', $held, 'the Result pop-up is on the Held list');
     }
@@ -316,7 +312,7 @@ final class ConveyorTilesTest extends TestCase
         $this->assertGreaterThan(2, $lines, 'the tiles\' lines count a record at every station it left or reached');
         $this->assertSame(2, app(ConveyorService::class)->movedAlong($this->agent, 'sales', now()), 'two records moved today, each once');
         $this->assertSame(1, $t['held']['moved'], 'the per-tile line is unchanged');
-        $this->assertSame(1, $t['won']['moved']);
+        $this->assertFalse($t->has('won'));
 
         $h = $this->actingAs($this->agent)->get(route('road-to-sold.index'))->assertOk()->getContent();
         $this->assertMatchesRegularExpression('/data-qa="today-moved">2<\/strong> moved along/', $h);

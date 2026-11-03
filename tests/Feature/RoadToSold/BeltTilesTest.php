@@ -96,7 +96,8 @@ final class BeltTilesTest extends TestCase
         $keys = array_column(BeltService::stations(), 'key');
         $this->assertSame(['loaded', 'claimed', 'owner', 'contacted', 'booked', 'prepared', 'held', 'won', 'draft', 'active', 'advertised'], $keys);
         $at = -1;
-        foreach ($keys as $k) {
+        $this->assertStringNotContainsString('data-qa="belt-tile-won"', $html, 'Belt v2: no Won tile');
+        foreach (array_diff($keys, ['won']) as $k) {
             $pos = strpos($html, 'data-qa="belt-tile-' . $k . '"');
             $this->assertNotFalse($pos, $k);
             $this->assertGreaterThan($at, $pos, "{$k} in belt order");
@@ -211,12 +212,12 @@ final class BeltTilesTest extends TestCase
         $wd = app(\App\Services\RoadToSold\TargetsService::class)->workingDays($this->agent, now());
         $this->assertSame('0 / ' . (int) ceil(10 * $wd), $tiles['contacted']['figure'], 'a daily recipe target (10) x the month\'s working days');
         $this->assertSame('0 / ' . (int) ceil(round($wd / 5, 1)), $tiles['booked']['figure'], 'a weekly target x working days / 5');
-        $this->assertSame('0 / 1', $tiles['won']['figure'], 'a monthly target as it stands');
+        $this->assertFalse($tiles->has('won'), 'Belt v2: no Won tile');
         $this->assertSame('recipe', $tiles['contacted']['tgt']['source']);
         $html = str_replace("\n", ' ', $this->page($this->agent)->getContent());
         $this->assertMatchesRegularExpression('/data-qa="belt-line-contacted-moved"[^>]*>0 moved on today</', $html);
-        $this->assertMatchesRegularExpression('/data-qa="belt-line-won-moved"[^>]*>0 today</', $html, 'the last four read "this month" and "today"');
-        $this->assertMatchesRegularExpression('/data-qa="belt-tile-won"[^>]*><span class="n" data-qa="belt-figure">0<\/span> this month</', $html);
+        $this->assertMatchesRegularExpression('/data-qa="belt-line-draft-moved"[^>]*>0 today</', $html, 'the last stations read "this month" and "today"');
+        $this->assertStringNotContainsString('data-qa="belt-tile-won"', $html, 'Belt v2: no Won tile');
     }
 
     public function test_the_compare_popover_gives_me_my_branch_and_the_agency_as_figures_only(): void
@@ -258,7 +259,7 @@ final class BeltTilesTest extends TestCase
         $h = $this->page($this->agent, ['station' => 'booked'])->assertOk()->getContent();
         $this->assertStringContainsString('>Due<', $h);
         $this->assertMatchesRegularExpression('/data-qa="station-due"[^>]*>\s*<div[^>]*>Thu 15 Oct 10:00/', $h, 'a booked evaluation is due when the appointment is, with its time');
-        $this->assertMatchesRegularExpression('/data-qa="station-action"[^>]*data-action="Appointment feedback"/', $h, 'Booked: Appointment feedback');
+        $this->assertMatchesRegularExpression('/data-qa="station-action"[^>]*data-action="Prepare presentation"/', $h, 'Booked: Prepare presentation');
         $this->assertStringNotContainsString('>Open</a>', $h, 'the row button is not a status');
     }
 }

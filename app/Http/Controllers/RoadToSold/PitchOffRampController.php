@@ -52,8 +52,19 @@ class PitchOffRampController extends Controller
 
     public function choices(Request $request): JsonResponse
     {
-        $p = $this->recordOf($request);
         $step = $this->step($request);
+        // Belt v2: the Swap on a Today's work row asks for the step 1 reasons of a LIST ITEM (its record may not exist yet - the swap places it)
+        if ((int) $request->query('item') > 0) {
+            $user = $request->user();
+            $row = \App\Models\RoadToSold\RtsListItem::query()->visibleTo($user)->where('user_id', (int) $user->id)->find((int) $request->query('item'));
+            if (! $row) {
+                return response()->json(['record' => null, 'step' => 1, 'message' => 'That property is not on your list.', 'reasons' => []]);
+            }
+
+            return response()->json(['record' => ['id' => (int) $row->id, 'address' => null, 'stopped' => false], 'step' => 1, 'message' => null,
+                'reasons' => $this->reasons->forStep((int) ($user->effectiveAgencyId() ?: 0), (string) ($row->track ?: 'sales'), 1)->map(fn ($r) => ['key' => $r->key, 'label' => $r->label, 'other' => (bool) $r->is_other])->values()->all()]);
+        }
+        $p = $this->recordOf($request);
         if (! $p) {
             return response()->json(['record' => null, 'step' => $step, 'message' => 'This property is not on your Road to Sold list yet - claim it first, then you can say why it stops here.', 'reasons' => []]);
         }

@@ -20,11 +20,13 @@ final class ProspectStepService
     public const LABELS = [
         'find_owner' => 'Find owner',
         'pitch'      => 'Pitch',
+        // Belt v2 (3 Nov): a row's ONE button is named for the next step - Contact replaces both Pitch and Log contact (the Log contact popup is inside the Contact step)
+        'contact'    => 'Contact',
         'evaluation' => 'Book appointment',
         'evaluation_feedback' => 'Appointment feedback',
-        'presentation' => 'Presentation',
+        'presentation' => 'Prepare presentation',
         // the pitch popup's steps 7-9 (road-to-sold.md 23.25): the screens are the existing ones, reached through the popup
-        'results'    => 'Presentation results',
+        'results'    => 'Appointment results',
         'draft'      => 'Move to Draft',
         'active'     => 'Make active',
         'mandate'    => 'Mandate',
@@ -41,14 +43,16 @@ final class ProspectStepService
 
     /** stage => the step that moves the prospect on. */
     private const NEXT = [
-        'found'                 => 'pitch',
+        'found'                 => 'find_owner',
+        'claimed'               => 'find_owner',
+        'owner_found'           => 'contact',
         'contacted'             => 'evaluation',
-        'appointment_set'       => 'evaluation_feedback',
+        'appointment_set'       => 'presentation',
         'presentation_prepared' => 'results',
-        'evaluation_done'       => 'presentation',
+        'evaluation_done'       => 'results',
         'presentation_given'    => 'presentation',
         'presentation_feedback' => 'mandate',
-        'mandate_signed'        => 'listing',
+        'mandate_signed'        => 'draft',
         'draft'                 => 'active',
         'listing_live'          => 'advertise',
         'advertising'           => 'lead',
@@ -70,7 +74,7 @@ final class ProspectStepService
      */
     public function primary(array $row, bool $hasOwner): array
     {
-        $key = (! $hasOwner && in_array($row['stage'] ?? 'found', ['found', 'claimed'], true)) ? 'find_owner' : (self::NEXT[$row['stage'] ?? 'found'] ?? 'property');
+        $key = self::NEXT[$row['stage'] ?? 'found'] ?? 'property';
         if ($key === 'pitch' && ! $hasOwner) {
             $key = 'find_owner';
         }
@@ -107,7 +111,7 @@ final class ProspectStepService
         return match ($step) {
             // the pitch path (22.10, PitchPathService): owner known -> the composer on that contact and the property (made from the MIC address
             // first when there is none); nobody -> Find owner. One answer for both buttons, so a row never dead-ends.
-            'find_owner', 'pitch' => $r('road-to-sold.prospects.pitch-path', $p->id),
+            'find_owner', 'pitch', 'contact' => $r('road-to-sold.prospects.pitch-path', $p->id),
             // v4 drop 4 (23.23): the calendar's own evaluation form, prefilled with the property and the owner, inside the pitch popup
             'evaluation' => $r('road-to-sold.prospects.evaluation-path', $p->id),
             // v4 (23.10): once it is booked, the next thing is saying how it went - the calendar's own feedback form (held / no-show / moved) on THAT appointment.

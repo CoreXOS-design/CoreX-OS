@@ -112,7 +112,7 @@
                                 <button type="button" class="corex-btn-primary corex-btn-xs" data-qa="station-action" data-action="Log contact" data-tp="{{ $r['tracked_property_id'] }}" data-item="" data-address="{{ $r['address'] }}"
                                         @click="openContact($el.dataset)">Log contact</button>
                             @elseif($act && $act['kind'] === 'result')
-                                <button type="button" class="corex-btn-primary corex-btn-xs" data-qa="station-action" data-action="Result" @click="openResult({{ (int) $r['prospect_id'] }}, @js($r['address']))">Result</button>
+                                <button type="button" class="corex-btn-primary corex-btn-xs" data-qa="station-action" data-action="Record result" @click="openResult({{ (int) $r['prospect_id'] }}, @js($r['address']))">Record result</button>
                             @endif
                             <a href="{{ $r['view_url'] }}" class="corex-btn-outline corex-btn-xs" data-qa="station-view">View</a>
                         </div>

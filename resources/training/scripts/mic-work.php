@@ -30,7 +30,7 @@ return [
         ],
         [
             'selector' => '.mi-suggested-chip', 'action' => 'highlight',
-            'narration' => 'Press Pitch now to write to the owner.',
+            'narration' => 'Press Claim to claim it and write to the owner.',
             'why' => 'It holds the house for you, and shows the buyers waiting in that area.',
         ],
         [

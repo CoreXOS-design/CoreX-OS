@@ -37,14 +37,14 @@ return [
     ],
 
     'stations' => [
-        ['key' => 'loaded',     'label' => 'Stock loaded',          'short' => 'Loaded',    'stages' => ['found'],                              'source' => 'list_today',        'prefer_stage' => false, 'tasks' => [], 'built' => true],
+        ['key' => 'loaded',     'label' => "Today's work",          'short' => "Today's work",    'stages' => ['found'],                              'source' => 'list_today',        'prefer_stage' => false, 'tasks' => [], 'built' => true],
         ['key' => 'claimed',    'label' => 'Claimed',               'short' => 'Claimed',   'stages' => ['claimed'],                            'source' => 'claims_open',       'prefer_stage' => true,  'tasks' => [], 'built' => true],
-        ['key' => 'owner',      'label' => 'Owner found',           'short' => 'Owner',     'stages' => ['owner_found'],                        'source' => 'claims_owner',      'prefer_stage' => true,  'tasks' => ['owner-found'], 'built' => true],
+        ['key' => 'owner',      'label' => 'Owner found',           'short' => 'Owner found',     'stages' => ['owner_found'],                        'source' => 'claims_owner',      'prefer_stage' => true,  'tasks' => ['owner-found'], 'built' => true],
         ['key' => 'contacted',  'label' => 'Contacted',             'short' => 'Contacted', 'stages' => ['contacted'],                          'source' => 'stage',             'prefer_stage' => true,  'tasks' => ['call-outcome'], 'built' => true],
         ['key' => 'booked',     'label' => 'Evaluation booked',     'short' => 'Booked',    'stages' => ['appointment_set'],                    'source' => 'stage',             'prefer_stage' => true,  'tasks' => ['evaluation-booked'], 'built' => true],
         ['key' => 'prepared',   'label' => 'Presentation prepared', 'short' => 'Prepared',  'stages' => ['presentation_prepared'],              'source' => 'presentations_open', 'prefer_stage' => true,  'tasks' => [], 'built' => true],
         ['key' => 'held',       'label' => 'Evaluation held',       'short' => 'Held',      'stages' => ['evaluation_done'],                    'source' => 'stage',             'prefer_stage' => true,  'tasks' => ['evaluation-done'], 'built' => true],
-        ['key' => 'won',        'label' => 'Result: won',           'short' => 'Won',       'stages' => ['mandate_signed'],                     'source' => 'stage',             'prefer_stage' => true,  'tasks' => ['mandate-filed'], 'built' => true],
+        ['key' => 'won',        'label' => 'Result: won',           'short' => 'Won',       'stages' => ['mandate_signed'],                     'source' => 'stage',             'prefer_stage' => true,  'tasks' => ['mandate-filed'], 'built' => true, 'no_tile' => true],
         ['key' => 'draft',      'label' => 'Draft',                 'short' => 'Draft',     'stages' => ['draft'],                              'source' => 'properties_draft',  'prefer_stage' => true,   'tasks' => [], 'built' => true],
         ['key' => 'active',     'label' => 'Active',                'short' => 'Active',    'stages' => ['active'],                             'source' => 'properties_active', 'prefer_stage' => true,   'tasks' => [], 'built' => true],
         ['key' => 'advertised', 'label' => 'Advertised',            'short' => 'Advertised', 'stages' => ['listing_live', 'advertising'],       'source' => 'properties_live',   'prefer_stage' => false, 'tasks' => ['listing-live'], 'built' => true],

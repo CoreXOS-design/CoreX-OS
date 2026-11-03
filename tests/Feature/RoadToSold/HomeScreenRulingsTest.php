@@ -62,11 +62,11 @@ final class HomeScreenRulingsTest extends TestCase
     {
         $h = $this->page()->getContent();
         $this->assertMatchesRegularExpression('/data-qa="belt-tile-owner"/', $h);
-        foreach (['claimed', 'owner', 'contacted', 'booked', 'held', 'won'] as $key) {
+        foreach (['claimed', 'owner', 'contacted', 'booked', 'held'] as $key) {
             $this->assertStringContainsString('station=' . $key, $h);
         }
         preg_match_all('/<a href="([^"]+)"[^>]*data-qa="belt-tile-([a-z]+)"/', $h, $m);
-        $this->assertCount(11, $m[2], 'eleven tiles');
+        $this->assertCount(10, $m[2], 'ten tiles (Belt v2: no Won tile)');
         foreach ($m[1] as $href) {
             $this->assertStringNotContainsString('block=prospects', html_entity_decode($href), 'no tile opens the My prospects page');
         }

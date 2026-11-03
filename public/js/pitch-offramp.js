@@ -82,7 +82,7 @@
             go.disabled = true;
             var body = new URLSearchParams(o.query ? o.query.toString() : ''); body.set('step', String(d.step)); body.set('reason', c.value); if (note.value.trim()) body.set('note', note.value.trim());
             var token = document.querySelector('meta[name="csrf-token"]');
-            fetch(o.url, { method: 'POST', credentials: 'same-origin', headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest', 'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRF-TOKEN': token ? token.content : '' }, body: body.toString() })
+            fetch(o.post || o.url, { method: 'POST', credentials: 'same-origin', headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest', 'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRF-TOKEN': token ? token.content : '' }, body: body.toString() })
                 .then(function (r) { return r.json().then(function (j) { return { ok: r.ok && j.ok, j: j }; }); })
                 .then(function (x) {
                     if (!x.ok) { go.disabled = false; err.textContent = (x.j && (x.j.message || (x.j.errors && Object.values(x.j.errors)[0][0]))) || 'It could not be saved. Try again.'; return; }

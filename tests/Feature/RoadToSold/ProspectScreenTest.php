@@ -121,8 +121,8 @@ final class ProspectScreenTest extends TestCase
         $this->assertStringContainsString('rts-ch is-overdue', $html);
         $this->assertStringContainsString('Due today', $html);
         $this->assertStringContainsString('Owner not known yet', $html);
-        // first-time user: the primary button says what to do - Pitch when the owner is known, Find owner when not
-        $this->assertStringContainsString('prospects/' . $a->id . '/step/pitch', $this->pageData($html), 'the card of an owner-known property opens the pitch');
+        // Belt v2: a Today's work (found) record's one button is Find owner whether or not the owner is known
+        $this->assertStringContainsString('prospects/' . $a->id . '/step/find_owner', $this->pageData($html), 'the card of a loaded property opens Find owner');
         $this->assertStringContainsString('prospects/' . $b->id . '/step/find_owner', $this->pageData($html), 'the card of a property with no owner opens Find owner');
         $this->assertStringContainsString('Find owner', $html);
     }

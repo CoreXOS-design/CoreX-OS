@@ -220,11 +220,12 @@ final class PitchPopupLateStepsTest extends TestCase
         $belt = app(BeltService::class);
         $label = fn (string $station) => ($action->invoke($belt, $station, 7, true)['label'] ?? null);
 
-        $this->assertSame('Log contact', $label('owner'), 'unchanged');
-        $this->assertSame('Book appointment', $label('contacted'), 'wording only (23.25 step 5); the button itself is unchanged');
-        $this->assertSame('Appointment feedback', $label('booked'), 'relabelled only');
-        $this->assertSame('Result', $label('held'), 'unchanged');
-        $this->assertSame('Presentation results', $label('prepared'));
+        // Belt v2 (3 Nov): one button per row, named for the next step
+        $this->assertSame('Contact', $label('owner'));
+        $this->assertSame('Book appointment', $label('contacted'));
+        $this->assertSame('Prepare presentation', $label('booked'));
+        $this->assertSame('Record result', $label('held'));
+        $this->assertSame('Appointment results', $label('prepared'));
         $this->assertSame('Move to Draft', $label('won'));
         $this->assertSame('Make active', $label('draft'));
         $this->assertNull($label('active'));
