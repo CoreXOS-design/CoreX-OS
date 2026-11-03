@@ -682,3 +682,29 @@ Johan's ruling 3 Nov: the 21 draft scripts (the 19 Setup Wizard steps, `agency-s
 - **Wording.** Rewritten to the plain-words rule (9.13): what to click or type, then one "why" in agent terms, invented sample data only (Bluegum Realty, no HFC wording, nothing real), no "valuation" or "evaluation" (the presentations step says "price presentation"). 40 to 98 seconds each, all under the 120 s cap.
 - **Screen mismatches fixed.** Branches never showed the thing a new agency does there (add an office) - now it does; Role Manager's practice "Create Role" no longer creates a role on every recording (the script closes the box with Cancel) and the User Roles "Save" is only pointed at, never pressed, so a recording can never change a training user's role (it could have locked the recorder's own login out); the leases, compliance, matches, contacts and notifications steps spotlight the whole block, not a 16-pixel switch.
 - **Proof.** `NarratedTourDraftScriptsTest` (now asserts approved, admin and the route convention) + `AutoVideoScriptTest` pass against all 23 scripts; `php -l` on every script.
+
+**Videos made (3 Nov, QA1, through the real `training-videos` worker, system voice `kokoro:af_heart`): 21 of 21 ready, none failed.** The two pilots were not re-made.
+
+| key | screen | steps | words | duration | ready? |
+|---|---|---|---|---|---|
+| agency-settings-essentials | Find your main settings | 6 | 111 | 48s | ready |
+| agency-setup-access | Finish your setup | 4 | 82 | 34s | ready |
+| agency-setup-branches | Set up your offices and assistants | 6 | 130 | 53s | ready |
+| agency-setup-branding | Add your logo and colours | 6 | 105 | 43s | ready |
+| agency-setup-capabilities | Choose what your agency uses | 7 | 163 | 68s | ready |
+| agency-setup-commission | Set up agent pay | 7 | 155 | 61s | ready |
+| agency-setup-compliance | Set up your compliance | 7 | 133 | 56s | ready |
+| agency-setup-contacts | Set up your contacts | 5 | 97 | 41s | ready |
+| agency-setup-identity | Set up your agency details | 7 | 155 | 62s | ready |
+| agency-setup-leases | Set up your rentals | 3 | 75 | 32s | ready |
+| agency-setup-market-intelligence | Set up Market Intelligence | 6 | 131 | 54s | ready |
+| agency-setup-matches | Set up buyer matches | 6 | 114 | 47s | ready |
+| agency-setup-notifications | Choose your reminders | 7 | 131 | 57s | ready |
+| agency-setup-outgoing-mail | Send mail from your own address | 6 | 116 | 47s | ready |
+| agency-setup-presentations | Set up your seller presentations | 5 | 104 | 42s | ready |
+| agency-setup-proforma | Set up your invoices | 5 | 86 | 35s | ready |
+| agency-setup-properties | Set up your listings | 7 | 152 | 58s | ready |
+| agency-setup-road-to-sold | Set up the daily call list | 7 | 130 | 51s | ready |
+| agency-setup-roles | See who can do what | 4 | 104 | 39s | ready |
+| agency-setup-welcome | Start your agency setup | 3 | 88 | 32s | ready |
+| role-manager-create-role | Create a role and give it to a person | 11 | 196 | 75s | ready |
