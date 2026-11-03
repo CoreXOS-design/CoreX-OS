@@ -3008,3 +3008,17 @@ Found by replaying the AI's saved answers for generation #5 (reference-picture p
 - Tests: `AiTemplateTextFitTest` (agency wording used; the agency's own long wording still held to the box; empty website skipped; listing fields unchanged).
 - Replay proof: with agency 20's details the saved second answer validates; the first still has a genuine QR-code-on-address overlap (the AI's mistake, which its retry is told about).
 - Not touched: the overlap mover, and 5 older `AiTemplateBuilderTest` tests that fail on unmodified Staging.
+
+### 22.11 Overlaps: trim first; the mover bug; three tries for a reference picture (2026-11-03)
+
+Found by replaying generation #6's saved answers (reference-picture poster). Three separate faults, all in `AdLayoutValidator` / `AiTemplateBuilderService`:
+
+1. **The overlap mover moved a box again on every pass.** `separateOverlaps()` read box positions through an arrow function, which captures a COPY of the element list: after a box was moved it still reported the old position, so the same clash was "found" again and the box moved by the same step on all 12 passes (the suburb line ended 400px down the poster, onto the price panel). The lookup now reads the live list (`use (&$elements)`). This was the "pushes a colliding element hundreds of pixels" defect recorded earlier.
+2. **`clampTextToShapes()` could teleport words.** It moved text "wholly onto" a shape however far away it was; it now never moves words more than `CLAMP_MAX_MOVE` (48px) — a longer move is a different design and is left for the check to refuse.
+3. **New repair `trimOverlaps()` (runs before the text-fit repair).** Most clashes in a reference-matched poster are a box far bigger than its words need running into the next one. The box is trimmed on the side facing the neighbour (away from where its words are anchored where possible) when its longest realistic words still fit what is left, it still sits on the same panels, and it is a word box (never a picture / QR / logo / avatar). It may lower the font to `TRIM_MIN_FONT_SHARE` (50%) of the size the model chose, never under the 16px minimum. The text-fit repair keeps its own 30% limit, now measured from the model's original size.
+4. **Text-fit growth (§22.9)** now widens first (at any font down to the floor) and only adds height as a last resort, so one line cannot use up the vertical room the next line needs.
+5. **A reference-picture run gets three tries, not two** (`designDefaults`): 25–40 tightly packed boxes make one slip somewhere far likelier than in a free-style design. A try is only paid for when the ones before it failed.
+
+- Replay proof: generation #6's first saved answer (3 overlap errors) now validates; its second still fails honestly (the longest possible suburb cannot fit that header band).
+- Tests: `AiTemplateOverlapTrimTest` (trim, never clips words, font floor, a moved box moves once). `AiTemplateOverlapGuardTest` accepts "trimmed" as well as "moved" for the vacant-land clash. Two `AiTemplateRepairTest` cases that failed on untouched Staging now pass.
+- Still failing on untouched Staging and NOT touched: 11 older tests (`AiTemplateRepairTest` ×2, `AiTemplateOverlapGuardTest` ×4, `AiTemplateBuilderTest` ×5) written before the text-fit rule.

@@ -519,13 +519,16 @@ final class AiTemplateBuilderService
         $errors   = [];
         $lastErr  = null;
 
-        for ($attempt = 1; $attempt <= 2; $attempt++) {
+        // A reference picture is matched element by element - 25 to 40 tightly packed boxes - so one slip somewhere is far likelier
+        // than in a free-style design: it gets a third try (a try is only paid for when the ones before it failed).
+        $tries = $generation->reference_image_path ? 3 : 2;
+        for ($attempt = 1; $attempt <= $tries; $attempt++) {
             $missing = self::OPTIONS - count($complete);
             if ($missing <= 0) {
                 break;
             }
             // The retry only happens if the first attempt left time on the clock.
-            if ($attempt === 2 && (microtime(true) - $started) > self::RETRY_BUDGET_SECS) {
+            if ($attempt >= 2 && (microtime(true) - $started) > self::RETRY_BUDGET_SECS) {
                 break;
             }
 

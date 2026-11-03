@@ -96,6 +96,15 @@ final class AdLayoutValidator
     /** When boxes that sit on top of each other are pulled apart, they end this many pixels clear (more than OVERLAP_TOLERANCE). */
     private const SEPARATION_GAP = 8;
 
+    /**
+     * Trimming a box that runs into a neighbour may take its font down to this share of the size the model chose (never under
+     * MIN_FONT_SIZE): a smaller line beside its neighbour reads better than a refused design. The text-fit repair keeps its own 70%.
+     */
+    private const TRIM_MIN_FONT_SHARE = 0.5;
+
+    /** Nudging words back onto the shape they hang over never moves them further than this (px): a bigger move is a different design. */
+    private const CLAMP_MAX_MOVE = 48;
+
     /** Pulling boxes apart never moves one further than this share of the canvas side: a bigger move is a different design. */
     private const SEPARATION_MAX_SHARE = 0.4;
 
@@ -457,8 +466,19 @@ final class AdLayoutValidator
             $errors[] = 'A property ad needs at least one property photo element (image_1 … image_5, or a collage), or the agent photo (agent_avatar) when the ad is about the agent.';
         }
 
+        // The font sizes the model chose, kept so that repairs one after the other cannot each take their share off the same line:
+        // every repair measures its limit from THIS size, never from what an earlier repair left.
+        $fontFloors = [];
+        foreach ($elements as $i => $el) {
+            $fontFloors[$i] = (float) $el['fontSize'];
+        }
+        if ($repair) {
+            // Boxes bigger than their words need that run into a neighbour are trimmed back first: that is the cheapest fix, and it
+            // frees the room the text-fit repair below may then want.
+            $this->trimOverlaps($elements, $repairs, $fontFloors);
+        }
         if ($layoutMode === self::MODE_PROPERTY) {
-            $this->checkTextFit($elements, $errors, $repair, $repairs, $cw, $ch);
+            $this->checkTextFit($elements, $errors, $repair, $repairs, $cw, $ch, $fontFloors);
         }
         if ($repair) {
             // Nudge words that run over a shape's edge back onto it, then pull apart boxes that sit on top of each other, before
@@ -1440,7 +1460,11 @@ final class AdLayoutValidator
             }
         }
 
-        $box = fn (int $i): array => [(float) $elements[$i]['x'], (float) $elements[$i]['y'], (float) $elements[$i]['x'] + (float) $elements[$i]['w'], (float) $elements[$i]['y'] + (float) $elements[$i]['h']];
+        // By reference on purpose: an arrow function would capture a COPY of the elements, so after a box was moved this would keep
+        // reporting its old position and the box would be moved again on every pass (the "pushed hundreds of pixels" bug).
+        $box = function (int $i) use (&$elements): array {
+            return [(float) $elements[$i]['x'], (float) $elements[$i]['y'], (float) $elements[$i]['x'] + (float) $elements[$i]['w'], (float) $elements[$i]['y'] + (float) $elements[$i]['h']];
+        };
         $hit = fn (array $a, array $b): bool => min($a[2], $b[2]) - max($a[0], $b[0]) > $tol && min($a[3], $b[3]) - max($a[1], $b[1]) > $tol;
 
         for ($pass = 0; $pass < 12; $pass++) {
@@ -1501,6 +1525,144 @@ final class AdLayoutValidator
     }
 
     /**
+     * Two word boxes that overlap are usually one box far bigger than its words need (a name box running on under the next column,
+     * a badge twice as tall as its line). Before refusing the clash or moving anything, TRIM the box on the side facing the other one,
+     * when its longest realistic words still fit what is left. The side away from where the words are anchored is trimmed when
+     * possible (a left-aligned line loses its empty right end), so the words themselves hardly move. Only word boxes are trimmed -
+     * never a picture, QR code, logo or avatar - and never in a way that changes what the words sit on.
+     *
+     * @param array<int, array<string, mixed>> $elements
+     * @param array<int, string>               $repairs
+     * @param array<int, float>                $fontFloors element index => the font size the model chose
+     */
+    private function trimOverlaps(array &$elements, array &$repairs, array $fontFloors): void
+    {
+        $tol  = (float) self::OVERLAP_TOLERANCE;
+        $live = [];
+        foreach ($elements as $i => $el) {
+            if (! in_array($el['field'], self::OVERLAP_EXEMPT_FIELDS, true)) {
+                $live[] = $i;
+            }
+        }
+        // By reference on purpose: an arrow function would capture a COPY of the elements, so after a box was moved this would keep
+        // reporting its old position and the box would be moved again on every pass (the "pushed hundreds of pixels" bug).
+        $box = function (int $i) use (&$elements): array {
+            return [(float) $elements[$i]['x'], (float) $elements[$i]['y'], (float) $elements[$i]['x'] + (float) $elements[$i]['w'], (float) $elements[$i]['y'] + (float) $elements[$i]['h']];
+        };
+
+        for ($pass = 0; $pass < 8; $pass++) {
+            $changed = false;
+            foreach ($live as $a) {
+                foreach ($live as $b) {
+                    if ($b <= $a) {
+                        continue;
+                    }
+                    [$ab, $bb] = [$box($a), $box($b)];
+                    if (min($ab[2], $bb[2]) - max($ab[0], $bb[0]) <= $tol || min($ab[3], $bb[3]) - max($ab[1], $bb[1]) <= $tol) {
+                        continue;
+                    }
+                    $best = null;   // [cost, index, newX, newY, newW, newH, description]
+                    foreach ([[$a, $b], [$b, $a]] as [$m, $o]) {
+                        $cand = $this->trimCandidates($elements, $m, $box($m), $box($o), max((float) self::MIN_FONT_SIZE, ceil((float) ($fontFloors[$m] ?? $elements[$m]['fontSize']) * self::TRIM_MIN_FONT_SHARE)));
+                        foreach ($cand as $c) {
+                            if ($best === null || $c[0] < $best[0]) {
+                                $best = [$c[0], $m, $c[1], $c[2], $c[3], $c[4], $c[5], $o, $c[6]];
+                            }
+                        }
+                    }
+                    if ($best === null) {
+                        continue;
+                    }
+                    [, $m, $nx, $ny, $nw, $nh, $what, $o, $nfs] = $best;
+                    $repairs[] = 'Element ' . ($m + 1) . " ({$elements[$m]['field']}): its box ran into Element " . ($o + 1) . " ({$elements[$o]['field']}), so it was trimmed to {$nw} x {$nh} ({$what})"
+                        . ($nfs < (int) $elements[$m]['fontSize'] ? " and fontSize {$elements[$m]['fontSize']} was reduced to {$nfs}" : '') . '.';
+                    $elements[$m]['fontSize'] = $nfs;
+                    $elements[$m]['x'] = $nx;
+                    $elements[$m]['y'] = $ny;
+                    $elements[$m]['w'] = $nw;
+                    $elements[$m]['h'] = $nh;
+                    $changed = true;
+                }
+            }
+            if (! $changed) {
+                break;
+            }
+        }
+    }
+
+    /**
+     * The ways to trim element $m's box clear of $ob, each still holding its longest realistic words and still sitting on the same
+     * panels. [cost, x, y, w, h, description]; cost = pixels removed + a penalty for words that would visibly shift.
+     *
+     * @param  array<int, array<string, mixed>> $elements
+     * @param  float $floor the smallest font size this line may be given (see run())
+     * @param  array{0: float, 1: float, 2: float, 3: float} $mb
+     * @param  array{0: float, 1: float, 2: float, 3: float} $ob
+     * @return array<int, array{0: float, 1: int, 2: int, 3: int, 4: int, 5: string, 6: int}>
+     */
+    private function trimCandidates(array $elements, int $m, array $mb, array $ob, float $floor): array
+    {
+        $el = $elements[$m];
+        if (! $this->isTextField($el['field']) || in_array($el['field'], ['watermark', 'ribbon', 'feature_pills', 'feature_strip', 'qr'], true)) {
+            return [];
+        }
+        $text = $this->copyFor($el);
+        if ($text === '') {
+            return [];
+        }
+        [$x, $y, $r, $b] = $mb;
+        $out   = [];
+        $align = (string) $el['textAlign'];
+        $valign = (string) $el['verticalAlign'];
+        $tryout = function (float $nx, float $ny, float $nr, float $nb, float $shift, string $what) use (&$out, $el, $text, $elements, $m, $floor): void {
+            $w = $nr - $nx;
+            $h = $nb - $ny;
+            if ($w < 24 || $h < 16) {
+                return;
+            }
+            $probe = $el;
+            [$probe['x'], $probe['y'], $probe['w'], $probe['h']] = [$nx, $ny, $w, $h];
+            $fits  = null;
+            for ($fs = (float) $el['fontSize']; $fs >= $floor; $fs--) {
+                if ($this->copyFits($probe, $text, $fs)) {
+                    $fits = $fs;
+                    break;
+                }
+            }
+            if ($fits === null) {
+                return;
+            }
+            $probe['fontSize'] = (int) $fits;
+            foreach ($elements as $k => $o) {
+                if ($k === $m) {
+                    continue;
+                }
+                $before = $this->shapeRelation($el, $o);
+                if ($before !== 'over' && $before !== $this->shapeRelation($probe, $o)) {
+                    return;
+                }
+            }
+            $removed = ((float) $el['w'] * (float) $el['h']) > 0 ? ((float) $el['w'] - $w) + ((float) $el['h'] - $h) : 0.0;
+            $out[] = [$removed + 3 * $shift + 4 * ((float) $el['fontSize'] - $fits), (int) round($nx), (int) round($ny), (int) round($w), (int) round($h), $what, (int) $fits];
+        };
+
+        // Across: the other box is to the right of, or to the left of, this one.
+        if (($ob[0] + $ob[2]) / 2 >= ($x + $r) / 2) {
+            $tryout($x, $y, $ob[0], $b, $align === 'left' || $align === 'justify' ? 0.0 : ($align === 'center' ? ($r - $ob[0]) / 2 : $r - $ob[0]), 'right edge pulled in');
+        } else {
+            $tryout($ob[2], $y, $r, $b, $align === 'right' ? 0.0 : ($align === 'center' ? ($ob[2] - $x) / 2 : $ob[2] - $x), 'left edge pulled in');
+        }
+        // Down: the other box is below, or above.
+        if (($ob[1] + $ob[3]) / 2 >= ($y + $b) / 2) {
+            $tryout($x, $y, $r, $ob[1], $valign === 'top' ? 0.0 : ($valign === 'middle' ? ($b - $ob[1]) / 2 : $b - $ob[1]), 'bottom edge pulled up');
+        } else {
+            $tryout($x, $ob[3], $r, $b, $valign === 'bottom' ? 0.0 : ($valign === 'middle' ? ($ob[3] - $y) / 2 : $ob[3] - $y), 'top edge pulled down');
+        }
+
+        return $out;
+    }
+
+    /**
      * Words that sit partly on and partly off a shape or colour block are moved wholly onto it when their box fits inside the
      * shape's safe area (checkShapeEdges() refuses what this cannot fix).
      *
@@ -1543,6 +1705,9 @@ final class AdLayoutValidator
                 }
                 $nx = (int) round(min(max($tl, $sl), $sl + $sw - $tw));
                 $ny = (int) round(min(max($tt, $st), $st + $sh - $th));
+                if (abs($nx - $tl) > self::CLAMP_MAX_MOVE || abs($ny - $tt) > self::CLAMP_MAX_MOVE) {
+                    continue;   // a long way to the shape: that is a different design, left for the check to refuse (never teleport words)
+                }
                 if ($nx !== (int) round($tl) || $ny !== (int) round($tt)) {
                     $elements[$ti]['x'] = $nx;
                     $elements[$ti]['y'] = $ny;
@@ -1780,7 +1945,7 @@ final class AdLayoutValidator
      * @param array<int, string>               $errors
      * @param array<int, string>               $repairs
      */
-    private function checkTextFit(array &$elements, array &$errors, bool $repair, array &$repairs, int $cw, int $ch): void
+    private function checkTextFit(array &$elements, array &$errors, bool $repair, array &$repairs, int $cw, int $ch, array $fontFloors = []): void
     {
         foreach ($elements as $idx => $el) {
             if (! $this->isTextField($el['field']) || in_array($el['field'], ['watermark', 'ribbon', 'feature_pills'], true)) {
@@ -1793,7 +1958,7 @@ final class AdLayoutValidator
             $tag = 'Element ' . ($idx + 1) . " ({$el['field']} at x " . (int) $el['x'] . ', y ' . (int) $el['y'] . ')';
 
             if ($repair) {
-                $floor = max((float) self::MIN_FONT_SIZE, ceil((float) $el['fontSize'] * 0.7));
+                $floor = max((float) self::MIN_FONT_SIZE, ceil((float) ($fontFloors[$idx] ?? $el['fontSize']) * 0.7));
                 for ($fs = (float) $el['fontSize'] - 1; $fs >= $floor; $fs--) {
                     if ($this->copyFits($el, $text, $fs)) {
                         $repairs[] = "{$tag}: the longest realistic value (\"" . mb_substr($text, 0, 40) . "\") did not fit its box, so fontSize {$el['fontSize']} was reduced to " . (int) $fs . '.';
@@ -1803,15 +1968,18 @@ final class AdLayoutValidator
                 }
                 // A reference picture has small, tight footer and header lines whose boxes the AI sizes by eye: shrinking alone cannot
                 // make the longest agency name fit there. Grow the box into free space instead, keeping the biggest font that fits.
-                for ($fs = (float) $el['fontSize']; $fs >= $floor; $fs--) {
-                    $box = $this->growBoxToFit($elements, $idx, $text, $fs, $cw, $ch);
-                    if ($box === null) {
-                        continue;
+                // Wider first, at any font size down to the floor: a taller box eats the room the lines above and below it need.
+                foreach ([false, true] as $allowTaller) {
+                    for ($fs = (float) $el['fontSize']; $fs >= $floor; $fs--) {
+                        $box = $this->growBoxToFit($elements, $idx, $text, $fs, $cw, $ch, $allowTaller);
+                        if ($box === null) {
+                            continue;
+                        }
+                        $repairs[] = "{$tag}: the longest realistic value (\"" . mb_substr($text, 0, 40) . "\") did not fit its {$el['w']} x {$el['h']} box, so the box was made "
+                            . $box['w'] . ' x ' . $box['h'] . ($fs < (float) $el['fontSize'] ? " and fontSize {$el['fontSize']} was reduced to " . (int) $fs : '') . '.';
+                        $elements[$idx] = array_merge($elements[$idx], $box, ['fontSize' => (int) $fs]);
+                        continue 3;
                     }
-                    $repairs[] = "{$tag}: the longest realistic value (\"" . mb_substr($text, 0, 40) . "\") did not fit its {$el['w']} x {$el['h']} box, so the box was made "
-                        . $box['w'] . ' x ' . $box['h'] . ($fs < (float) $el['fontSize'] ? " and fontSize {$el['fontSize']} was reduced to " . (int) $fs : '') . '.';
-                    $elements[$idx] = array_merge($elements[$idx], $box, ['fontSize' => (int) $fs]);
-                    continue 2;
                 }
             }
 
@@ -1832,7 +2000,7 @@ final class AdLayoutValidator
      * @param  array<int, array<string, mixed>> $elements
      * @return array{x: int, y: int, w: int, h: int}|null
      */
-    private function growBoxToFit(array $elements, int $idx, string $text, float $fontSize, int $cw, int $ch): ?array
+    private function growBoxToFit(array $elements, int $idx, string $text, float $fontSize, int $cw, int $ch, bool $allowTaller = true): ?array
     {
         $el  = $elements[$idx];
         $tol = (float) self::OVERLAP_TOLERANCE;
@@ -1897,7 +2065,7 @@ final class AdLayoutValidator
                 break;
             }
         }
-        if ($newW === null && ! $single) {
+        if ($newW === null && ! $single && $allowTaller) {
             $maxW = $w0 + $availL + $availR;
             for ($h = $h0 + 2; $h <= $h0 + $availU + $availD; $h += 2) {
                 if ($fits($w0, $h)) {

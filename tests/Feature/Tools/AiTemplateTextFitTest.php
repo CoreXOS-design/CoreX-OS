@@ -161,7 +161,7 @@ final class AiTemplateTextFitTest extends TestCase
         ]), 'facebook');
         $this->assertTrue($ok['ok'], implode(' | ', $ok['errors']));
 
-        $price = $validator->validateAndRepair($this->option([
+        $price = $validator->validate($this->option([
             ['field' => 'price', 'x' => 60, 'y' => 450, 'w' => 220, 'h' => 140, 'fontSize' => 56],
         ]), 'facebook');
         $this->assertFalse($price['ok']);
