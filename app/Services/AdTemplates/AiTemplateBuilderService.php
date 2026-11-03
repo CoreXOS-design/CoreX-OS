@@ -559,7 +559,7 @@ final class AiTemplateBuilderService
                 $item = AdTemplateMustIncludes::withRibbonText(is_array($item) ? $item : [], $ribbon);
                 // Repair what can be fixed without weakening a rule; reject the rest and say exactly which rule.
                 // Decision 20: anything of an unticked extra is taken out first (and checked again after).
-                $result = $this->validateWithoutUntickedExtras($item, $generation->ad_size, $this->extraKeys($generation, $keys), AdIdeaWishes::forbidsIcons($generation->idea));
+                $result = $this->validateWithoutUntickedExtras($item, $generation->ad_size, $this->extraKeys($generation, $keys), AdIdeaWishes::forbidsIcons($generation->idea), $agencyId);
                 $lacks  = $result['ok'] ? AdTemplateMustIncludes::missing((array) $result['layout'], $keys, $ribbon) : [];
                 $entry  = [
                     'attempt' => $attempt,
@@ -613,6 +613,24 @@ final class AiTemplateBuilderService
     }
 
     /**
+     * The validator for one agency: its name, website and phone are judged against the agency's own wording (see
+     * AdLayoutValidator::withAgencyCopy), so a design is not refused for failing to fit a name no agency of that kind has.
+     */
+    private function validatorFor(?int $agencyId): AdLayoutValidator
+    {
+        $agency = $agencyId !== null ? Agency::query()->withoutGlobalScopes()->find($agencyId) : null;
+        if ($agency === null) {
+            return $this->validator;
+        }
+
+        return $this->validator->withAgencyCopy([
+            'agency_name'  => (string) $agency->name,
+            'website'      => (string) ($agency->website_url ?? ''),
+            'agency_phone' => (string) ($agency->phone ?? ''),
+        ]);
+    }
+
+    /**
      * Validate-and-repair one answer option with decision 20 applied ("extras only when ticked"): every element of an unticked
      * extra (QR code, photo collage, corner ribbon, show day date, key-feature pills) is removed - from the raw answer first,
      * so the validator then checks the design as it will really be, and again from the validated layout as a safety net. A
@@ -623,7 +641,7 @@ final class AiTemplateBuilderService
      * @param  array<int, string>   $keys the ticked keys
      * @return array{ok: bool, name: string, layout: array<string, mixed>, repairs: array<int, string>, errors: array<int, string>}
      */
-    private function validateWithoutUntickedExtras(array $item, string $sizeKey, array $keys, bool $noIcons = false): array
+    private function validateWithoutUntickedExtras(array $item, string $sizeKey, array $keys, bool $noIcons = false, ?int $agencyId = null): array
     {
         [$item, $notes] = AdTemplateMustIncludes::stripUnticked($item, $keys);
         $size           = AdLayoutValidator::SIZES[$sizeKey] ?? null;
@@ -635,7 +653,7 @@ final class AiTemplateBuilderService
             [$item, $more] = AdIdeaWishes::stripIcons($item);
             $notes         = array_merge($notes, $more);
         }
-        $result         = $this->validator->validateAndRepair($item, $sizeKey);
+        $result         = $this->validatorFor($agencyId)->validateAndRepair($item, $sizeKey);
         if ($result['ok']) {
             [$layout, $more]  = AdTemplateMustIncludes::stripUnticked((array) $result['layout'], $keys);
             $notes            = array_merge($notes, $more);
@@ -744,7 +762,7 @@ final class AiTemplateBuilderService
                     $seen[$forOption] = true;
 
                     $item   = AdTemplateMustIncludes::withRibbonText($item, $ribbon);
-                    $res    = $this->validateWithoutUntickedExtras($item, $generation->ad_size, $this->extraKeys($generation, $keys), AdIdeaWishes::forbidsIcons($generation->idea));
+                    $res    = $this->validateWithoutUntickedExtras($item, $generation->ad_size, $this->extraKeys($generation, $keys), AdIdeaWishes::forbidsIcons($generation->idea), $agencyId);
                     $lacks  = $res['ok'] ? AdTemplateMustIncludes::missing((array) $res['layout'], $keys, $ribbon) : [];
                     $log[]  = [
                         'stage' => 'variant', 'type' => $type, 'attempt' => $round, 'option' => $forOption + 1, 'name' => $res['name'],

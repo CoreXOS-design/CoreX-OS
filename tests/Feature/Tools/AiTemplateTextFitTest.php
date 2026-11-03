@@ -131,6 +131,43 @@ final class AiTemplateTextFitTest extends TestCase
         $this->assertStringContainsString('ONE line', implode(' | ', $r['errors']));
     }
 
+    /** Agency-wide fields are judged against the agency's real wording, not one particular agency's long sample (multi-agency rule). */
+    public function test_agency_wide_fields_are_judged_against_the_agencys_own_details(): void
+    {
+        $option = $this->option([
+            ['field' => 'agency_name', 'x' => 700, 'y' => 330, 'w' => 202, 'h' => 36, 'fontSize' => 16],
+            ['field' => 'website', 'x' => 700, 'y' => 380, 'w' => 202, 'h' => 28, 'fontSize' => 16],
+            ['field' => 'agency_phone', 'x' => 700, 'y' => 420, 'w' => 202, 'h' => 28, 'fontSize' => 16],
+        ]);
+        $plain = new AdLayoutValidator();
+
+        $this->assertFalse($plain->validate($option, 'facebook')['ok'], 'the generic worst-case sample is too long for these boxes');
+
+        $short = $plain->withAgencyCopy(['agency_name' => 'Demo Agency', 'website' => 'demo.co.za', 'agency_phone' => '031 555 0100']);
+        $r = $short->validate($option, 'facebook');
+        $this->assertTrue($r['ok'], implode(' | ', $r['errors']));
+
+        // The agency's own long wording is still held to the box.
+        $long = $plain->withAgencyCopy(['agency_name' => 'The Very Long Named Coastal Property Group of KwaZulu-Natal', 'website' => 'demo.co.za', 'agency_phone' => '031 555 0100']);
+        $this->assertFalse($long->validate($option, 'facebook')['ok']);
+    }
+
+    public function test_an_agency_with_no_website_has_no_website_fit_check_and_listing_fields_keep_the_worst_case(): void
+    {
+        $validator = (new AdLayoutValidator())->withAgencyCopy(['agency_name' => 'Demo', 'website' => '', 'agency_phone' => '']);
+
+        $ok = $validator->validateAndRepair($this->option([
+            ['field' => 'website', 'x' => 700, 'y' => 380, 'w' => 100, 'h' => 28, 'fontSize' => 16],
+        ]), 'facebook');
+        $this->assertTrue($ok['ok'], implode(' | ', $ok['errors']));
+
+        $price = $validator->validateAndRepair($this->option([
+            ['field' => 'price', 'x' => 60, 'y' => 450, 'w' => 220, 'h' => 140, 'fontSize' => 56],
+        ]), 'facebook');
+        $this->assertFalse($price['ok']);
+        $this->assertStringContainsString('ONE line', implode(' | ', $price['errors']));
+    }
+
     public function test_a_price_half_on_and_half_off_a_circle_is_refused(): void
     {
         $r = (new AdLayoutValidator())->validate($this->option([

@@ -2999,3 +2999,12 @@ Found from the first reference-picture run on Staging (generation #4, Poster siz
 - The 16px minimum, the 30% shrink limit and the rule itself are unchanged; nothing is loosened. A box with no room to grow is still refused with the same numbers for the AI's retry.
 - Tests: `AiTemplateTextFitTest` (grow right, grow left for right-aligned, boxed-in refused, off-the-panel refused).
 - Known and NOT touched here: `separateOverlaps()` can push a box far off its place, and 8 older tests in `AiTemplateRepairTest` / `AiTemplateOverlapGuardTest` fail on unmodified Staging (they predate the text-fit rule and assert boxes the rule now refuses). Reported to the conductor.
+
+### 22.10 Agency-wide text is judged against the agency's own wording (2026-11-03)
+
+Found by replaying the AI's saved answers for generation #5 (reference-picture poster, agency 20 "Demo Agency Test"): the AI's footer put the agency name and website on a 214px panel, and the text-fit rule refused it for not fitting "Home Finders Coastal Property Group" / "WWW.COASTALPROPERTYGROUP.CO.ZA" — an invented long sample (and one particular agency's wording, against the multi-agency rule). No panel that size could ever satisfy it, so growing the box (§22.9) could not help.
+
+`agency_name`, `website` and `agency_phone` are agency-wide: the same words on every ad the agency makes, unlike a listing's title or price. `AdLayoutValidator::withAgencyCopy()` returns a validator that checks those three against the agency's real values (`agencies.name`, `website_url`, `phone`); `AiTemplateBuilderService::validatorFor($agencyId)` supplies them for AI template generation. A field the agency has no value for (e.g. no website) is not fit-checked. Listing fields (price, title, agent name, address...) keep their worst-case sample. Without an agency the old sample is used. Rendering is unchanged.
+- Tests: `AiTemplateTextFitTest` (agency wording used; the agency's own long wording still held to the box; empty website skipped; listing fields unchanged).
+- Replay proof: with agency 20's details the saved second answer validates; the first still has a genuine QR-code-on-address overlap (the AI's mistake, which its retry is told about).
+- Not touched: the overlap mover, and 5 older `AiTemplateBuilderTest` tests that fail on unmodified Staging.

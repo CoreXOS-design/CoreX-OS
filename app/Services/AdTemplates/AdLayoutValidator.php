@@ -1655,11 +1655,44 @@ final class AdLayoutValidator
         'blob_1' => [0.65, 0.65], 'blob_2' => [0.65, 0.65], 'blob_3' => [0.65, 0.65],
     ];
 
+    /** The fields that belong to the AGENCY, not to a listing: the same words on every ad the agency makes. */
+    public const AGENCY_WIDE_FIELDS = ['agency_name', 'website', 'agency_phone'];
+
+    /**
+     * The agency's real wording for AGENCY_WIDE_FIELDS (set by withAgencyCopy()). Empty = unknown, so the worst-case sample is used.
+     *
+     * @var array<string, string>
+     */
+    private array $agencyCopy = [];
+
+    /**
+     * A copy of this validator that judges the agency-wide fields (name, website, phone) against THIS agency's own details instead
+     * of a made-up long sample. Those words never change from one listing to the next, so "the longest realistic value" for them is
+     * the real one - and the sample ("Home Finders Coastal ...") was one particular agency's wording, wrong for every other agency.
+     * A field the agency has no value for is not checked (the ad leaves it off). Listing fields keep their worst-case sample.
+     *
+     * @param array<string, mixed> $copy field => the agency's wording; fields other than AGENCY_WIDE_FIELDS are ignored
+     */
+    public function withAgencyCopy(array $copy): static
+    {
+        $clone = clone $this;
+        foreach (self::AGENCY_WIDE_FIELDS as $field) {
+            if (array_key_exists($field, $copy)) {
+                $clone->agencyCopy[$field] = trim((string) $copy[$field]);
+            }
+        }
+
+        return $clone;
+    }
+
     /** The copy to test an element against: its own words, else the worst realistic value of its field, else its sample copy. */
     private function copyFor(array $el): string
     {
         if (in_array($el['field'], ['custom_text', 'badge', 'ribbon'], true)) {
             return (string) $el['text'];
+        }
+        if (array_key_exists($el['field'], $this->agencyCopy)) {
+            return $this->agencyCopy[$el['field']];
         }
 
         return self::WORST_CASE_COPY[$el['field']] ?? (string) ($el['preview'] ?? '');
