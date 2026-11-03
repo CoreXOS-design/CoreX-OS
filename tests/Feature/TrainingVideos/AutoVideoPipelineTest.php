@@ -284,4 +284,19 @@ final class AutoVideoPipelineTest extends TestCase
         $third = $sessions->issue($r['users']['manager']);
         $this->assertTrue(DB::table('sessions')->where('id', $third['session_id'])->exists());
     }
+
+    public function test_a_refused_sign_in_says_whether_its_session_was_deleted_or_still_stored(): void
+    {
+        $m = new \ReflectionMethod(TrainingVideoGenerator::class, 'sessionState');
+        $m->setAccessible(true);
+        $gen = app(TrainingVideoGenerator::class);
+        $this->assertSame('', $m->invoke($gen, []));
+        $this->assertStringContainsString('had been deleted', $m->invoke($gen, ['sessionId' => 'nope']));
+
+        config(['session.driver' => 'database']);
+        app('session')->forgetDrivers();
+        $r = app(TrainingAgencySeeder::class)->seed();
+        $c = app(TrainingSessionService::class)->issue($r['users']['agent']);
+        $this->assertStringContainsString('still stored', $m->invoke($gen, ['sessionId' => $c['session_id']]));
+    }
 }
