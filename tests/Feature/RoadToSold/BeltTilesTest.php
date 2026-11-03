@@ -255,7 +255,7 @@ final class BeltTilesTest extends TestCase
         $h = $this->page($this->agent, ['station' => 'booked'])->assertOk()->getContent();
         $this->assertStringContainsString('>Due<', $h);
         $this->assertMatchesRegularExpression('/data-qa="station-due"[^>]*>\s*<div[^>]*>Thu 15 Oct 10:00/', $h, 'a booked evaluation is due when the appointment is, with its time');
-        $this->assertMatchesRegularExpression('/data-qa="station-action"[^>]*data-action="Evaluation feedback"/', $h, 'Booked: Evaluation feedback');
+        $this->assertMatchesRegularExpression('/data-qa="station-action"[^>]*data-action="Appointment feedback"/', $h, 'Booked: Appointment feedback');
         $this->assertStringNotContainsString('>Open</a>', $h, 'the row button is not a status');
     }
 }

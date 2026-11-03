@@ -30,6 +30,7 @@
     .rts-tile .ln.l1 .n { font-size: 1.05rem; font-weight: 700; color: var(--text-primary); }
     .rts-tile .ln.bad { color: var(--ds-red, #f87171); font-weight: 700; }
     .rts-tile .ln.ghost { visibility: hidden; }
+    .rts-tile .ln.tgt { color: var(--text-muted); font-size: .5625rem; }
     .rts-tilewrap .rts-cmp { position: absolute; bottom: 5px; right: 4px; width: 16px; height: 16px; padding: 0; line-height: 14px; font-size: .625rem; text-align: center; cursor: pointer; color: var(--text-muted); background: none; border: 0; border-radius: 3px; }
     .rts-tilewrap .rts-cmp:hover { color: var(--text-primary); background: var(--surface-2, rgba(128,128,128,.15)); }
     .rts-cmp-pop { width: 17rem; }
@@ -93,7 +94,7 @@
                             $l1 = $ls->first();
                             [$n1, $w1] = array_pad(explode(' ', $l1['text'], 2), 2, '');
                         @endphp
-                        <div class="rts-tile {{ $lit($t) ? 'is-lit' : '' }}" data-kind="{{ $t['kind'] }}" title="{{ $tip }}">
+                        <div class="rts-tile {{ $lit($t) ? 'is-lit' : '' }}" data-kind="{{ $t['kind'] }}" title="{{ $tip }}{{ ! empty($t['tgt_line']) ? ' · ' . $t['tgt_line'] : '' }}">
                             <a href="{{ route('road-to-sold.index', $t['url']) }}" class="nm" data-qa="belt-name-{{ $t['key'] }}"><span class="short">{{ $t['short'] }}</span><span class="full">{{ $t['label'] }}</span></a>
                             <a href="{{ route('road-to-sold.index', $l1['url']) }}" data-qa="belt-tile-{{ $t['key'] }}" class="ln l1"><span class="n" data-qa="belt-figure">{{ $n1 }}</span> {{ $w1 }}</a>
                             @foreach($ls->slice(1) as $ln)
@@ -113,6 +114,8 @@
                                         <span x-text="s.now + ' now'"></span>
                                         <span x-show="s.reached !== null" x-text="' · ' + s.reached + ' reached this month'"></span>
                                         <span x-show="s.target !== null" x-text="' · ' + s.done + ' / ' + s.target + ' ' + (s.period || '')"></span>
+                                        <span x-show="s.rate_next != null" x-text="' · ' + s.rate_next + '% go on' + (s.estimate ? ' (est.)' : '')"></span>
+                                        <span x-show="s.derived != null" x-text="' · should be ' + s.derived"></span>
                                     </div>
                                 </div>
                             </template>

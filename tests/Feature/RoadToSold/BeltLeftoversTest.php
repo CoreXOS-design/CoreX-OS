@@ -288,8 +288,8 @@ final class BeltLeftoversTest extends TestCase
         $this->assertSame('find_owner', $steps->primary(['stage' => S::FOUND], false)['key']);
         $this->assertSame('evaluation', $steps->primary(['stage' => S::CONTACTED], true)['key']);
         $this->assertSame('evaluation_feedback', $steps->primary(['stage' => S::APPOINTMENT_SET], true)['key']);
-        $this->assertSame('Evaluation feedback', $steps->primary(['stage' => S::APPOINTMENT_SET], true)['label']);
-        $this->assertSame('evaluation_feedback', $steps->primary(['stage' => S::PRESENTATION_PREPARED], true)['key']);
+        $this->assertSame('Appointment feedback', $steps->primary(['stage' => S::APPOINTMENT_SET], true)['label']);
+        $this->assertSame('results', $steps->primary(['stage' => S::PRESENTATION_PREPARED], true)['key']);
     }
 
     public function test_the_evaluation_feedback_step_opens_the_calendar_feedback_form_on_that_appointment(): void

@@ -54,6 +54,47 @@
     @endunless
 
 
+    {{-- ───────────────────── Belt targets: what is actually happening (23.29.4) ───────────────────── --}}
+    @if(! empty($beltPanel))
+    <section id="belt-targets" class="space-y-3" data-qa="belt-targets-panel">
+        <div>
+            <h2 class="text-base font-bold" style="color:var(--text-primary);">The belt against these targets</h2>
+            <p class="text-xs" data-qa="belt-targets-line" style="color:var(--text-secondary);">{{ $beltPanel['line']['text'] }}</p>
+        </div>
+        <div class="overflow-x-auto rounded-md" style="background:var(--surface); border:1px solid var(--border);">
+            <table class="w-full text-sm" style="border-collapse: collapse;">
+                <thead>
+                    <tr class="text-xs text-left" style="color: var(--text-muted);">
+                        <th class="px-3 py-2">Station</th>
+                        <th class="px-3 py-2 text-right">At the station now</th>
+                        <th class="px-3 py-2 text-right">Reached in {{ $beltPanel['window_days'] }} days</th>
+                        <th class="px-3 py-2 text-right">Goes on to the next</th>
+                        <th class="px-3 py-2 text-right">Should be this month</th>
+                        <th class="px-3 py-2 text-right">A day ({{ $beltPanel['figures']['working_days'] }} working days)</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach($beltPanel['rows'] as $br)
+                        @php $f1 = fn ($v) => rtrim(rtrim(number_format((float) $v, 1, '.', ''), '0'), '.'); @endphp
+                        <tr style="border-top: 1px solid var(--border);" data-qa="belt-row-{{ $br['station'] }}">
+                            <td class="px-3 py-2" style="color: var(--text-primary);">{{ $br['label'] }}</td>
+                            <td class="px-3 py-2 text-right tabular-nums">{{ $br['now'] }}</td>
+                            <td class="px-3 py-2 text-right tabular-nums">{{ $br['reached'] }}</td>
+                            <td class="px-3 py-2 text-right tabular-nums">{{ $br['rate_next'] !== null ? $f1($br['rate_next']) . '%' . ($br['rate_estimate'] ? ' est.' : '') : '-' }}</td>
+                            <td class="px-3 py-2 text-right tabular-nums" title="{{ $br['source'] === 'override' ? 'set by the agency; worked out: ' . $f1($br['derived_month']) : ($br['source'] === 'set' ? 'MIC intake per day x working days (your weekday targets); worked out: ' . $f1($br['derived_month']) : 'worked out from the Listings target') }}">
+                                {{ $f1($br['month']) }}{{ $br['estimate'] ? ' est.' : '' }}@if($br['source'] === 'override') <span class="text-xs" style="color: var(--text-muted);">(set)</span>@endif
+                                @if($br['source'] === 'set') <span class="text-xs" style="color: var(--text-muted);">(need {{ $f1($br['derived_month']) }})</span>@endif
+                            </td>
+                            <td class="px-3 py-2 text-right tabular-nums">{{ $f1($br['day']) }}</td>
+                        </tr>
+                    @endforeach
+                </tbody>
+            </table>
+        </div>
+        <p class="text-xs" style="color:var(--text-muted);">Worked back from {{ $beltPanel['figures']['listings'] }} listings a month through the conversion rates of the last {{ $beltPanel['window_days'] }} days. A step with fewer than {{ $beltPanel['min_sample'] }} records through it uses the standard rate and says "est.". Change the window, the standard rates and any step's own target under <a class="underline" href="{{ route($rb . 'index', ['section' => 'belttargets']) }}">Settings &gt; Belt targets</a>.</p>
+    </section>
+    @endif
+
     {{-- ───────────────────────── Monthly targets ───────────────────────── --}}
     <section id="monthly" class="space-y-4">
         <div>

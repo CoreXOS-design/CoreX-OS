@@ -38,6 +38,7 @@ class SummaryBarService
         private readonly DrilldownService $drill,
         private readonly WorkdayService $workdays,
         private readonly RecipeProgressService $recipe,
+        private readonly TargetsService $targets,
     ) {
     }
 
@@ -65,7 +66,10 @@ class SummaryBarService
                 continue;
             }
             $actual = $this->drill->count(self::STEP_METRIC[$key], $ids, $period, $agencyId, $track);
-            $should = $this->shouldBe($key, $agent, $day, $track) ?? $this->recipeShouldBe($key, $tasks, $agent, $day, $track);
+            // 23.29: the belt steps read the ONE derived-or-overridden target (TargetsService); calls and conversations keep the weekday targets
+            $should = isset(TargetsService::SUMMARY_STATION[$key])
+                ? $this->targets->shouldBeToday($agent, $key, $day, $track)
+                : ($this->shouldBe($key, $agent, $day, $track) ?? $this->recipeShouldBe($key, $tasks, $agent, $day, $track));
             $pct = $should !== null && $should > 0 ? round($actual / $should * 100, 1) : null;
 
             $steps[] = [

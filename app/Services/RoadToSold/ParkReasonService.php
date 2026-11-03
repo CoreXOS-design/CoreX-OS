@@ -137,10 +137,134 @@ class ParkReasonService
         ]));
     }
 
+    /** The nine popup steps (road-to-sold.md 23.25.2), for the list screen and the popup. */
+    public const STEPS = [1 => 'Property', 2 => 'Owner', 3 => 'Pitch', 4 => 'Contact', 5 => 'Appointment', 6 => 'Presentation', 7 => 'Presentation results', 8 => 'Draft', 9 => 'Active'];
+
+    /** A step with no list of its own shows another step's: Pitch is not a station (Owner's list), Presentation's reasons live at Presentation results. */
+    public const STEP_BORROWS = [3 => 2, 6 => 7];
+
+    /** The popup step a record at this stage is working on (the step whose screen completes into the NEXT station), so an off-ramp there is counted where the record sat. */
+    public static function stepOfStage(?string $stage): int
+    {
+        return match (true) {
+            $stage === null, $stage === 'found', $stage === 'claimed' => 2,
+            $stage === 'owner_found' => 3,
+            $stage === 'contacted' => 5,
+            in_array($stage, ['appointment_set'], true) => 6,
+            in_array($stage, ['presentation_prepared'], true) => 7,
+            in_array($stage, ['evaluation_done', 'mandate_signed', 'presentation_given', 'presentation_feedback'], true) => 8,
+            $stage === 'draft' => 9,
+            $stage === 'active' => 9,
+            default => 1,
+        };
+    }
+
+    /**
+     * road-to-sold.md 23.25 / 23.11 (Johan 3 Nov): the off-ramp reasons of each popup step, seeded as DATA - the agency edits them on its own list screen. Existing reason keys keep
+     * their codes and are only given a step (and what they count as); new ones are popup-only (station "popup": never in a station's own list). Every step ends with "Other" (cannot be
+     * removed: is_other). counts_as: "not_selling" = leaves the belt like the property page's Not selling; "lost" = the claim is closed as lost to another agency.
+     *
+     * @return list<array{key:string,step:int,label:string,counts_as:string,days:int,other?:bool,station?:?string}> station only for a NEW key
+     */
+    public static function stepDefaults(): array
+    {
+        $n = 'not_selling';
+        $l = 'lost';
+
+        return [
+            ['key' => 'not_for_me_wrong_area', 'step' => 1, 'label' => 'Not for me - wrong area',        'counts_as' => $n, 'days' => 7],
+            ['key' => 'not_for_me_no_address', 'step' => 1, 'label' => 'Not for me - no address',        'counts_as' => $n, 'days' => 7],
+            ['key' => 'not_for_me_know_it',    'step' => 1, 'label' => 'Not for me - I already know it', 'counts_as' => $n, 'days' => 7],
+            ['key' => 'not_taking_this',       'step' => 1, 'label' => "I'm not taking this",            'counts_as' => $n, 'days' => 14],
+            ['key' => 'not_for_me_other',      'step' => 1, 'label' => 'Not for me - other',             'counts_as' => $n, 'days' => 7, 'other' => true],
+
+            ['key' => 'no_owner_found',        'step' => 2, 'label' => 'No owner found',                 'counts_as' => $n, 'days' => 90],
+            ['key' => 'no_contact_details',    'step' => 2, 'label' => 'No contact details',             'counts_as' => $n, 'days' => 90, 'station' => 'popup'],
+            ['key' => 'other_step_2',          'step' => 2, 'label' => 'Other',                          'counts_as' => $n, 'days' => 90, 'other' => true, 'station' => 'popup'],
+
+            ['key' => 'opted_out',             'step' => 4, 'label' => 'Opted out',                      'counts_as' => $n, 'days' => 0,  'station' => 'popup'],
+            ['key' => 'cannot_be_reached',     'step' => 4, 'label' => 'Cannot make contact',           'counts_as' => $n, 'days' => 60],
+            ['key' => 'wrong_number',          'step' => 4, 'label' => 'Wrong number',                   'counts_as' => $n, 'days' => 90],
+            ['key' => 'not_selling_now',       'step' => 4, 'label' => 'Spoke - not selling',            'counts_as' => $n, 'days' => 30],
+            ['key' => 'mandate_elsewhere',     'step' => 4, 'label' => 'Sole mandate elsewhere',         'counts_as' => $n, 'days' => 90],
+            ['key' => 'sold_elsewhere',        'step' => 4, 'label' => 'Already sold',                   'counts_as' => $n, 'days' => 180],
+            ['key' => 'off_market',            'step' => 4, 'label' => 'Not on the market any more',     'counts_as' => $n, 'days' => 180, 'station' => 'popup'],
+            ['key' => 'other_step_4',          'step' => 4, 'label' => 'Other',                          'counts_as' => $n, 'days' => 90, 'other' => true, 'station' => 'popup'],
+
+            ['key' => 'seller_cannot_be_met',  'step' => 5, 'label' => 'Seller cannot be met',           'counts_as' => $n, 'days' => 30, 'station' => 'popup'],
+            ['key' => 'eval_no_show',          'step' => 5, 'label' => 'No-show',                        'counts_as' => $n, 'days' => 14],
+            ['key' => 'eval_cancelled',        'step' => 5, 'label' => 'Cancelled',                      'counts_as' => $n, 'days' => 30],
+            ['key' => 'other_step_5',          'step' => 5, 'label' => 'Other',                          'counts_as' => $n, 'days' => 30, 'other' => true, 'station' => 'popup'],
+
+            ['key' => 'price_unrealistic',     'step' => 7, 'label' => 'Overpriced',                     'counts_as' => $n, 'days' => 60],
+            ['key' => 'wont_sign_documents',   'step' => 7, 'label' => "Seller won't sign the documents", 'counts_as' => $n, 'days' => 60, 'station' => 'popup'],
+            ['key' => 'pres_not_selling',      'step' => 7, 'label' => 'Not selling',                    'counts_as' => $n, 'days' => 180, 'station' => 'popup'],
+            ['key' => 'chose_other_agency',    'step' => 7, 'label' => 'Lost to another agency',         'counts_as' => $l, 'days' => 90],
+            ['key' => 'seller_withdrew',       'step' => 7, 'label' => 'Not selling - seller withdrew',  'counts_as' => $n, 'days' => 180],
+            ['key' => 'family_decision',       'step' => 7, 'label' => 'Not selling - family decision',  'counts_as' => $n, 'days' => 180],
+            ['key' => 'other_step_7',          'step' => 7, 'label' => 'Other',                          'counts_as' => $n, 'days' => 60, 'other' => true, 'station' => 'popup'],
+
+            ['key' => 'paperwork_not_returned', 'step' => 8, 'label' => 'Paperwork not returned',        'counts_as' => $n, 'days' => 30, 'station' => 'popup'],
+            ['key' => 'seller_no_longer_selling', 'step' => 8, 'label' => 'Seller no longer wants to sell', 'counts_as' => $n, 'days' => 90, 'station' => 'popup'],
+            ['key' => 'other_step_8',          'step' => 8, 'label' => 'Other',                          'counts_as' => $n, 'days' => 30, 'other' => true, 'station' => 'popup'],
+
+            ['key' => 'active_paperwork_not_returned', 'step' => 9, 'label' => 'Paperwork not returned', 'counts_as' => $n, 'days' => 30, 'station' => 'popup'],
+            ['key' => 'active_no_longer_selling', 'step' => 9, 'label' => 'Seller no longer wants to sell', 'counts_as' => $n, 'days' => 90, 'station' => 'popup'],
+            ['key' => 'other_step_9',          'step' => 9, 'label' => 'Other',                          'counts_as' => $n, 'days' => 30, 'other' => true, 'station' => 'popup'],
+        ];
+    }
+
+    /** @var array<string,bool> */
+    private static array $stepSeeded = [];
+
+    /**
+     * Give the agency's reasons their step, and add the popup-only ones it does not have yet. Idempotent: a row that already has a step is left exactly as the agency edited
+     * it (words, days, what it counts as, switched off); an archived default stays archived; nothing is created twice (the key is unique per agency and track).
+     */
+    public function ensureStepReasons(int $agencyId, string $track = 'sales'): void
+    {
+        if ($agencyId <= 0 || ! RtsParkReason::hasStepColumns() || isset(self::$stepSeeded[$agencyId . '|' . $track])) {
+            return;
+        }
+        $this->ensureDefaults($agencyId, $track);
+        $this->ensureStationReasons($agencyId, $track);
+        $have = RtsParkReason::withoutGlobalScopes()->withTrashed()->where('agency_id', $agencyId)->where('track', $track)->get()->keyBy('key');
+        $order = (int) RtsParkReason::withoutGlobalScopes()->where('agency_id', $agencyId)->where('track', $track)->max('sort_order');
+        RtsParkReason::withoutAgencyStamping(function () use ($agencyId, $track, $have, &$order) {
+            foreach (self::stepDefaults() as $r) {
+                $row = $have[$r['key']] ?? null;
+                if ($row) {
+                    if ($row->step === null) {
+                        $row->forceFill(['step' => $r['step'], 'counts_as' => $r['counts_as'], 'is_other' => (bool) ($r['other'] ?? false)])->saveQuietly();
+                    }
+
+                    continue;
+                }
+                RtsParkReason::create([
+                    'agency_id' => $agencyId, 'track' => $track, 'station' => $r['station'] ?? null, 'step' => $r['step'], 'kind' => RtsParkReason::KIND_OFF_RAMP, 'counts_as' => $r['counts_as'],
+                    'is_other' => (bool) ($r['other'] ?? false), 'key' => $r['key'], 'label' => $r['label'], 'default_revisit_days' => $r['days'], 'is_system' => true, 'is_active' => true,
+                    'sort_order' => $order += 10,
+                ]);
+            }
+        });
+        self::$stepSeeded[$agencyId . '|' . $track] = true;
+    }
+
+    /** The reasons offered at one popup step (borrowing where a step has no list of its own), "Other" always last. @return Collection<int,RtsParkReason> */
+    public function forStep(int $agencyId, string $track, int $step): Collection
+    {
+        $this->ensureStepReasons($agencyId, $track);
+        $eff = self::STEP_BORROWS[$step] ?? $step;
+
+        return RtsParkReason::withoutGlobalScopes()->where('agency_id', $agencyId)->where('track', $track)->whereNull('deleted_at')->where('is_active', true)
+            ->where('step', $eff)->orderBy('is_other')->orderBy('sort_order')->orderBy('id')->get();
+    }
+
     public static function forgetMemo(): void
     {
         self::$seeded = [];
         self::$stationSeeded = [];
+        self::$stepSeeded = [];
     }
 
     /**

@@ -1867,7 +1867,7 @@
 
     {{-- Header --}}
     <div class="px-6 py-4 flex items-center justify-between flex-shrink-0" style="border-bottom: 1px solid var(--border);">
-        <h2 class="text-lg font-semibold" style="color: var(--text-primary);" x-text="editMode ? 'Edit Event' : '{{ request()->boolean('pitch_book') && \App\Support\Embed::on() ? 'Evaluation' : 'New Event' }}'" data-qa="step-heading"></h2>
+        <h2 class="text-lg font-semibold" style="color: var(--text-primary);" x-text="editMode ? 'Edit Event' : '{{ request()->boolean('pitch_book') && \App\Support\Embed::on() ? 'Appointment' : 'New Event' }}'" data-qa="step-heading"></h2>
         <button type="button" @click="showCreateEvent = false" class="text-xl leading-none px-2" style="color: var(--text-muted); background: none; border: none; cursor: pointer;">&times;</button>
     </div>
 

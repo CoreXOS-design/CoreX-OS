@@ -23,9 +23,10 @@
         'colleagues' => ['source_for_colleagues'],
         'ontrack'  => ['summary_steps', 'summary_green_from_pct', 'summary_red_below_pct', 'summary_ahead_from_pct', 'capture_back_date_working_days', 'capture_needs_review'],
         'levels'   => ['levels_signoff_required', 'level_periods_required'],
+        'belttargets' => ['target_listings_per_month', 'target_window_days', 'target_min_sample', 'target_rates', 'target_overrides'],
     ];
     $groupLabels = ['areas' => 'Areas', 'targets' => 'Targets and missed items', 'calllist' => 'Where the call list comes from', 'colleagues' => 'Colleagues\' buyers', 'limits' => 'Limits for those sources',
-        'matching' => 'Matching and list size', 'starting' => 'Starting', 'claims' => 'Claims', 'ownerfound' => 'Owner found', 'aftercall' => 'After contact', 'ontrack' => 'On-track bar and capture', 'levels' => 'Levels and sign-off'];
+        'matching' => 'Matching and list size', 'starting' => 'Starting', 'claims' => 'Claims', 'ownerfound' => 'Owner found', 'aftercall' => 'After contact', 'ontrack' => 'On-track bar and capture', 'belttargets' => 'Belt targets', 'levels' => 'Levels and sign-off'];
     // "(standard: on / off)" under a switch, the way the numbers say "(standard: N)"
     $stdOnOff = fn (string $k) => array_key_exists($k, $defaults) ? ($defaults[$k] ? 'on' : 'off') : null;
     $open = array_key_exists((string) request('section'), $groupLabels) ? request('section') : (($panel ?? null) ? 'calllist' : 'areas');
@@ -312,6 +313,74 @@
                 </div>
             </div>
         </div>
+
+
+        @if(\App\Models\RoadToSold\RtsSetting::hasTargetColumns())
+        <div x-show="g === 'belttargets'" x-cloak data-qa="belt-targets-section">
+            <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; overflow:hidden;">
+                <div class="px-5 py-3" style="border-bottom:1px solid var(--border);">
+                    <h3 class="text-sm font-bold" style="color:var(--text-primary);">Belt targets</h3>
+                </div>
+                <div class="p-5 space-y-4">
+                    <div class="grid gap-3 sm:grid-cols-3">
+                        @foreach([
+                            ['target_listings_per_month', 'Listings (Active) per agent per month', $settings->targetListingsPerMonth(), 0, 1000, 'when the agent has no monthly target of their own and the agency has no default one.'],
+                            ['target_window_days', 'Conversion rates are read over the last', $settings->targetWindowDays(), 14, 730, 'days of belt history.'],
+                            ['target_min_sample', 'A step uses its own rate after', $settings->targetMinSample(), 1, 5000, 'records have gone through it; before that its standard rate is used and the figure says "est.".'],
+                        ] as [$name, $label, $value, $min, $max, $hint])
+                            <div>
+                                <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);" for="{{ $name }}">{{ $label }}</label>
+                                <input id="{{ $name }}" type="number" min="{{ $min }}" max="{{ $max }}" name="{{ $name }}" value="{{ old($name, $value) }}"
+                                       class="w-28 rounded-md px-3 py-2 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                <span class="block text-xs mt-1" style="color:var(--text-muted);">{{ $hint }} (standard: {{ $defaults[$name] }})</span>
+                            </div>
+                        @endforeach
+                    </div>
+                    @php
+                        $stepLabels = ['loaded' => 'Stock loaded', 'claimed' => 'Claimed', 'owner' => 'Owner found', 'contacted' => 'Contacted', 'booked' => 'Evaluation booked', 'prepared' => 'Presentation prepared', 'held' => 'Evaluation held', 'won' => 'Result: won', 'draft' => 'Draft', 'active' => 'Active'];
+                        $stdRates = \App\Services\RoadToSold\TargetsService::DEFAULT_RATES;
+                        $myRates = $settings->stepRates();
+                        $myOver = $settings->stepOverrides();
+                    @endphp
+                    <div class="overflow-x-auto">
+                        <table class="text-sm" style="border-collapse: collapse;" data-qa="belt-targets-table">
+                            <thead>
+                                <tr style="color: var(--text-muted);" class="text-xs text-left">
+                                    <th class="pr-4 py-1">Station</th>
+                                    <th class="pr-4 py-1">Goes on to the next (%)</th>
+                                    <th class="pr-4 py-1">Target per agent per month (blank = worked out)</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach($stepLabels as $st => $stl)
+                                    <tr style="border-top: 1px solid var(--border);">
+                                        <td class="pr-4 py-1" style="color: var(--text-primary);">{{ $stl }}</td>
+                                        <td class="pr-4 py-1">
+                                            @if(isset($stdRates[$st]))
+                                                <input type="number" step="0.1" min="0.1" max="100" name="target_rates[{{ $st }}]" value="{{ old('target_rates.' . $st, $myRates[$st] ?? $stdRates[$st]) }}" data-qa="rate-{{ $st }}"
+                                                       class="w-24 rounded-md px-2 py-1 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                                <span class="text-xs" style="color:var(--text-muted);">standard {{ rtrim(rtrim(number_format($stdRates[$st], 1, '.', ''), '0'), '.') }}</span>
+                                            @else
+                                                <span class="text-xs" style="color:var(--text-muted);">the last step</span>
+                                            @endif
+                                        </td>
+                                        <td class="pr-4 py-1">
+                                            @if($st === 'loaded')
+                                                <span class="text-xs" style="color:var(--text-muted);">set under Targets (the weekday numbers): MIC intake per day</span>
+                                            @else
+                                                <input type="number" step="0.1" min="0" max="100000" name="target_overrides[{{ $st }}]" value="{{ old('target_overrides.' . $st, $myOver[$st] ?? '') }}" data-qa="override-{{ $st }}" placeholder="worked out"
+                                                       class="w-28 rounded-md px-2 py-1 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                            @endif
+                                        </td>
+                                    </tr>
+                                @endforeach
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+        @endif
 
         <div x-show="g === 'claims'" x-cloak>
             <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; overflow:hidden;">

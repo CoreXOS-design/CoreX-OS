@@ -56,6 +56,7 @@ class RtsSetting extends Model
         'expired_competitor_lookback_days', 'prospect_stall_days', 'agent_start_required', 'source_for_colleagues',
         'claim_hold_days', 'claim_warn_days', 'claim_extension_days', 'claim_extensions_allowed', 'owner_requires_deed', 'default_callback_days', 'flag_offramp_excess_pct',
         'due_claimed_days', 'due_owner_days', 'due_contacted_days', 'due_held_days', 'fill_from_claims_first',
+        'target_listings_per_month', 'target_window_days', 'target_min_sample', 'target_rates', 'target_overrides',
     ];
 
     protected $casts = [
@@ -108,6 +109,11 @@ class RtsSetting extends Model
         'due_contacted_days'           => 'integer',
         'due_held_days'                => 'integer',
         'fill_from_claims_first'       => 'boolean',
+        'target_listings_per_month'    => 'integer',
+        'target_window_days'           => 'integer',
+        'target_min_sample'            => 'integer',
+        'target_rates'                 => 'array',
+        'target_overrides'             => 'array',
         'flag_min_sample'              => 'integer',
         'flag_below_pct'               => 'integer',
         'flag_window_days'             => 'integer',
@@ -172,6 +178,11 @@ class RtsSetting extends Model
                 unset($out[$c]);
             }
         }
+        if (! self::hasTargetColumns()) {
+            foreach (['target_listings_per_month', 'target_window_days', 'target_min_sample'] as $c) {
+                unset($out[$c]);
+            }
+        }
 
         return $out;
     }
@@ -198,6 +209,14 @@ class RtsSetting extends Model
         static $has = null;
 
         return $has ??= \Illuminate\Support\Facades\Schema::hasColumn((new static())->getTable(), 'owner_requires_deed');
+    }
+
+    /** The belt-target settings (23.29) are columns added by migration; until they exist the standard numbers apply. */
+    public static function hasTargetColumns(): bool
+    {
+        static $has = null;
+
+        return $has ??= \Illuminate\Support\Facades\Schema::hasColumn((new static())->getTable(), 'target_min_sample');
     }
 
     /** The conveyor settings (23.24: the next-step windows and the claims-first switch) are columns added by migration; until they exist the standard numbers apply. */
@@ -261,6 +280,9 @@ class RtsSetting extends Model
         'due_contacted_days'           => 7,       // 23.24: days after the contact to book the evaluation
         'due_held_days'                => 2,       // 23.24: working days after the evaluation to give the result
         'fill_from_claims_first'       => true,    // 23.24: the day's list is filled from the agent's own claims before any other source
+        'target_listings_per_month'    => 2,       // 23.29: Listings (Active) per agent per month when no monthly target is set anywhere
+        'target_window_days'           => 90,      // 23.29: the rolling window the step-to-step conversion rates are read over
+        'target_min_sample'            => 30,      // 23.29: records through a step before its real rate is trusted (below it: the default rate, labelled estimate)
         'flag_min_sample'              => 20,
         'flag_below_pct'               => 60,
         'flag_window_days'             => 30,

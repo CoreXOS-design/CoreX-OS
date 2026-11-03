@@ -167,6 +167,22 @@
              style="background: color-mix(in srgb, var(--ds-crimson) 18%, transparent); border: 1px solid var(--ds-crimson); color: var(--text-primary);">
             <div class="font-semibold" style="color: var(--ds-crimson);">Contact has opted out</div>
             <div class="mt-1">This contact has been opted out of messaging. No further pitches can be sent until they re-consent.</div>
+            {{-- road-to-sold.md 23.25 / 23.11: "Cannot make contact - opted out" is the Contact step's one-click off-ramp (only where the agent has a Road to Sold record on this property) --}}
+            @if(request()->query('rts_prospect'))
+                <div class="mt-2" x-data="{ busy: false, err: '' }" data-qa="optout-offramp">
+                    <button type="button" class="px-3 py-1.5 text-xs font-bold rounded-md" style="border: 1px solid var(--ds-crimson); color: var(--text-primary); background: var(--surface);" :disabled="busy"
+                            @click="busy = true; err = '';
+                                    fetch(@js(route('seller-outreach.entry.pitch-offramp.store')), { method: 'POST', credentials: 'same-origin',
+                                        headers: { 'Accept': 'application/json', 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest', 'X-CSRF-TOKEN': document.querySelector('meta[name=csrf-token]')?.content || '' },
+                                        body: JSON.stringify({ prospect: @js((int) request()->query('rts_prospect')), step: 4, reason: 'opted_out' }) })
+                                      .then(r => r.json().then(j => ({ ok: r.ok && j.ok, j })))
+                                      .then(x => { if (!x.ok) { busy = false; err = (x.j && x.j.message) || 'It could not be saved. Try again.'; return; }
+                                          try { sessionStorage.setItem('cxOffRamp', x.j.message); } catch (e) {}
+                                          if (window.parent !== window) { window.parent.postMessage({ rts: 'done' }, window.location.origin); } else { window.location.reload(); } })
+                                      .catch(() => { busy = false; err = 'It could not be saved. Try again.'; })">Cannot make contact - opted out: stop here</button>
+                    <span class="text-xs ml-2" style="color: var(--ds-crimson);" x-text="err"></span>
+                </div>
+            @endif
         </div>
     @endif
 

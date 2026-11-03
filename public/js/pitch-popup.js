@@ -1,5 +1,5 @@
 /**
- * The pitch popup (road-to-sold.md 23.23). ONE popup over the page the agent started on: Property · Owner · Pitch · Contact, each step the existing
+ * The pitch popup (road-to-sold.md 23.23). ONE popup over the page the agent started on: Property · Owner · Pitch · Contact · Appointment · Presentation · Presentation results · Draft · Active, each step the existing
  * CoreX screen in an iframe (embed mode, same origin only). Also the "What is this property?" window the header of those screens opens.
  *
  *   <a href="..." data-pitch-popup data-listing="123">Pitch now</a>       opens at the property card, Next goes to href
@@ -13,8 +13,10 @@
     'use strict';
     if (window.CorexPitch) return;
     var cfg = window.CorexPitchConfig || {};
-    var STEPS = [['property', 'Property'], ['owner', 'Owner'], ['pitch', 'Pitch'], ['contact', 'Contact'], ['evaluation', 'Evaluation']];
-    var NEXT_LABEL = { property: 'Next: find the owner', owner: '', pitch: '', contact: '', evaluation: '' };
+    var STEPS = [['property', 'Property'], ['owner', 'Owner'], ['pitch', 'Pitch'], ['contact', 'Contact'], ['evaluation', 'Appointment'],
+        ['presentation', 'Presentation'], ['results', 'Presentation results'], ['draft', 'Draft'], ['active', 'Active']];
+    var NEXT_LABEL = { property: 'Next: find the owner', owner: '', pitch: '', contact: '', evaluation: '', presentation: '', results: '', draft: '', active: '' };
+    var LATE = ['presentation', 'results', 'draft', 'active'];   // steps 6-9: their pill always opens the plan's one-hop address (it decides from the record's station when clicked), never the screen last shown
     var pop = null;   // the open popup, or null
 
     function sameSite(u) { try { return new URL(u, window.location.href).origin === window.location.origin; } catch (e) { return false; } }
@@ -31,6 +33,11 @@
     function stepOf(href) {
         var u; try { u = new URL(href, window.location.href); } catch (e) { return null; }
         if (u.searchParams.has('_pitch_card') || u.searchParams.has('_pitch_property') || u.searchParams.has('_pitch_tracked')) return 'property';
+        // steps 6-9 (road-to-sold.md 23.25): the property's Generate Presentation window, the calendar feedback form / the Result form, the property's draft and active gates
+        if (u.searchParams.has('generate_presentation')) return 'presentation';
+        if ((/\/command-center\/calendar$/.test(u.pathname) && u.searchParams.has('capture_feedback')) || /\/road-to-sold\/prospects\/\d+\/result-form$/.test(u.pathname)) return 'results';
+        var ps = u.pathname.match(/\/road-to-sold\/prospects\/\d+\/property-step\/(draft|active)$/);
+        if (ps) return ps[1];
         if (/\/outreach\/pitch-ready$/.test(u.pathname)) return 'pitch';
         if (/\/outreach\/evaluation-booked\//.test(u.pathname) || (/\/command-center\/calendar$/.test(u.pathname) && u.searchParams.has('pitch_book'))) return 'evaluation';
         if (/\/contacts\/\d+\/outreach\//.test(u.pathname)) return 'contact';
@@ -66,9 +73,9 @@
     }
 
     // ---- the popup ---------------------------------------------------------------------------------------------------------------------------------
-    // A step pill is ticked only for a step the agent actually went through here (or the card they had just looked at before Pitch now); one the owner's
-    // state let them skip is plain. A pill is a control when its screen is known: the ones visited, Property when the property has an advert, the current one
-    // (it reloads that screen).
+    // A step pill is ticked when its STATION is reached (road-to-sold.md 23.25.3): the server says which ('reached', from the record's stage), the popup draws
+    // that and nothing else - a screen merely opened ticks nothing. A pill is a control when its screen is known: the ones loaded here, Property when the
+    // property has an advert, the current one (it reloads that screen). The step key 'evaluation' is a stored name; the agent reads "Appointment".
     function open(o) {
         if (pop) return;
         // From a Road to Sold row the card comes FIRST (Johan 2 Nov): the row may not know its advert (a link, a card button), so ask the plan which advert the
@@ -115,18 +122,16 @@
         var me = pop = {
             back: back, frame: frame, opener: document.activeElement, o: o, loads: 0, results: [],
             // the screen we are on is not known until it has loaded, except when we open the card ourselves
-            current: startAtCard ? 'property' : null, visited: {}, urls: {},
+            current: startAtCard ? 'property' : null, reached: {}, urls: {}, planSeq: 0,
         };
         if (hasCard) { pop.urls.property = cardUrl(o); }
-        if (hasCard && !startAtCard) { pop.visited.property = true; }   // Pitch now on a card the agent was just looking at
-        if (startAtCard) { pop.visited.property = true; }
 
         function go(url) { loading.style.display = ''; frame.src = url; }
         function paint() {
             var idx = pop.current ? STEPS.map(function (s) { return s[0]; }).indexOf(pop.current) : -1;
             STEPS.forEach(function (s, i) {
                 var b = stepEls[s[0]];
-                var state = s[0] === pop.current ? 'current' : (pop.visited[s[0]] ? 'done' : 'todo');
+                var state = s[0] === pop.current ? 'current' : (pop.reached[s[0]] === true ? 'done' : 'todo');
                 b.setAttribute('data-state', state);
                 b.setAttribute('aria-current', state === 'current' ? 'step' : 'false');
                 b.firstChild.textContent = state === 'done' ? '✓' : String(i + 1);
@@ -151,11 +156,12 @@
             pop.loads++;
             loading.style.display = 'none';
             var st = stepOf(href);
-            if (st) { pop.current = st; pop.visited[st] = true; pop.urls[st] = href; }
+            if (st) { pop.current = st; if (!(LATE.indexOf(st) >= 0 && pop.urls[st])) pop.urls[st] = href; }
             // any move from inside the screen (a form saved, a link followed) shows the loading line until the next one is up
             try { frame.contentWindow.addEventListener('beforeunload', function () { if (pop) loading.style.display = ''; }); } catch (e) { /* not same origin */ }
             paint();
-            if (pop.plan && pop.planTries < 6 && (!pop.urls.contact || !pop.urls.evaluation || !pop.urls.owner)) { pop.planTries++; pop.plan(); }
+            // the ticks follow the record: ask again after every screen (a save redirects to the next one)
+            if (pop.plan && pop.loads > 1) { pop.plan(); }
         });
         pop.keydown = function (e) { if (e.key === 'Escape') close(false); };
         document.addEventListener('keydown', pop.keydown);
@@ -170,17 +176,18 @@
             if (o.tracked) q.set('tracked', o.tracked);
             if (prospect) q.set('prospect', prospect);
             pop.planQuery = q.toString();
-            pop.plan = function () { return fetch(cfg.steps + '?' + pop.planQuery, { credentials: 'same-origin', headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' } })
+            pop.plan = function () { var seq = ++pop.planSeq; return fetch(cfg.steps + '?' + pop.planQuery, { credentials: 'same-origin', headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' } })
                 .then(function (r) { return r.ok ? r.json() : null; })
                 .then(function (d) {
-                    if (!d || !d.steps || pop !== me) return;
+                    if (!d || !d.steps || pop !== me || seq !== pop.planSeq) return;
                     // one title for every step: the property's address, not the label of the button that opened it ("Find the owner - ..." stayed on the Pitch step)
                     if (d.steps.address) { title.textContent = 'Pitch · ' + d.steps.address; }
-                    Object.keys(d.steps).forEach(function (k) { if (k !== 'address' && d.steps[k] && !pop.urls[k]) pop.urls[k] = d.steps[k]; });
+                    Object.keys(d.steps).forEach(function (k) { if (typeof d.steps[k] === 'string' && k !== 'address' && (!pop.urls[k] || LATE.indexOf(k) >= 0)) pop.urls[k] = d.steps[k]; });
+                    pop.reached = d.steps.reached && typeof d.steps.reached === 'object' ? d.steps.reached : {};
                     paint();
                 })
                 .catch(function () { /* the pills stay as they are: the screens still work */ }); };
-            pop.planTries = 1; pop.plan();
+            pop.plan();
         }
         closeBtn.focus();
     }
@@ -205,7 +212,7 @@
         if (p.results.length) {
             var kinds = {}, booked = null, claimed = null; p.results.forEach(function (r) { kinds[r.kind] = true; if (r.kind === 'booked') booked = r; if (r.kind === 'claimed') claimed = r; });
             if (!booked && !kinds.pitched && !kinds.logged && claimed) { toast('Claimed · ' + (claimed.address || where) + ' · yours for ' + (claimed.detail || 'the hold period')); }
-            else if (booked) { toast('Evaluation booked · ' + booked.detail + ' · ' + (booked.address || where)); }
+            else if (booked) { toast('Appointment booked · ' + booked.detail + ' · ' + (booked.address || where)); }
             else { toast((kinds.pitched ? 'Pitched' : 'Contact logged') + (where ? ' · ' + where : '') + (kinds.pitched && kinds.logged ? ' (and a call logged)' : '')); }
         } else if (done === true) {
             toast('Done' + (where ? ' · ' + where : '') + ' - nothing was sent or logged.');
@@ -273,6 +280,7 @@
         if (e.data.pitch === 'book') { if (e.data.url && sameSite(e.data.url) && !pop.urls.evaluation) { pop.urls.evaluation = e.data.url; if (pop.repaint) pop.repaint(); } return; }
         if (e.data.pitch === 'result') { var rk = ['logged', 'booked', 'claimed'].indexOf(e.data.kind) >= 0 ? e.data.kind : 'pitched';
             pop.results.push({ kind: rk, address: String(e.data.address || ''), detail: String(e.data.detail || '') });
+            if (pop.plan) { pop.plan(); }   // a save just changed the record: the ticks follow
             // claiming is said the moment it happens: the agent is looking at the screen that did it
             if (rk === 'claimed') { toast('Claimed · ' + (e.data.address || 'this property') + ' · yours for ' + (e.data.detail || 'the hold period')); }
             return; }
@@ -296,5 +304,5 @@
             .catch(function () { window.location.reload(); });
     });
 
-    window.CorexPitch = { open: open, close: close, toggleCard: toggleCard, stepOf: stepOf, _state: function () { return pop ? { current: pop.current, touched: pop.touched } : null; } };
+    window.CorexPitch = { open: open, close: close, toggleCard: toggleCard, stepOf: stepOf, _state: function () { return pop ? { current: pop.current, touched: pop.touched, query: pop.planQuery || '', o: pop.o } : null; } };
 })();

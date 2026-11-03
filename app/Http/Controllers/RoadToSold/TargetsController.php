@@ -116,6 +116,8 @@ class TargetsController extends Controller
             'weekdays' => RtsWeekdayTarget::WEEKDAYS,
             'max'      => RtsWeekdayTarget::MAX_TARGET,
             'weekdayOn' => \App\Services\RoadToSold\Scope::callListOn($viewer),
+            // 23.29.4: what is actually happening beside the two targets (the agency's belt): now / reached / conversion / should be / override
+            'beltPanel' => app(\App\Services\RoadToSold\TargetsService::class)->panel($viewer, 'agency', now(), $this->track()),
             'canWrite' => $this->canWrite($viewer),
             'canEditDefault' => $this->canEditDefault($viewer),
             'branches' => $agents->pluck('branch.name', 'branch_id')->filter()->sort(),

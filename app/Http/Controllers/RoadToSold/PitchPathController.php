@@ -8,6 +8,7 @@ use App\Models\RoadToSold\RtsProspect;
 use App\Services\RoadToSold\OutcomeDefinitionService;
 use App\Services\RoadToSold\OutcomeService;
 use App\Services\RoadToSold\PitchPathService;
+use App\Services\RoadToSold\ProspectStages;
 use App\Services\RoadToSold\RoadToSoldException;
 use App\Services\RoadToSold\Track;
 use Illuminate\Http\JsonResponse;
@@ -58,6 +59,69 @@ class PitchPathController extends Controller
         }
 
         return redirect()->to(route('corex.properties.show', $property->id) . '?' . http_build_query($this->path->carry($request) + ['generate_presentation' => 1, 'rts_prospect' => $row->id]));
+    }
+
+    /**
+     * Road to Sold 23.25 step 7 (Presentation results): how the appointment went. While the appointment has not been answered it is the calendar's own feedback form
+     * on that appointment (held / no-show / moved); once it was held it is the Result form (23.9). The same two screens the row buttons already open - one hop, decided
+     * from the record's station when the agent clicks, so the pill never goes stale.
+     */
+    public function results(Request $request, int $prospect): RedirectResponse
+    {
+        $row = $this->own($request, $prospect);
+        $carry = $this->path->carry($request) + ['embed' => 1];
+        $held = ProspectStages::order((string) $row->stage) >= ProspectStages::order(ProspectStages::EVALUATION_DONE);
+        $eventId = $held ? null : app(\App\Services\RoadToSold\BeltLinks::class)->latestEvaluationEvent((int) $row->id);
+        if ($eventId) {
+            return redirect()->to(route('command-center.calendar', $carry + ['rts_prospect' => $row->id, 'rts_stage' => $row->stage, 'capture_feedback' => $eventId]));
+        }
+
+        return redirect()->to(route('road-to-sold.prospects.result-form', ['prospect' => $row->id] + $carry));
+    }
+
+    /** The Result form (23.9) as a screen of the popup: the agency's own result list, posting to the one result route. */
+    public function resultForm(Request $request, int $prospect)
+    {
+        $row = $this->own($request, $prospect);
+        $options = collect(app(\App\Services\RoadToSold\ResultOptionService::class)->list((int) $row->agency_id, (string) $row->track))
+            ->map(fn ($o) => ['key' => $o['key'], 'label' => $o['label'], 'needs_date' => (bool) ($o['class'] !== 'won'), 'days' => $o['revisit_days'] ?? null])->values()->all();
+
+        return view('road-to-sold.pitch-result', ['prospect' => $row, 'options' => $options, 'address' => $this->addressOf($row)]);
+    }
+
+    /**
+     * Road to Sold 23.25 steps 8 and 9 (Draft, Active): the property's own gates, read from the property exactly as the belt reads them (BlockerService, the readiness
+     * service, the two Active events), with the existing actions beside them. Draft: the checklist and "Move to Draft" (the property page's own move, Prospecting -> Draft).
+     * Active: the compliance gate and the syndication gate, and the existing publish. Nothing is decided here; the record moves when the property does (BeltLinks).
+     */
+    public function propertyStep(Request $request, int $prospect, string $step)
+    {
+        abort_unless(in_array($step, ['draft', 'active'], true), 404);
+        $row = $this->own($request, $prospect);
+        $property = $row->property_id ? \App\Models\Property::query()->where('agency_id', $row->agency_id)->whereNull('deleted_at')->find((int) $row->property_id) : null;
+        abort_unless($property, 404, 'This record has no property yet.');
+        $report = app(\App\Services\Compliance\MarketingReadinessService::class)->statusFor($property);
+        $portal = fn (?string $s) => strtolower(trim((string) $s));
+        $syndication = [
+            ['label' => 'Property24', 'status' => $portal($property->p24_syndication_status)],
+            ['label' => 'Private Property', 'status' => $portal($property->pp_syndication_status)],
+        ];
+
+        return view('road-to-sold.pitch-property-step', [
+            'prospect' => $row, 'property' => $property, 'step' => $step, 'address' => $this->addressOf($row, $property),
+            'report' => $report, 'syndication' => $syndication,
+            'complianceDone' => $property->compliance_snapshot_at !== null, 'published' => $property->published_at !== null,
+            'isProspecting' => method_exists($property, 'isProspecting') && $property->isProspecting(), 'isDraft' => (string) $property->status === 'draft',
+            'carry' => $this->path->carry($request) + ['embed' => 1],
+        ]);
+    }
+
+    private function addressOf(RtsProspect $row, ?\App\Models\Property $property = null): string
+    {
+        $property ??= $row->property_id ? \App\Models\Property::query()->withoutGlobalScopes()->find((int) $row->property_id) : null;
+        $tp = \App\Models\Prospecting\TrackedProperty::query()->withoutGlobalScopes()->find((int) $row->tracked_property_id);
+
+        return trim((string) ($property?->address ?: $tp?->displayAddress())) ?: 'This property';
     }
 
     /**

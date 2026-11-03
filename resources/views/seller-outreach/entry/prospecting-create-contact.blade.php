@@ -232,7 +232,7 @@
               linkDeedUrl: @js($linkDeedUrl ?? null),
               // FIX 2 — live deed state (reactive), initialised from the server render and refreshed
               // by polling so a scrape auto-surfaces without a full reload (form state preserved).
-              deed: { owners: @js($deedLink['owners'] ?? []), candidates: @js($deedLink['candidates'] ?? []) },
+              deed: { tracked_property_id: @js($deedLink['tracked_property_id'] ?? null), owners: @js($deedLink['owners'] ?? []), candidates: @js($deedLink['candidates'] ?? []) },
               deedPollUrl: @js($deedPollUrl ?? null),
               _deedTimer: null,
               startDeedPoll() {
@@ -261,6 +261,7 @@
                       // while this poll was in flight — its result is newer than this snapshot.
                       // Applying it now would clobber the newer state with a stale one.
                       if (this._stateSeq !== seqAtStart) return;
+                      this.deed.tracked_property_id = d.tracked_property_id || null;
                       this.deed.owners = d.owners || [];
                       this.deed.candidates = d.candidates || [];
                       if (typeof d.today_count === 'number') {
@@ -320,7 +321,15 @@
                   this.sellerBusy = true;
                   try {
                       const res = await fetch(this.deadEndSellerUrl, { method: 'POST', headers: this._postHeaders(), body: JSON.stringify({ contact_id: contactId, reason: reason || 'not_in_tva' }) });
-                      if (res.ok) this.applySellerState(await res.json());
+                      if (res.ok) {
+                          const d = await res.json();
+                          this.applySellerState(d);
+                          // road-to-sold.md 23.25: nobody left to reach = the property stops here (the step-2 off-ramp); the popup closes and the page shows it
+                          if (d.offramp) {
+                              try { sessionStorage.setItem('cxOffRamp', d.offramp); } catch (e) { /* no storage */ }
+                              if (window.parent !== window) { window.parent.postMessage({ rts: 'done' }, window.location.origin); } else { window.location.reload(); }
+                          }
+                      }
                   } catch (e) { /* ignore */ } finally { this.sellerBusy = false; }
               },
               async clearSellerDeadEnd(contactId) {
@@ -387,7 +396,7 @@
                   } catch (e) { /* ignore */ } finally { this.sellerBusy = false; }
               },
               waUrl(v) { return 'https://wa.me/' + (v || '').replace(/[^0-9]/g, '').replace(/^0/, '27'); },
-              async linkSeller(owner) {
+              async linkSeller(owner, deedTrackedPropertyId) {
                   if (!this.linkSellerUrl || this.sellerBusy) return;
                   // Prefer the contact already resolved off the deed (a director OR the company entity):
                   // links the exact contact, no SA ID required. An entity with no contact yet keys on its
@@ -403,6 +412,8 @@
                       window.alert('This owner has no SA ID or registration number on the deed — cannot link as a distinct seller.');
                       return;
                   }
+                  // The deed this owner was read off (the confirmed match or the possible match the agent clicked on): linking the seller from it links that deed to the record too
+                  if (deedTrackedPropertyId) body.deed_tracked_property_id = deedTrackedPropertyId;
                   this.sellerBusy = true;
                   try {
                       const res = await fetch(this.linkSellerUrl, { method: 'POST', headers: this._postHeaders(), body: JSON.stringify(body) });
@@ -533,7 +544,7 @@
                         </div>
                         <div class="shrink-0 flex flex-col gap-1">
                             <template x-if="!isSellerLinked(owner)">
-                                <button type="button" @click="linkSeller(owner)" :disabled="sellerBusy"
+                                <button type="button" @click="linkSeller(owner, deed.tracked_property_id)" :disabled="sellerBusy"
                                         class="px-3 py-1.5 text-xs font-semibold rounded-md border-0"
                                         style="background: var(--brand-icon, #0ea5e9); color:#fff; cursor:pointer;"
                                         x-text="owner.is_entity ? '+ Link company as seller' : '+ Link as seller'"></button>
@@ -585,7 +596,7 @@
                                 </div>
                                 <div class="shrink-0 flex flex-col gap-1">
                                     <template x-if="!isSellerLinked(owner)">
-                                        <button type="button" @click="linkSeller(owner)" :disabled="sellerBusy"
+                                        <button type="button" @click="linkSeller(owner, cand.tracked_property_id)" :disabled="sellerBusy"
                                                 class="px-3 py-1.5 text-xs font-semibold rounded-md"
                                                 style="background: transparent; color: var(--text-primary); border:1px solid var(--ds-amber, #f59e0b); cursor:pointer;"
                                                 x-text="owner.is_entity ? '+ Link company as seller' : '+ Link as seller'"></button>

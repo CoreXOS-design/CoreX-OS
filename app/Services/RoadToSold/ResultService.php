@@ -85,7 +85,7 @@ class ResultService
                 }
 
                 // 3. the record, the claim and the property
-                $this->applyToRecord($p, $opt, $class, $revisit, $note, $actor);
+                $this->applyToRecord($p, $opt, $class, $revisit, $note, $actor, isset($context['step']) ? ['step' => (int) $context['step']] : []);
                 $this->applyToClaims($claims, $class);
                 $this->applyToProperty($p, $class, $note, $actor);
             });
@@ -108,27 +108,58 @@ class ResultService
      *
      * @return array{ok:bool,message:string,class:?string,already:bool}
      */
-    public function offRamp(RtsProspect $p, string $reasonKey, ?string $note, User $actor, string $source): array
+    public function offRamp(RtsProspect $p, string $reasonKey, ?string $note, User $actor, string $source, ?int $step = null): array
     {
         $agencyId = (int) $p->agency_id;
         $track = (string) ($p->track ?: 'sales');
-        $station = ParkReasonService::stationOfStage((string) $p->stage);
-        $reason = $this->reasons->choices($agencyId, $track, $station)->firstWhere('key', $reasonKey);
+        // from the popup the reason comes from the step's own list (road-to-sold.md 23.25); from Market Intelligence's "lost" it is the station's
+        $reason = $step !== null
+            ? $this->reasons->forStep($agencyId, $track, $step)->firstWhere('key', $reasonKey)
+            : $this->reasons->choices($agencyId, $track, ParkReasonService::stationOfStage((string) $p->stage))->firstWhere('key', $reasonKey);
         if (! $reason) {
             return $this->no('Pick one of the reasons shown for why this property stops here.');
         }
+        $note = trim((string) $note);
+        if (! empty($reason->is_other) && mb_strlen($note) < 3) {
+            return $this->no('Say in a few words why it stops here.');
+        }
         $days = (int) $reason->default_revisit_days;
+        $countsAs = ($reason->counts_as ?? null) === 'not_selling' ? 'not_selling' : 'lost';
         $opt = [
-            'key' => 'offramp_' . $reasonKey, 'label' => (string) $reason->label, 'class' => 'lost', 'park_reason_key' => $reasonKey,
+            'key' => 'offramp_' . $reasonKey, 'label' => (string) $reason->label, 'class' => $countsAs, 'park_reason_key' => $reasonKey,
             'needs_date' => false, 'revisit_days' => $days > 0 ? $days : null, 'never' => $days === 0,
         ];
 
-        return $this->record($p, 'offramp_' . $reasonKey, null, $note, $actor, $source, ['option' => $opt, 'skip_stores' => true]);
+        $result = $this->record($p, 'offramp_' . $reasonKey, null, $note !== '' ? $note : null, $actor, $source, ['option' => $opt, 'skip_stores' => true, 'step' => $step]);
+        if ($result['ok'] && empty($result['already'])) {
+            $this->markInMic($p, $reasonKey, $countsAs, (string) $reason->label, $note, $actor);
+        }
+
+        return $result;
+    }
+
+    /**
+     * road-to-sold.md 23.25.6 rule 2: every off-ramp leaves the mark the Market Intelligence card reads ("Where it stands: <status> - <reason> (<agent>, <date>)") on the agency's own
+     * record of the file - not only a Not selling result, so nobody chases it again. Opted out = do not contact; another agency's mandate / a loss to another agency = mandate
+     * elsewhere; everything else = not selling. Never stops the off-ramp if the mark cannot be written.
+     */
+    private function markInMic(RtsProspect $p, string $reasonKey, string $countsAs, string $label, string $note, User $actor): void
+    {
+        try {
+            $status = match (true) {
+                $reasonKey === 'opted_out', $reasonKey === 'do_not_contact' => \App\Models\Prospecting\TrackedPropertyAgencyWork::STATUS_DO_NOT_CONTACT,
+                in_array($reasonKey, ['mandate_elsewhere', 'already_listed_open', 'chose_other_agency'], true) => \App\Models\Prospecting\TrackedPropertyAgencyWork::STATUS_MANDATE_ELSEWHERE,
+                default => \App\Models\Prospecting\TrackedPropertyAgencyWork::STATUS_NOT_SELLING,
+            };
+            app(\App\Services\Prospecting\AgencyWorkService::class)->setStatus((int) $p->agency_id, (int) $p->tracked_property_id, $status, $label . ($note !== '' ? ': ' . $note : ''), (int) $actor->id);
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('Off-ramp: the Market Intelligence mark could not be written (the off-ramp stands)', ['prospect' => $p->id, 'message' => $e->getMessage()]);
+        }
     }
 
     // ── the pieces ───────────────────────────────────────────────────────
 
-    private function applyToRecord(RtsProspect $p, array $opt, string $class, Carbon $revisit, ?string $note, User $actor): void
+    private function applyToRecord(RtsProspect $p, array $opt, string $class, Carbon $revisit, ?string $note, User $actor, array $meta = []): void
     {
         $p->refresh();
         if ($class === 'won') {
@@ -148,7 +179,7 @@ class ResultService
             return;
         }
         $reasonKey = $class === 'pending' ? 'not_now' : ((string) ($opt['park_reason_key'] ?: ($class === 'not_selling' ? 'not_selling_now' : 'other')));
-        $this->prospects->park($p, $reasonKey, $revisit, $note ?? (string) $opt['label'], $actor, ['class' => $class, 'result' => $opt['key']]);
+        $this->prospects->park($p, $reasonKey, $revisit, $note ?? (string) $opt['label'], $actor, ['class' => $class, 'result' => $opt['key']] + $meta);
     }
 
     /** Claims of the record: lost / not selling close them (the property goes back to the pool); the others keep them open. */

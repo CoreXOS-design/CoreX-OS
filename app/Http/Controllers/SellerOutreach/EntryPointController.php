@@ -377,6 +377,11 @@ final class EntryPointController extends Controller
             ->where('property_id', $linkedPropertyId)->where('role', 'seller')
             ->whereNull('deleted_at')->exists();
 
+        // inside the popup the record's own file may already carry its owner (captured from the deed, or saved on an earlier visit): that is an owner to go on with
+        if (! $hasLinkedSellers && $listing && \App\Support\Embed::on()) {
+            $hasLinkedSellers = $this->recordFileHasOwner($request, $agencyId, $listing);
+        }
+
         $linked = $this->resolveLinkedExistingContact($request, $agencyId);
         if ($linked !== null) {
             $existing = $linked;
@@ -882,6 +887,22 @@ final class EntryPointController extends Controller
             ->with('status', $statusMessage);
     }
 
+    /** The record's own file (the agent's open Road to Sold record, else the advert's file) already has its owner. */
+    private function recordFileHasOwner(Request $request, int $agencyId, object $listing): bool
+    {
+        $tpId = ! empty($listing->tracked_property_id) ? (int) $listing->tracked_property_id : 0;
+        if ($tpId <= 0) {
+            return false;
+        }
+        $prospect = app(\App\Services\RoadToSold\PitchPathService::class)->prospectFor($request, $request->user(), $tpId)
+            ?? app(\App\Services\SellerOutreach\PitchBeltResolver::class)->openProspectFor($request->user(), $tpId);
+        if ($prospect) {
+            $tpId = (int) $prospect->tracked_property_id;
+        }
+
+        return (int) DB::table('tracked_properties')->where('agency_id', $agencyId)->where('id', $tpId)->value('owner_contact_id') > 0;
+    }
+
     /**
      * road-to-sold.md 23.23 drop 6 - the pitch popup's Owner step: save the owner (and the deed link, which has its own route) and nothing else.
      *
@@ -941,6 +962,11 @@ final class EntryPointController extends Controller
                     $propertyId = ! empty($listing->matched_property_id) ? (int) $listing->matched_property_id : (int) ($file->promoted_to_property_id ?: 0);
                     $sellerId = $propertyId ? (int) DB::table('contact_property')->where('property_id', $propertyId)->where('role', 'seller')->whereNull('deleted_at')->orderBy('id')->value('contact_id') : 0;
                     $owner = $sellerId ? Contact::query()->withoutGlobalScopes()->find($sellerId) : null;
+                }
+                // the record's file already has its owner (captured from the deed, or saved on an earlier visit) and the form brought nobody new: that owner is who
+                // "Create & continue" goes on with - never "capture the owner first" while the owner is on the screen
+                if (! $owner && $file->owner_contact_id) {
+                    $owner = Contact::query()->withoutGlobalScopes()->where('agency_id', $agencyId)->find((int) $file->owner_contact_id);
                 }
                 // the agent chose this person: the file's owner is theirs (an update through the model, so the belt hears of it)
                 if ($owner && (int) $file->owner_contact_id !== (int) $owner->id) {
@@ -1338,16 +1364,22 @@ final class EntryPointController extends Controller
 
         $listing = DB::table('prospecting_listings')->where('id', $prospectingListingId)->first();
 
-        // the deed is linked to this advert, whose file is the agent's record: the belt hears of it now (Owner found when the owner is on the file too)
-        if (! empty($listing->tracked_property_id)) {
-            try {
-                app(\App\Services\RoadToSold\OwnerStationService::class)->evaluate($agencyId, (int) $listing->tracked_property_id, $request->user(), 'TrackedPropertyEnriched');
-            } catch (\Throwable $e) {
-                \Illuminate\Support\Facades\Log::info('Deed link: the belt could not be told', ['listing_id' => $listing->id, 'message' => $e->getMessage()]);
-            }
-        }
+        $this->tellTheBeltOfTheDeed($agencyId, $listing, $request->user());
 
         return response()->json($svc->payload($agencyId, $listing));
+    }
+
+    /** The deed is linked to this advert, whose file is the agent's record: the belt hears of it now (Owner found when the owner is on the file too). */
+    private function tellTheBeltOfTheDeed(int $agencyId, object $listing, $user): void
+    {
+        if (empty($listing->tracked_property_id)) {
+            return;
+        }
+        try {
+            app(\App\Services\RoadToSold\OwnerStationService::class)->evaluate($agencyId, (int) $listing->tracked_property_id, $user, 'TrackedPropertyEnriched');
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::info('Deed link: the belt could not be told', ['listing_id' => $listing->id, 'message' => $e->getMessage()]);
+        }
     }
 
     /** R1 — unlink the deed: revert to auto-match, drop deed-sourced sellers, revert the address. */
@@ -1443,6 +1475,7 @@ final class EntryPointController extends Controller
         $sellers = app(\App\Services\Prospecting\ComposeSellerService::class)->payload($agencyId, $listing);
 
         return response()->json([
+            'tracked_property_id' => $deedLink['tracked_property_id'] ?? null,
             'owners'      => $deedLink['owners'],
             'candidates'  => $deedLink['candidates'],
             // the banner's "N deeds captured today" (the list itself is fetched live by the picker, spec 13.21)
@@ -1502,6 +1535,18 @@ final class EntryPointController extends Controller
         }
 
         $propertyId = $this->ensurePropertyForListing($agencyId, $listing, $request->user());
+
+        // A seller picked off a deed card (the confirmed match or a possible match) is that deed's owner: the deed goes onto the record too, the same write as the
+        // "Link a deed" picker - otherwise the owner is on the file and the deed is not, and the Road to Sold owner gate stays shut. Only the deed link: the agent
+        // picked ONE owner, so the whole seller set and the property's address are left as they are (the picker, which replaces the deed, does resync those).
+        if ($request->filled('deed_tracked_property_id')) {
+            $deedTp = TrackedProperty::withoutGlobalScopes()->where('agency_id', $agencyId)->whereKey((int) $request->input('deed_tracked_property_id'))->first();
+            abort_if($deedTp === null, 404, 'Deed not found in this agency.');
+            if ((int) ($listing->linked_deed_tracked_property_id ?? 0) !== (int) $deedTp->id && ! empty($svc->deedOwners((int) $deedTp->id))) {
+                $svc->recordDeedLink($listing, (int) $deedTp->id, (int) $request->user()->id);
+                $this->tellTheBeltOfTheDeed($agencyId, $listing, $request->user());
+            }
+        }
         // Manual link (or explicit RE-ADD) — source=manual, and it CLEARS any sticky removal so the
         // agent's deliberate re-add sticks against the deed auto-link (R2).
         $svc->linkSellerToProperty((int) $contact->id, $propertyId, 'manual');
@@ -1614,6 +1659,29 @@ final class EntryPointController extends Controller
         return response()->json($svc->payload($agencyId, $listing));
     }
 
+    /** @return ?string the off-ramp message when the agent's own record on this file was stopped, else null */
+    private function offRampWhenNoSellerReachable(Request $request, int $agencyId, object $listing, \App\Services\Prospecting\ComposeSellerService $svc): ?string
+    {
+        try {
+            $sellers = $svc->linkedSellers($agencyId, (int) $listing->matched_property_id);
+            if ($sellers === [] || collect($sellers)->contains(fn ($x) => empty($x['dead_end']) && ! empty($x['contactable']))) {
+                return null;   // somebody can still be reached: the flag alone, as before
+            }
+            $tpId = (int) ($listing->tracked_property_id ?? 0);
+            $p = $tpId ? app(\App\Services\SellerOutreach\PitchBeltResolver::class)->openProspectFor($request->user(), $tpId) : null;
+            if (! $p || $p->parked_at !== null) {
+                return null;
+            }
+            $r = app(\App\Services\RoadToSold\ResultService::class)->offRamp($p, 'no_contact_details', null, $request->user(), 'owner_dead_end', 2);
+
+            return $r['ok'] ? $r['message'] : null;
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('Dead-end tick: the off-ramp could not be recorded (the flag stands)', ['listing' => $listing->id ?? null, 'message' => $e->getMessage()]);
+
+            return null;
+        }
+    }
+
     /** Compose redesign — per-seller "No contact details" dead-end (or clear it). */
     public function markSellerDeadEndForProspecting(Request $request, int $prospectingListingId)
     {
@@ -1640,9 +1708,12 @@ final class EntryPointController extends Controller
             $svc->clearSellerDeadEnd($agencyId, (int) $data['contact_id']);
         } else {
             $svc->markSellerDeadEnd($agencyId, (int) $data['contact_id'], (int) $listing->matched_property_id, $data['reason'] ?? 'not_in_tva', (int) $request->user()->id);
+            // road-to-sold.md 23.25 / 23.11 (Johan 3 Nov): when NO seller on the property can be reached, the dead-end tick IS the step-2 off-ramp "No contact details": the
+            // property stops here (Not selling, counted at the Owner step), the flag stays exactly as before
+            $offramp = $this->offRampWhenNoSellerReachable($request, $agencyId, $listing, $svc);
         }
 
-        return response()->json($svc->payload($agencyId, $listing));
+        return response()->json($svc->payload($agencyId, $listing) + (! empty($offramp) ? ['offramp' => $offramp] : []));
     }
 
     /**

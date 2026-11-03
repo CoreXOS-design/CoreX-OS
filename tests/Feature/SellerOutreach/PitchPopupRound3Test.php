@@ -169,7 +169,7 @@ final class PitchPopupRound3Test extends TestCase
         $this->assertStringContainsString('[data-qa="pitch-card"] [data-qa="line-buttons"] { display: none', $h, 'the card\'s own action buttons are the popup\'s job');
 
         $h = $get(route('command-center.calendar', ['embed' => 1, 'pitch_book' => 1, 'prefill_contact_id' => $owner->id, 'prefill_class' => 'property_evaluation']));
-        $this->assertStringContainsString("'Evaluation'", $h);
+        $this->assertStringContainsString("'Appointment'", $h);
         $this->assertStringNotContainsString("'New Event'</h2>", $h);
     }
 
@@ -253,5 +253,146 @@ final class PitchPopupRound3Test extends TestCase
 
         $this->assertSame('owner_found', RtsProspect::query()->find($this->prospect->id)->stage, 'the record moved the moment the deed was linked');
         $this->assertNull(app(\App\Services\RoadToSold\OwnerStationService::class)->refusal($this->agent, (int) $this->tp->id));
+    }
+
+    // ---- the POSSIBLE / CONFIRMED DEED MATCH card: "+ Link as seller" links that deed to the record too --------------------------------------------------------
+
+    /** a deed file with TWO registered owners, each already a contact; the card links one of them */
+    private function deedWithTwoOwners(): array
+    {
+        $deed = $this->deedFile();
+        $pat = Contact::withoutGlobalScopes()->create(['agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'created_by_user_id' => $this->agent->id, 'agent_id' => $this->agent->id,
+            'first_name' => 'Pat', 'last_name' => 'Owner', 'id_number' => '7001015009087', 'phone' => '0836383848']);
+        $sam = Contact::withoutGlobalScopes()->create(['agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'created_by_user_id' => $this->agent->id, 'agent_id' => $this->agent->id,
+            'first_name' => 'Sam', 'last_name' => 'Owner', 'id_number' => '6204305134084']);
+        DB::table('tracked_property_owners')->where('tracked_property_id', $deed->id)->update(['contact_id' => $pat->id]);
+        DB::table('tracked_property_owners')->insert(['tracked_property_id' => $deed->id, 'agency_id' => $this->agency->id, 'name' => 'Sam Owner', 'id_number' => '6204305134084', 'contact_id' => $sam->id, 'is_primary' => 0, 'created_at' => now(), 'updated_at' => now()]);
+
+        return [$deed, $pat, $sam];
+    }
+
+    private function linkSellerFromCard(Contact $c, int $deedId, string $referer): \Illuminate\Testing\TestResponse
+    {
+        return $this->actingAs($this->agent)->postJson(route('seller-outreach.entry.link-seller-prospecting', ['prospectingListingId' => $this->listingId]),
+            ['contact_id' => $c->id, 'deed_tracked_property_id' => $deedId], ['Sec-Fetch-Dest' => 'empty', 'Referer' => $referer]);
+    }
+
+    /** @return array<string,string> the two ways in: a Road to Sold row (Find owner) and MIC's Pitch now - the same popup, the same screen, the same card */
+    public static function entryPoints(): array
+    {
+        return ['Road to Sold row' => ['rts'], 'MIC Pitch now' => ['mic']];
+    }
+
+    /** @dataProvider entryPoints */
+    public function test_link_as_seller_on_a_deed_match_card_links_that_deed_to_the_record_and_opens_the_gate(string $entry): void
+    {
+        config(['property-identity.link_on_create' => true]);
+        $this->claim();
+        [$deed, $pat, $sam] = $this->deedWithTwoOwners();
+        // the agent has the owner on the file already (the Owner step's other half): only the deed was missing
+        $this->tp->update(['owner_contact_id' => $pat->id]);
+        $gate = app(\App\Services\RoadToSold\OwnerStationService::class);
+        $this->assertSame(['the deed record'], $gate->missing($this->agency->id, (int) $this->tp->id), 'before: owner on the file, deed not');
+        $this->assertSame('claimed', $this->prospect->fresh()->stage);
+        $files = TrackedProperty::query()->withoutGlobalScopes()->count();
+        $tasks = CommandTask::withoutGlobalScopes()->count();
+
+        $referer = url('/corex/prospecting/' . $this->listingId . '/outreach/compose?need=deed&embed=1' . ($entry === 'rts' ? '&rts_prospect=' . $this->prospect->id . '&rts_stage=claimed' : ''));
+        $this->linkSellerFromCard($pat, (int) $deed->id, $referer)->assertOk();
+
+        $this->assertSame((int) $deed->id, (int) DB::table('prospecting_listings')->find($this->listingId)->linked_deed_tracked_property_id, 'the deed is on the record\'s advert');
+        $this->assertSame([], $gate->missing($this->agency->id, (int) $this->tp->id), 'after: nothing missing');
+        $this->assertNull($gate->refusal($this->agent, (int) $this->tp->id), 'Create & continue passes');
+        $this->assertSame('owner_found', $this->prospect->fresh()->stage, 'the belt moved the record at once');
+        $this->assertSame($files, TrackedProperty::query()->withoutGlobalScopes()->count(), 'no second property file');
+        $this->assertSame($tasks, CommandTask::withoutGlobalScopes()->count(), 'no chase tasks');
+        $made = Property::withoutGlobalScopes()->where('external_id', 'prospecting:' . $this->listingId)->first();
+        $this->assertNotNull($made);
+        $this->assertSame((int) $this->tp->id, (int) $made->tracked_property_id, "the seller hangs on the RECORD'S file");
+        $this->assertSame([(int) $pat->id], DB::table('contact_property')->where('property_id', $made->id)->where('role', 'seller')->whereNull('deleted_at')->pluck('contact_id')->map(fn ($v) => (int) $v)->all(),
+            'only the owner the agent picked is a seller - the deed\'s other owner is not linked behind their back');
+        $this->assertSame('1 Ss Cycad Court', Property::withoutGlobalScopes()->find($made->id)->address, "the property's address is not rewritten from the deed");
+    }
+
+    public function test_a_hand_typed_seller_with_no_deed_is_still_gated(): void
+    {
+        $this->claim();
+        [$deed, $pat] = $this->deedWithTwoOwners();
+        $this->tp->update(['owner_contact_id' => $pat->id]);
+
+        $this->actingAs($this->agent)->postJson(route('seller-outreach.entry.link-seller-prospecting', ['prospectingListingId' => $this->listingId]), ['contact_id' => $pat->id],
+            ['Sec-Fetch-Dest' => 'empty', 'Referer' => url('/x?embed=1')])->assertOk();
+
+        $this->assertNull(DB::table('prospecting_listings')->find($this->listingId)->linked_deed_tracked_property_id, 'no deed on the card: no deed link');
+        $this->assertSame(['the deed record'], app(\App\Services\RoadToSold\OwnerStationService::class)->missing($this->agency->id, (int) $this->tp->id));
+    }
+
+    public function test_a_deed_from_another_agency_or_with_no_owner_is_never_linked_from_the_card(): void
+    {
+        $this->claim();
+        [$deed, $pat] = $this->deedWithTwoOwners();
+        $this->linkSellerFromCard($pat, 99999999, url('/x?embed=1'))->assertNotFound();
+        $bare = $this->tp(['street_name' => 'Bare Street', 'street_number' => '5']);   // a file with no registered owner
+
+        $this->linkSellerFromCard($pat, (int) $bare->id, url('/x?embed=1'))->assertOk();
+
+        $this->assertNull(DB::table('prospecting_listings')->find($this->listingId)->linked_deed_tracked_property_id, 'an owner-less file is not a deed');
+    }
+
+    // ---- the owner is already on the file: "Create & continue" with a blank form goes on, it does not say "capture the owner first" ---------------------------
+
+    private function blankOwnerStep()
+    {
+        return $this->actingAs($this->agent)->post(route('seller-outreach.entry.store-from-prospecting', ['prospectingListingId' => $this->listingId]), ['embed' => 1, 'rts_prospect' => $this->prospect->id]);
+    }
+
+    public function test_with_the_owner_and_the_deed_already_on_the_file_a_blank_create_and_continue_goes_on_to_the_pitch(): void
+    {
+        $this->claim();
+        $owner = Contact::withoutGlobalScopes()->create(['agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'created_by_user_id' => $this->agent->id,
+            'agent_id' => $this->agent->id, 'first_name' => 'Belinda', 'last_name' => 'Ehlers', 'phone' => '0609608323']);
+        $this->tp->update(['owner_contact_id' => $owner->id, 'deeds_captured_at' => now()]);   // the deed scrape captured both
+
+        $r = $this->blankOwnerStep();
+
+        $r->assertRedirect();
+        $this->assertNull(session('error'), 'no "Capture the owner first" while the owner is on the file');
+        $this->assertStringContainsString('/contacts/' . $owner->id . '/outreach/compose', (string) $r->headers->get('Location'), 'on to the composer, on the owner');
+    }
+
+    public function test_with_the_owner_on_the_file_and_no_deed_a_blank_create_and_continue_asks_for_the_deed_not_the_owner(): void
+    {
+        $this->claim();
+        $owner = Contact::withoutGlobalScopes()->create(['agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'created_by_user_id' => $this->agent->id,
+            'agent_id' => $this->agent->id, 'first_name' => 'Belinda', 'last_name' => 'Ehlers', 'phone' => '0609608323']);
+        $this->tp->update(['owner_contact_id' => $owner->id]);
+
+        $r = $this->blankOwnerStep();
+
+        $this->assertNull(session('error'));
+        $this->assertStringContainsString('need=deed', (string) $r->headers->get('Location'));
+    }
+
+    public function test_with_nobody_on_the_file_and_a_blank_form_it_still_asks_for_the_owner(): void
+    {
+        $this->claim();
+
+        $this->blankOwnerStep()->assertSessionHasErrors('contact_required');
+    }
+
+    public function test_the_same_when_the_seller_is_also_linked_on_the_adverts_property(): void
+    {
+        $this->claim();
+        $owner = Contact::withoutGlobalScopes()->create(['agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'created_by_user_id' => $this->agent->id,
+            'agent_id' => $this->agent->id, 'first_name' => 'Belinda', 'last_name' => 'Ehlers', 'phone' => '0609608323']);
+        $propId = $this->property((int) $this->agent->id);
+        DB::table('prospecting_listings')->where('id', $this->listingId)->update(['matched_property_id' => $propId]);
+        DB::table('contact_property')->insert(['contact_id' => $owner->id, 'property_id' => $propId, 'role' => 'seller', 'source' => 'manual', 'created_at' => now(), 'updated_at' => now()]);
+        $this->tp->update(['owner_contact_id' => $owner->id, 'deeds_captured_at' => now()]);   // exactly 25 Shepstone Avenue: seller linked, owner and deed on the file
+
+        $r = $this->blankOwnerStep();
+
+        $this->assertNull(session('error'));
+        $this->assertStringContainsString('/contacts/' . $owner->id . '/outreach/compose', (string) $r->headers->get('Location'));
     }
 }

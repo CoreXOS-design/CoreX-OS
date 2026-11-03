@@ -91,7 +91,7 @@ final class PitchBookStepTest extends TestCase
         $h = $this->actingAs($this->agent)->get(route('seller-outreach.composer.show', ['contact' => $this->owner->id, 'property_id' => $this->propertyId, 'channel' => 'phone', 'embed' => 1]))->assertOk()->getContent();
 
         $this->assertStringContainsString('data-qa="phone-book-hint"', $h);
-        $this->assertStringContainsString('Next: book the evaluation', $h);
+        $this->assertStringContainsString('Next: book the appointment', $h);
         $this->assertStringContainsString('pitch_book=1', $h, 'the book address is on the page');
         $this->assertStringContainsString('prefill_class=property_evaluation', $h);
         $this->assertStringContainsString('corexPitchBook(', $h, 'the popup learns the step 5 address');
@@ -145,7 +145,7 @@ final class PitchBookStepTest extends TestCase
 
         $event = CalendarEvent::withoutGlobalScopes()->where('category', 'property_evaluation')->firstOrFail();
         $page = $this->actingAs($this->agent)->get($to)->assertOk()->getContent();
-        $this->assertStringContainsString('Evaluation booked', $page);
+        $this->assertStringContainsString('Appointment booked', $page);
         $this->assertStringContainsString($when->format('j M H:i'), $page);
         $this->assertStringContainsString('12 Pitch Road', $page);
         $this->assertStringNotContainsString('booked-problem', $page, trim(strip_tags(substr($page, (int) strpos($page, 'booked-problem'), 400))));
@@ -169,7 +169,7 @@ final class PitchBookStepTest extends TestCase
         ]);
         $page = $this->actingAs($this->agent)->get((string) $save->headers->get('Location'))->assertOk()->getContent();
 
-        $this->assertStringContainsString('Evaluation booked', $page);
+        $this->assertStringContainsString('Appointment booked', $page);
         $this->assertSame(0, RtsContactOutcome::query()->count());
     }
 

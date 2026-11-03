@@ -279,7 +279,7 @@ final class ConveyorTilesTest extends TestCase
         $label = fn (string $station) => preg_match('/data-qa="station-action"[^>]*data-action="([^"]+)"/', $this->actingAs($this->agent)->get(route('road-to-sold.index', ['block' => 'station', 'station' => $station]))->getContent(), $m) ? $m[1] : null;
         $this->assertSame('Log contact', $label('owner'));
         $this->assertSame('Book evaluation', $label('contacted'));
-        $this->assertSame('Evaluation feedback', $label('booked'));
+        $this->assertSame('Appointment feedback', $label('booked'));
         $this->assertSame('Result', $label('held'));
         $held = $this->actingAs($this->agent)->get(route('road-to-sold.index', ['block' => 'station', 'station' => 'held']))->getContent();
         $this->assertStringContainsString('data-qa="result-modal"', $held, 'the Result pop-up is on the Held list');

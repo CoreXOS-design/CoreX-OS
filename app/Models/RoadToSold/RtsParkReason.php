@@ -14,12 +14,14 @@ class RtsParkReason extends Model
     protected $table = 'rts_park_reasons';
 
     protected $fillable = [
-        'agency_id', 'track', 'station', 'kind', 'key', 'label', 'default_revisit_days', 'is_system', 'is_active', 'sort_order', 'updated_by_user_id',
+        'agency_id', 'track', 'station', 'step', 'kind', 'counts_as', 'is_other', 'key', 'label', 'default_revisit_days', 'is_system', 'is_active', 'sort_order', 'updated_by_user_id',
     ];
 
     protected $casts = [
         'default_revisit_days' => 'integer',
         'is_system'            => 'boolean',
+        'is_other'             => 'boolean',
+        'step'                 => 'integer',
         'is_active'            => 'boolean',
         'sort_order'           => 'integer',
     ];
@@ -34,6 +36,16 @@ class RtsParkReason extends Model
 
         return $has ??= \Illuminate\Support\Facades\Schema::hasColumn((new static())->getTable(), 'station');
     }
+
+    /** v4 (23.25): step / counts_as / is_other are columns added by migration; until they exist the popup has no reason lists (the station reasons carry on as before). */
+    public static function hasStepColumns(): bool
+    {
+        static $has = null;
+
+        return $has ??= \Illuminate\Support\Facades\Schema::hasColumn((new static())->getTable(), 'step');
+    }
+
+    public const COUNTS_AS = ['not_selling' => 'Not selling', 'lost' => 'Lost'];
 
     public function scopeActive($query)
     {
