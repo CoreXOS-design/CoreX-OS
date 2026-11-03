@@ -1,8 +1,8 @@
 <?php
 
 /**
- * AT-526 - DRAFT narrated-tour script (prep only, 31 Oct). `narrated` and `approved` are both false: no "Guide me" button, no voice clips, no video until Johan approves the pilot and
- * the CoreX voice. Plain words (training-videos.md 9.13). To go live: set narrated => true (tour) and approved => true (video) after Johan has read the wording.
+ * AT-526 / AT-525 training script - FINALISED 3 Nov by lane, Johan to spot-check videos. Selectors checked against the live screen on QA1 (as the training admin);
+ * wording follows the plain-words rule (training-videos.md 9.13): short lines, what to click or type, and a "why". Invented sample data only. Under the two-minute cap.
  */
 return [
     'key' => 'agency-setup-leases',
@@ -13,46 +13,32 @@ return [
     'specs' => ['.ai/specs/agency-onboarding-setup.md'],
     'audience' => [],
     'related' => [],
-    'login_as' => 'agent',
-    'approved' => false,
+    'login_as' => 'admin',
+    'approved' => true,
     'narrated' => false,
     'intro' => 'Now set up how your agency handles rentals.',
     'steps' => [
         [
-            'selector' => 'input[name="expiry_notice_window_days"]',
+            'selector' => 'div.overflow-x-auto:has(input[name="shown_field_keys[]"])',
             'action' => 'highlight',
             'done' => 'none',
-            'narration' => 'Type how many days before a lease ends you want a warning.',
-            'why' => 'You have time to renew it or find a new tenant.',
+            'narration' => 'Pick which questions a tenant answers on the rental application.',
+            'why' => 'Tenants are asked only what you need, so applications come back complete.',
         ],
         [
-            'selector' => 'input[name="tenant_notice_period_days"]',
+            'selector' => 'div.overflow-x-auto:has(input[name="required_field_keys[]"])',
             'action' => 'highlight',
             'done' => 'none',
-            'narration' => 'Type how much notice a tenant gives before moving out.',
-            'why' => 'Every new lease starts with this, and you can change it on each lease.',
-        ],
-        [
-            'selector' => 'select[name="default_early_cancellation_allowed"]',
-            'action' => 'highlight',
-            'done' => 'none',
-            'narration' => 'Choose if tenants may cancel a fixed term early.',
-            'why' => 'Each new lease starts with your choice.',
-        ],
-        [
-            'selector' => 'label:has(input[type="checkbox"][name="tenant_portal_enabled"])',
-            'action' => 'highlight',
-            'done' => 'none',
-            'narration' => 'Switch on the tenant portal so tenants can log in.',
-            'why' => 'They can see their lease and report faults themselves.',
+            'narration' => 'Tick Compulsory beside the ones a tenant must answer.',
+            'why' => 'An application cannot be sent in until those are filled.',
         ],
         [
             'selector' => '.setup-cta',
             'action' => 'highlight',
             'done' => 'none',
             'narration' => 'Press Save and continue.',
-            'why' => 'Your choices are kept and you move on to the next step.',
+            'why' => 'Every new application then uses your questions.',
         ],
     ],
-    'outro' => 'There are more rental settings below. You can come back to them later.',
+    'outro' => 'There are more rental settings in Settings. You can come back to them any time.',
 ];

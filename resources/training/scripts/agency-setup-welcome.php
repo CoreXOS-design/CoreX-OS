@@ -1,8 +1,8 @@
 <?php
 
 /**
- * AT-526 - DRAFT narrated-tour script (prep only, 31 Oct). `narrated` and `approved` are both false: no "Guide me" button, no voice clips, no video until Johan approves the pilot and
- * the CoreX voice. Plain words (training-videos.md 9.13). To go live: set narrated => true (tour) and approved => true (video) after Johan has read the wording.
+ * AT-526 / AT-525 training script - FINALISED 3 Nov by lane, Johan to spot-check videos. Selectors checked against the live screen on QA1 (as the training admin);
+ * wording follows the plain-words rule (training-videos.md 9.13): short lines, what to click or type, and a "why". Invented sample data only. Under the two-minute cap.
  */
 return [
     'key' => 'agency-setup-welcome',
@@ -13,25 +13,32 @@ return [
     'specs' => ['.ai/specs/agency-onboarding-setup.md'],
     'audience' => [],
     'related' => [],
-    'login_as' => 'agent',
-    'approved' => false,
+    'login_as' => 'admin',
+    'approved' => true,
     'narrated' => false,
-    'intro' => 'Welcome. This guide takes you through setting up your agency.',
+    'intro' => 'Welcome. This is how you set up your agency in CoreX.',
     'steps' => [
+        [
+            'selector' => 'main .px-6.pt-6.pb-4',
+            'action' => 'highlight',
+            'done' => 'none',
+            'narration' => 'This is the start of your setup. It is a few short screens.',
+            'why' => 'You tell CoreX about your agency once, and it then works the way you work.',
+        ],
         [
             'selector' => 'h1',
             'action' => 'highlight',
             'done' => 'none',
-            'narration' => 'This is the start of your agency setup.',
-            'why' => 'It is a few short screens, and your answers are saved as you go.',
+            'narration' => 'Every screen explains what it asks for before it asks.',
+            'why' => 'You always know why a question is there, so you can answer with confidence.',
         ],
         [
             'selector' => '.setup-cta',
             'action' => 'highlight',
             'done' => 'none',
-            'narration' => 'Press Save and continue.',
-            'why' => 'Your choices are kept and you move on to the next step.',
+            'narration' => 'Press Save and continue to begin.',
+            'why' => 'Each screen saves when you press this, so you can stop and come back later.',
         ],
     ],
-    'outro' => 'Press the button when you are ready to begin.',
+    'outro' => 'Next: your agency details.',
 ];
