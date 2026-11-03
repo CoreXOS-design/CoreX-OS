@@ -398,3 +398,9 @@ Asked for by the owner. Where this section differs from 9.3, this section wins.
 2. **Preview email** (new): a **Preview email** button on every step of the campaign's Steps tab opens a stand-alone page (new tab) showing the email as the first person on the list would get it - subject, From, To, the merged text, the signature text, the picture, the opt-out line. A **Preview** button on each sending address in Settings shows the same with sample text and a made-up prospect. The page says plainly whether the email goes out **formatted with the picture** or as **plain text** (no picture set), and that each person gets their own unsubscribe link.
 3. Preview shows the SAVED step text (save first). It is read-only: nothing is sent, saved or queued, and it works on a running campaign. Owner-only like every Campaigns screen (routes `admin.campaigns.steps.preview`, `admin.campaigns.senders.preview`). It is built by `CampaignSendService::previewEmail()` from the same renderer and settings as a real send, so what it shows is what goes out; the picture is shown through the owner-only picture route instead of being embedded.
 4. No migration.
+
+---
+
+## Short unsubscribe link (2026-11-03)
+
+The 64-character `?signature=` link looked like phishing in the email. New emails carry `/u/{send id}-{12 hex}` (about 38 characters), e.g. `https://corexos.co.za/u/1-3fa9c2e81b04`. The 12 hex are the first 12 characters of an HMAC (app key) of the send id; a wrong token shows the plain "not found" page. GET still never writes; POST unsubscribes and is also the `List-Unsubscribe` one-click target (`u/*` is CSRF-excepted like `campaign-unsubscribe/*`). The old long signed link keeps working for emails already sent.
