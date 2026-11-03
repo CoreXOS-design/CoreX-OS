@@ -16,11 +16,27 @@
     $postBase = $viewingOwn ? [] : ['agent' => $agentId];
 @endphp
 <style>
-    .rts-belt-row { display: grid; grid-template-columns: repeat({{ max(1, count($belt)) }}, minmax(0, 1fr)); gap: 3px; }
+    .rts-belt-row { display: grid; grid-template-columns: repeat({{ max(10, count($belt)) }}, minmax(0, 1fr)); gap: 3px; }
     .rts-tile { display: flex; flex-direction: column; justify-content: flex-start; gap: 0; min-width: 0; height: 100%; padding: 4px 4px 4px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text-primary); }
     .rts-tile:hover { border-color: var(--brand-icon); }
+    /* page layout v2 (23.31): four lines on every tile, each line its own link with room to click; the three belts' headings */
+    .rts-tile.m4 a.ln { padding: 2px 3px; margin: 0 -3px; border-radius: 3px; }
+    .rts-tile.m4 a.ln:hover { background: var(--surface-2, rgba(128,128,128,.15)); text-decoration: none; color: var(--text-primary); }
+    .rts-belts { display: flex; flex-direction: column; gap: 2px; }
+    .rts-bhead { display: flex; align-items: center; gap: 10px; min-height: 22px; min-width: 0; font-size: .75rem; color: var(--text-secondary); }
+    .rts-bhead .rts-bname { display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; font-size: .8125rem; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--text-primary); text-decoration: none; white-space: nowrap; }
+    .rts-bhead .rts-bname .car { color: var(--text-muted); font-size: .75rem; }
+    .rts-bhead .rts-bsub { flex-shrink: 0; color: var(--text-muted); white-space: nowrap; }
+    .rts-bhead .rts-bcount { margin-left: auto; flex-shrink: 0; white-space: nowrap; color: var(--text-secondary); }
+    .rts-bhead .rts-bcount strong { color: var(--text-primary); font-variant-numeric: tabular-nums; }
+    .rts-bhead .rts-bcount strong.bad { color: var(--ds-red, #f87171); }
+    .rts-bhead.is-shut { height: 24px; padding: 0 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); text-decoration: none; }
+    .rts-bhead.is-shut:hover { border-color: var(--brand-icon); }
+    .rts-belt-tools { display: flex; align-items: center; gap: 12px; min-width: 0; flex: 1 1 0; justify-content: flex-end; }
+    .rts-belt-tools .rts-perlist { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: right; color: var(--text-secondary); }
+    .rts-belt-tools > button { flex-shrink: 0; white-space: nowrap; }
     .rts-tile.is-lit { border-color: var(--brand-icon); background: color-mix(in srgb, var(--brand-icon) 10%, var(--surface)); }
-    .rts-tile .nm { font-size: .625rem; font-weight: 700; letter-spacing: .02em; text-transform: uppercase; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-decoration: none; line-height: 1.2; padding-right: 14px; }
+    .rts-tile .nm { font-size: .625rem; font-weight: 700; letter-spacing: .02em; text-transform: uppercase; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-decoration: none; line-height: 1.2; }
     .rts-tile .nm .full { display: none; }
     @media (min-width: 1700px) { .rts-tile .nm .full { display: inline; } .rts-tile .nm .short { display: none; } }
     /* the conveyor (23.24): three lines on every tile, the same size and place on all of them - 1 big, 2 and 3 small; line 3 keeps its place when there is nothing late */
@@ -84,136 +100,7 @@
             </div>
         @endif
 
-        @if(count($belt) > 0)
-            <div class="rts-belt-row" data-qa="belt-tiles" data-tour="smk-rts-belt" role="list">
-                @foreach($belt as $i => $t)
-                    <div class="rts-tilewrap" x-data="beltCompare('{{ route('road-to-sold.belt.scopes', ['station' => $t['key']] + $postBase + \App\Services\RoadToSold\Track::params($track)) }}')" @keydown.escape.window="open = false" @click.outside="open = false" style="position: relative; min-width: 0;" role="listitem">
-                        @php
-                            $ls = collect($t['lines']);
-                            $tip = $t['label'] . ': ' . $ls->pluck('text')->implode(', ') . ($t['kind'] === 'arrival' ? ' (' . $t['count'] . ' there now)' : '');
-                            $l1 = $ls->first();
-                            [$n1, $w1] = array_pad(explode(' ', $l1['text'], 2), 2, '');
-                        @endphp
-                        <div class="rts-tile {{ $lit($t) ? 'is-lit' : '' }}" data-kind="{{ $t['kind'] }}" title="{{ $tip }}{{ ! empty($t['tgt_line']) ? ' · ' . $t['tgt_line'] : '' }}">
-                            <a href="{{ route('road-to-sold.index', $t['url']) }}" class="nm" data-qa="belt-name-{{ $t['key'] }}"><span class="short">{{ $t['short'] }}</span><span class="full">{{ $t['label'] }}</span></a>
-                            <a href="{{ route('road-to-sold.index', $l1['url']) }}" data-qa="belt-tile-{{ $t['key'] }}" class="ln l1"><span class="n" data-qa="belt-figure">{{ $n1 }}</span> {{ $w1 }}</a>
-                            @foreach($ls->slice(1) as $ln)
-                                <a href="{{ route('road-to-sold.index', $ln['url']) }}" class="ln {{ $ln['bad'] ? 'bad' : '' }}" data-qa="belt-line-{{ $t['key'] }}-{{ $ln['key'] }}">{{ $ln['text'] }}</a>
-                            @endforeach
-                            @if($ls->count() < 3)<span class="ln ghost" aria-hidden="true">&nbsp;</span>@endif
-                        </div>
-                        <button type="button" class="rts-cmp" data-qa="belt-compare-{{ $t['key'] }}" aria-label="Compare {{ $t['label'] }}: me, my branch, the agency" :aria-expanded="open ? 'true' : 'false'" @click.prevent="toggle()">&#9662;</button>
-                        <div x-show="open" x-cloak class="rts-pop rts-cmp-pop" data-qa="belt-compare-pop-{{ $t['key'] }}" style="{{ $i >= count($belt) / 2 ? 'right: 0; left: auto;' : 'left: 0; right: auto;' }} top: 100%;">
-                            <div class="text-xs font-semibold mb-1" style="color: var(--text-primary);">{{ $t['label'] }} - compare</div>
-                            <template x-if="loading"><div class="text-xs" style="color: var(--text-muted);">Loading...</div></template>
-                            <template x-if="failed"><div class="text-xs" style="color: var(--ds-red, #f87171);">Could not load the comparison. Try again.</div></template>
-                            <template x-for="(s, idx) in scopes" :key="s.scope">
-                                <div class="rts-cmp-row" :style="idx > 0 ? 'border-top: 1px solid var(--border);' : ''" data-qa="compare-row">
-                                    <div class="text-xs" style="font-weight: 700; color: var(--text-primary);"><span x-text="s.label"></span><span x-show="s.scope !== 'me'" style="font-weight: 400; color: var(--text-muted);" x-text="' · ' + s.agents + (s.agents === 1 ? ' agent' : ' agents')"></span></div>
-                                    <div class="text-xs" style="color: var(--text-secondary);">
-                                        <span x-text="s.now + ' now'"></span>
-                                        <span x-show="s.reached !== null" x-text="' · ' + s.reached + ' reached this month'"></span>
-                                        <span x-show="s.target !== null" x-text="' · ' + s.done + ' / ' + s.target + ' ' + (s.period || '')"></span>
-                                        <span x-show="s.rate_next != null" x-text="' · ' + s.rate_next + '% go on' + (s.estimate ? ' (est.)' : '')"></span>
-                                        <span x-show="s.derived != null" x-text="' · should be ' + s.derived"></span>
-                                    </div>
-                                </div>
-                            </template>
-                            <div class="rts-src" x-show="sources.length" data-qa="compare-sources">
-                                <div class="text-xs" style="font-weight: 700; color: var(--text-primary);">Where today's stock came from</div>
-                                <template x-for="r in sources" :key="r.kind"><div class="rts-src-row"><span x-text="r.label"></span><strong x-text="r.count"></strong></div></template>
-                            </div>
-                        </div>
-                    </div>
-                @endforeach
-            </div>
-        @endif
-
-        @if($canAct || count($roster ?? []) > 0 || count($activationHistory ?? []) > 0)
-            <div class="rts-belt-line" style="position: relative;" x-data="{ pause: false, roster: false, hist: false }" @keydown.escape.window="pause = false; roster = false; hist = false" @click.outside="pause = false; roster = false; hist = false">
-                @if($canAct && $aState !== 'paused')
-                    <button type="button" class="underline" style="background: none; border: 0; padding: 0; cursor: pointer; color: var(--text-secondary);" @click="pause = !pause; roster = false" data-qa="belt-pause-open">{{ $viewingOwn ? 'Pause my Road to Sold' : 'Pause ' . $agentName }}</button>
-                @endif
-                @if(count($activationHistory ?? []) > 0)
-                    <button type="button" class="underline" style="background: none; border: 0; padding: 0; cursor: pointer; color: var(--text-secondary);" @click="hist = !hist; pause = false; roster = false" data-qa="belt-history-open">Start / pause history</button>
-                    <div x-show="hist" x-cloak class="rts-pop" data-qa="belt-history" style="left: 0; right: auto; width: 24rem; max-height: 16rem; overflow-y: auto;">
-                        <div class="text-xs font-semibold mb-1" style="color: var(--text-primary);">{{ $viewingOwn ? 'My' : $agentName . '\'s' }} Start / pause history</div>
-                        @foreach($activationHistory as $h)
-                            <div class="py-1 text-xs" style="border-top: 1px solid var(--border);" data-qa="history-row">
-                                <div style="font-weight: 700; color: var(--text-primary);">{{ $h['detail'] }}</div>
-                                <div style="color: var(--text-muted);">{{ $h['when'] }}@if($h['by']) · by {{ $h['by'] }}@endif</div>
-                            </div>
-                        @endforeach
-                    </div>
-                @endif
-                @if(count($roster ?? []) > 0)
-                    @php $ns = collect($roster)->where('pressed', false)->count(); $ps = collect($roster)->where('state', 'paused')->count(); @endphp
-                    <button type="button" class="underline" style="background: none; border: 0; padding: 0; cursor: pointer; color: var(--text-secondary);" @click="roster = !roster; pause = false; hist = false" data-qa="belt-roster-open">
-                        Agents · {{ $ns }} not started · {{ $ps }} paused
-                    </button>
-                @endif
-
-                <div x-show="pause" x-cloak class="rts-pop" data-qa="belt-pause-form" style="left: 0; right: auto;">
-                    <form method="POST" action="{{ route('road-to-sold.activation.pause', $postBase + \App\Services\RoadToSold\Track::params($track)) }}" class="flex flex-col gap-2">
-                        @csrf
-                        @unless($viewingOwn)<input type="hidden" name="agent" value="{{ $agentId }}">@endunless
-                        <div class="text-xs font-semibold" style="color: var(--text-primary);">Pause {{ $viewingOwn ? 'my' : $agentName . '\'s' }} Road to Sold</div>
-                        <label class="text-xs" style="color: var(--text-muted);" for="rts-pause-until">Paused until (the next working day after it is the first day back)</label>
-                        <x-dmy-date id="rts-pause-until" name="until" :required="true" :min="now()->toDateString()" />
-                        <label class="text-xs" style="color: var(--text-muted);" for="rts-pause-reason">Why (training, leave, other)</label>
-                        <input id="rts-pause-reason" type="text" name="reason" maxlength="120" class="rounded-md px-3 py-2 text-xs" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
-                        <div class="flex justify-end gap-2"><button type="button" class="corex-btn-outline corex-btn-xs" @click="pause = false">Cancel</button><button type="submit" class="corex-btn-primary corex-btn-xs">Pause</button></div>
-                    </form>
-                </div>
-
-                @if(count($roster ?? []) > 0)
-                    <div x-show="roster" x-cloak class="rts-pop rts-agents" data-qa="belt-roster" x-data="{ pausing: null }">
-                        <div class="text-xs font-semibold" style="color: var(--text-primary);">Agents</div>
-                        @if($startRequired ?? false)
-                            <div class="text-xs mb-2" style="color: var(--text-muted);" data-qa="agents-start-line">Agents press Start my Road to Sold before their lists load - or start them from this list.</div>
-                        @endif
-                        @foreach($roster as $r)
-                            @php $paused = $r['state'] === 'paused'; @endphp
-                            <div class="py-1 text-xs" style="border-top: 1px solid var(--border);" data-qa="roster-row" data-agent="{{ $r['id'] }}">
-                                <div class="flex items-center justify-between gap-2">
-                                    <span style="min-width: 0;">
-                                        <strong>{{ $r['name'] }}</strong>
-                                        <span style="color: var(--text-muted);" data-qa="roster-state">
-                                            @if($paused) paused until {{ $r['until'] }}@if($r['reason']) - {{ $r['reason'] }}@endif @if($r['by']) (set by {{ $r['by'] }})@endif
-                                            @elseif($r['state'] === 'not_started') has not started
-                                            @elseif(! $r['pressed']) working - has not pressed Start
-                                            @else started {{ $r['started'] }}
-                                            @endif
-                                        </span>
-                                    </span>
-                                    @if($canPauseOthers ?? false)
-                                        <span class="flex items-center gap-1" style="flex-shrink: 0;">
-                                            @if(! $r['pressed'])
-                                                <form method="POST" action="{{ route('road-to-sold.activation.start', \App\Services\RoadToSold\Track::params($track)) }}">@csrf<input type="hidden" name="agent" value="{{ $r['id'] }}"><button type="submit" class="corex-btn-outline corex-btn-xs" data-qa="roster-start">Start</button></form>
-                                            @endif
-                                            @if($paused)
-                                                <form method="POST" action="{{ route('road-to-sold.activation.resume', \App\Services\RoadToSold\Track::params($track)) }}">@csrf<input type="hidden" name="agent" value="{{ $r['id'] }}"><button type="submit" class="corex-btn-outline corex-btn-xs" data-qa="roster-resume">Resume</button></form>
-                                            @elseif($r['state'] === 'active')
-                                                <button type="button" class="corex-btn-outline corex-btn-xs" @click="pausing = pausing === {{ $r['id'] }} ? null : {{ $r['id'] }}" data-qa="roster-pause">Pause</button>
-                                            @endif
-                                        </span>
-                                    @endif
-                                </div>
-                                @if(($canPauseOthers ?? false) && $r['state'] === 'active')
-                                    <form x-show="pausing === {{ $r['id'] }}" x-cloak method="POST" action="{{ route('road-to-sold.activation.pause', \App\Services\RoadToSold\Track::params($track)) }}" class="rts-agents-pause flex items-center gap-2 mt-1" data-qa="roster-pause-form">
-                                        @csrf<input type="hidden" name="agent" value="{{ $r['id'] }}">
-                                        <label class="text-xs" style="color: var(--text-muted);">Until</label>
-                                        <x-dmy-date name="until" :required="true" :min="now()->toDateString()" />
-                                        <input type="text" name="reason" maxlength="120" placeholder="Why (training, leave, other)" class="rounded-md px-2 py-1 text-xs" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary); min-width: 0; flex: 1 1 8rem;">
-                                        <button type="submit" class="corex-btn-primary corex-btn-xs">Pause</button>
-                                    </form>
-                                @endif
-                            </div>
-                        @endforeach
-                    </div>
-                @endif
-            </div>
-        @endif
+        @include('road-to-sold._belt-strips')
     @endif
 </div>
 

@@ -65,6 +65,21 @@
     <div class="px-3 py-2 text-xs font-semibold" style="color: var(--text-primary); border-bottom: 1px solid var(--border);">{{ $L['heading'] }} <span style="color: var(--text-muted); font-weight: 400;">· {{ number_format($rowsP->total()) }}</span></div>
     @if($rowsP->total() === 0)
         <div class="px-4 py-8 text-center text-sm" style="color: var(--text-secondary);" data-qa="station-empty">{{ $f['q'] !== '' ? 'Nothing matches that search.' : $L['empty'] }}</div>
+    @elseif(! empty($L['simple']))
+        {{-- 23.31: a Maintain-stock list - the agent's own properties, one line each (the Sell-stock lists have no record to show yet and open on their empty state above) --}}
+        <table class="w-full text-xs ds-table" data-qa="station-simple">
+            <thead><tr style="color: var(--text-muted);"><th class="px-3 py-2 text-left">Property</th><th class="px-3 py-2 text-left">Suburb</th><th class="px-3 py-2 text-left">Reached</th><th class="px-3 py-2 text-right"></th></tr></thead>
+            <tbody>
+            @foreach($rowsP as $r)
+                <tr style="border-top: 1px solid var(--border);" data-qa="station-row">
+                    <td class="px-3 py-2 font-semibold rts-nw" style="color: var(--text-primary);">@if($loop->first && $L['filter'] === 'todo' && $rowsP->currentPage() === 1)<span class="rts-next" data-qa="next-marker">Next</span> @endif{{ $r['title'] ?: 'Property ' . $r['id'] }}</td>
+                    <td class="px-3 py-2 rts-nw">{{ $r['suburb'] ?: '-' }}</td>
+                    <td class="px-3 py-2">{{ $r['reached'] ?? '-' }}</td>
+                    <td class="px-3 py-2 text-right">@if($r['url'])<a href="{{ $r['url'] }}" class="corex-btn-outline corex-btn-xs" data-qa="station-view">View</a>@endif</td>
+                </tr>
+            @endforeach
+            </tbody>
+        </table>
     @elseif($isOwed)
         <table class="w-full text-xs ds-table">
             <thead><tr><th class="text-left">Evaluation</th><th class="text-left">Station · next step</th><th class="text-left">Evaluation date</th><th class="text-left">Days</th><th></th></tr></thead>
@@ -95,6 +110,7 @@
             </thead>
             <tbody>
             @foreach($rowsP as $r)
+                @php $nextRow = $loop->first && $L['filter'] === 'todo' && $rowsP->currentPage() === 1; @endphp
                 <tr style="border-top: 1px solid var(--border);" data-qa="station-row" data-station="{{ $r['station'] }}" data-late="{{ $r['late'] ? 1 : 0 }}">
                     @include('road-to-sold._row-cells')
                     <td class="px-3 py-2" data-qa="station-due">

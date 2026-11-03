@@ -130,6 +130,15 @@ class RoadToSoldController extends Controller
         $beltBase = ($viewingOwn ? [] : ['agent' => $agentId]) + Track::params($track);
         $belt = $agentUser && ($activation['state'] ?? '') !== \App\Services\RoadToSold\ActivationService::STATE_NOT_STARTED
             ? app(\App\Services\RoadToSold\BeltService::class)->tiles($viewer, $agentUser, $track, $date, $beltBase) : [];
+        // 23.31 page layout v2: three belts, exactly one open - the one asked for (?belt=), else the one this user left open (per user), else the one with the most late items
+        $beltPrefs = app(\App\Services\RoadToSold\BeltPreferenceService::class);
+        $beltAsked = in_array((string) $request->query('belt'), \App\Services\RoadToSold\BeltPreferenceService::KEYS, true) ? (string) $request->query('belt') : null;
+        $beltSet = $belt !== [] && $agentUser
+            ? app(\App\Services\RoadToSold\BeltsService::class)->belts($agentUser, $belt, $beltBase, $beltAsked, $beltPrefs->get($viewer), \Illuminate\Support\Carbon::instance($date))
+            : ['belts' => [], 'open' => 'get'];
+        if ($beltAsked !== null) {
+            $beltPrefs->remember($viewer, $beltAsked);
+        }
         $canPauseOthers = $viewer->hasPermission('road_to_sold.pause_others');
         $activationHistory = $agentUser ? $activationSvc->history($agentUser, $track) : [];
         $roster = ($agents->count() > 1 && ($canPauseOthers || \App\Services\RoadToSold\Scope::level($viewer) !== 'own') && \App\Services\RoadToSold\ActivationService::tableReady())
@@ -176,10 +185,12 @@ class RoadToSoldController extends Controller
 
         $blocks = $this->blocks($request, $viewer, $agentId, $agents, $viewingOwn, $track, $date, collect($data['rows']->items())->pluck('tracked_property_id')->all());
         // a station list (23.24) offers Log contact on its rows too: the outcomes that fit and the owner gate are read for those properties as well
-        $rowTracked = array_merge(collect($data['rows']->items())->pluck('tracked_property_id')->all(), isset($blocks['stationList']) ? collect($blocks['stationList']['rows']->items())->pluck('tracked_property_id')->all() : []);
+        $rowTracked = array_merge(collect($data['rows']->items())->pluck('tracked_property_id')->all(), isset($blocks['stationList']) ? collect($blocks['stationList']['rows']->items())->pluck('tracked_property_id')->filter()->values()->all() : []);
 
         return view('road-to-sold.index', $data + $blocks + [
             'belt'           => $belt,
+            'belts'          => $beltSet['belts'],
+            'beltOpen'       => $beltSet['open'],
             // 23.24 header: distinct records that moved on today (a record counts once however many stations it passed)
             // 23.29: "To list 1 property: you need X from MIC" - walked back from Active through the belt's conversion rates (me / branch / agency)
             'perListing'     => $belt !== [] && $agentUser ? app(\App\Services\RoadToSold\TargetsService::class)->perListingLine($agentUser, $date, $track) : null,
@@ -399,12 +410,15 @@ class RoadToSoldController extends Controller
         } elseif ($block === 'station') {
             // a belt tile's list (spec 23.13): the stations that have no prospect stage yet
             $stationKey = (string) $request->query('station', '');
-            abort_if(\App\Services\RoadToSold\BeltService::station($stationKey) === null, 404);
+            $otherBelt = \App\Services\RoadToSold\BeltsService::station($stationKey);   // a Maintain / Sell station (23.31): its own list
+            abort_if($otherBelt === null && \App\Services\RoadToSold\BeltService::station($stationKey) === null, 404);
             // 23.24: the list opens late-first (oldest due after), filtered by line 1 / 2 / 3 of the tile that was clicked (?filter=)
             $sf = ['q' => (string) $request->query('s_q', ''), 'sort' => (string) $request->query('s_sort', 'due'), 'dir' => (string) $request->query('s_dir', 'asc'), 'page' => (int) $request->query('page', 1),
                 'filter' => (string) $request->query('filter', ''), 'owed' => (bool) $request->query('owed'), 'date' => $date->toDateString()];
             $stationAgent = \App\Models\User::query()->withoutGlobalScopes()->where('agency_id', (int) ($viewer->effectiveAgencyId() ?: 0))->findOrFail($agentId);
-            $out += ['stationKey' => $stationKey, 'stationFilters' => $sf] + ['stationList' => app(\App\Services\RoadToSold\BeltService::class)->list($stationAgent, $stationKey, $sf, $track)];
+            $out += ['stationKey' => $stationKey, 'stationFilters' => $sf] + ['stationList' => $otherBelt !== null
+                ? app(\App\Services\RoadToSold\BeltsService::class)->list($stationAgent, $stationKey, $sf)
+                : app(\App\Services\RoadToSold\BeltService::class)->list($stationAgent, $stationKey, $sf, $track)];
         } elseif ($block === 'parked') {
             $everyone = $request->query('who') === 'all' && $agents->count() > 1;
             $f = [

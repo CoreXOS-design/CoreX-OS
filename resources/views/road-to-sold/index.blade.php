@@ -134,21 +134,15 @@
     {{-- v4 belt (spec 23.13): the tile row (or the Start card) - the team view is about everyone, so not there. --}}
     @unless($isTeam)
         @include('road-to-sold._belt-tiles')
-        @if(! empty($perListing))
-            <div class="text-xs mb-2" style="color: var(--text-secondary);" data-qa="rts-per-listing">{{ $perListing['text'] }}</div>
-        @endif
     @endunless
 
     {{-- What to do next and where the month stands stay in view on every block (the team view is about everyone, so not there). --}}
-    @unless($isTeam)
+    {{-- 23.31: the next-action banner is gone - the list's top row is the next action and carries a "Next" marker --}}
+    @if(! $isTeam && ! empty($progress['steps']))
         <div class="rts-top">
-            @if($nextAction)
-                @include('road-to-sold._recipe', ['part' => 'next'])
-            @endif
-
             @include('road-to-sold._summary-bar')
         </div>
-    @endunless
+    @endif
 
     @include('road-to-sold._blocks-bar')
 
@@ -171,67 +165,7 @@
     @else
     {{-- Filters --}}
     @if(! $isCaptures)
-    {{-- Search, Status and "Add to my day" stay in view; Show / Selection / Day / Sort sit behind ONE "Filters" button (closed by default, never opens by itself) so the list gets the height. --}}
-    @php
-        $foldSet = collect([$filters['view'] !== 'today', $filters['selection'] !== '', $filters['sort'] !== 'order', $filters['dir'] === 'desc', ! $date->isToday()])->filter()->count();
-    @endphp
-    <form method="GET" class="rts-filters" x-data="{ f: false }" @keydown.escape="f = false" @click.outside="f = false" data-tour="smk-rts-filters" data-qa="list-filters">
-        @if($track !== 'sales')<input type="hidden" name="track" value="{{ $track }}">@endif
-        @if(! $viewingOwn)<input type="hidden" name="agent" value="{{ $agentId }}">@endif
-        <div class="rts-fl" data-tour="smk-rts-search">
-            <label class="text-xs font-semibold" style="color: var(--text-muted);" for="rts-q">Search</label>
-            <input id="rts-q" type="text" name="q" value="{{ $filters['q'] }}" placeholder="Address, suburb, owner or phone" class="rounded-md px-3 py-2 text-xs rts-fl-q" style="{{ $inputStyle }}">
-        </div>
-        @if($listView)
-            <div class="rts-fl" data-tour="smk-rts-status">
-                <label class="text-xs font-semibold" style="color: var(--text-muted);" for="rts-status">Status</label>
-                <select id="rts-status" name="status" class="rounded-md px-3 py-2 text-xs" style="{{ $inputStyle }}" onchange="this.form.submit()">
-                    @foreach($statusLabels as $v => $l)<option value="{{ $v }}" @selected($filters['status'] === $v)>{{ $l }}</option>@endforeach
-                </select>
-            </div>
-        @endif
-        <button type="submit" class="corex-btn-outline corex-btn-xs" data-tour="smk-rts-search-btn">Search</button>
-        @if($filters['q'] !== '' || $filters['selection'] !== '' || $filters['status'] !== 'open' || $filters['view'] !== 'today')
-            <a href="{{ route('road-to-sold.index', ($viewingOwn ? [] : ['agent' => $agentId]) + \App\Services\RoadToSold\Track::params($track)) }}" class="corex-btn-outline corex-btn-xs">Clear</a>
-        @endif
-        <div class="rts-fold-wrap">
-            <button type="button" class="corex-btn-outline corex-btn-xs" @click="f = !f" :aria-expanded="f ? 'true' : 'false'" data-qa="filters-toggle">Filters{{ $foldSet > 0 ? ' (' . $foldSet . ')' : '' }} &#9662;</button>
-            <div x-show="f" x-cloak class="rts-fold-panel" data-qa="filters-panel">
-                <div data-tour="smk-rts-view">
-                    <label class="block text-xs font-semibold mb-1" style="color: var(--text-muted);" for="rts-view">Show</label>
-                    <select id="rts-view" name="view" class="rounded-md px-3 py-2 text-xs" style="{{ $inputStyle }}" onchange="this.form.submit()">
-                        @foreach($viewLabels as $v => $l)<option value="{{ $v }}" @selected($filters['view'] === $v)>{{ $l }}</option>@endforeach
-                    </select>
-                </div>
-                @if($listView)
-                    <div>
-                        <label class="block text-xs font-semibold mb-1" style="color: var(--text-muted);" for="rts-sel">Selection</label>
-                        <select id="rts-sel" name="selection" class="rounded-md px-3 py-2 text-xs" style="{{ $inputStyle }}" onchange="this.form.submit()">
-                            <option value="">All selections</option>
-                            @foreach($selections as $k => $l)<option value="{{ $k }}" @selected($filters['selection'] === $k)>{{ $l }}</option>@endforeach
-                        </select>
-                    </div>
-                    <div>
-                        <label class="block text-xs font-semibold mb-1" style="color: var(--text-muted);" for="rts-date">Day</label>
-                        <x-dmy-date id="rts-date" name="date" :value="$date->toDateString()" :required="true" :submit="true" />
-                    </div>
-                @endif
-                <div data-tour="smk-rts-sort">
-                    <label class="block text-xs font-semibold mb-1" style="color: var(--text-muted);" for="rts-sort">Sort</label>
-                    <select id="rts-sort" name="sort" class="rounded-md px-3 py-2 text-xs" style="{{ $inputStyle }}" onchange="this.form.submit()">
-                        @foreach($sortLabels as $v => $l)<option value="{{ $v }}" @selected($filters['sort'] === $v)>{{ $l }}</option>@endforeach
-                    </select>
-                </div>
-                <div>
-                    <label class="block text-xs font-semibold mb-1" style="color: var(--text-muted);" for="rts-dir">Order</label>
-                    <select id="rts-dir" name="dir" class="rounded-md px-3 py-2 text-xs" style="{{ $inputStyle }}" onchange="this.form.submit()">
-                        <option value="asc" @selected($filters['dir'] === 'asc')>Ascending</option>
-                        <option value="desc" @selected($filters['dir'] === 'desc')>Descending</option>
-                    </select>
-                </div>
-            </div>
-        </div>
-    </form>
+    {{-- the list's search / Status / Filters sit on the toolbar row above (_blocks-bar -> _list-search) --}}
     @else
     <form method="GET" class="flex items-end gap-3 flex-wrap" data-tour="smk-rts-filters">
         @if($track !== 'sales')<input type="hidden" name="track" value="{{ $track }}">@endif
@@ -351,7 +285,7 @@
             <tbody>
             @php $__pitchCards = app(\App\Services\Prospecting\MicWork\PitchCardResolver::class)->trackedWithCards((int) auth()->user()->effectiveAgencyId(), collect($rowsPage)->pluck('tracked_property_id')); @endphp
             @forelse($rowsPage as $r)
-                @php $lo = $r['last_outcome']; $ownerMissing = $viewingOwn ? ($ownerBlocked[(int) $r['tracked_property_id']] ?? null) : null; @endphp
+                @php $lo = $r['last_outcome']; $ownerMissing = $viewingOwn ? ($ownerBlocked[(int) $r['tracked_property_id']] ?? null) : null; $nextRow = $loop->first && ($r['status'] ?? '') === 'open' && (! method_exists($rowsPage, 'currentPage') || $rowsPage->currentPage() === 1); @endphp
                 <tr style="border-top: 1px solid var(--border);">
                     @include('road-to-sold._row-cells')
                     <td class="px-3 py-2 text-right">
@@ -596,7 +530,7 @@
 // again and swapped in, so nothing the agent had open is lost and the row "moves to Owner found" without a reload.
 window.__cxpNoReload = true;
 window.rtsRefreshLive = function () {
-    var sels = ['[data-qa="belt-tiles"]', '[data-qa="today-line"]', '[data-qa="intake-table"]', '[data-qa="station-list"]', '[data-qa="block-prospects"]'];
+    var sels = ['[data-qa="belts"]', '[data-qa="today-line"]', '[data-qa="intake-table"]', '[data-qa="station-list"]', '[data-qa="block-prospects"]'];
     return fetch(window.location.href, { credentials: 'same-origin', headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'text/html' } })
         .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); })
         .then(function (html) {

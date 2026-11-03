@@ -4,8 +4,9 @@
     Inputs: $r (a CallListService row), $money; optional $intakeProspects (tracked property id => prospect) for the owner cell.
 --}}
 @php $lo = $r['last_outcome'] ?? null; @endphp
-<td class="px-3 py-2 font-semibold" style="color: var(--text-primary); min-width: 12rem;" data-qa="intake-why">
-    <div class="rts-clamp2" title="{{ $r['why'] }}">@if(($r['origin'] ?? null) === 'follow_up')<span class="rts-chip">Follow-up</span> @endif{{ $r['why'] ?: '-' }}</div>
+<style>.rts-next { display: inline-block; margin-right: 4px; padding: 0 5px; border-radius: 3px; background: var(--brand-button, #0ea5e9); color: #fff; font-size: .5625rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; vertical-align: 1px; }</style>
+<td class="px-3 py-2 font-semibold" style="color: var(--text-primary); min-width: 12rem;@if($nextRow ?? false) box-shadow: inset 3px 0 0 var(--brand-button, #0ea5e9);@endif" data-qa="intake-why">
+    <div class="rts-clamp2" title="{{ $r['why'] }}">@if($nextRow ?? false)<span class="rts-next" data-qa="next-marker" title="This is the next thing to do">Next</span> @endif @if(($r['origin'] ?? null) === 'follow_up')<span class="rts-chip">Follow-up</span> @endif{{ $r['why'] ?: '-' }}</div>
 </td>
 <td class="px-3 py-2" style="color: var(--text-primary);">
     <div class="font-semibold rts-nw" title="{{ $r['address'] }}">{{ $r['street'] !== '' ? $r['street'] : $r['address'] }}</div>

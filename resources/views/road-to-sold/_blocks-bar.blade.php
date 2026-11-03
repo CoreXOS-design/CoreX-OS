@@ -51,9 +51,9 @@
     .rts-top .grid { gap: .5rem !important; grid-auto-rows: auto !important; }
     .rts-top .grid > button { padding: .25rem .5rem !important; }
     .rts-top .grid .text-lg { font-size: 1rem; line-height: 1.25rem; }
-    .rts-tabs a { padding: .45rem .9rem; border-radius: 6px; font-size: .8125rem; font-weight: 600; border: 1px solid var(--border); background: var(--surface); color: var(--text-primary); white-space: nowrap; }
-    .rts-tabs a.is-on { background: var(--brand-icon, #0ea5e9); border-color: var(--brand-icon, #0ea5e9); color: #fff; }
-    .rts-tabs a small { font-weight: 500; margin-left: .35rem; opacity: .85; }
+    .rts-tabs a[data-block] { padding: .3rem .65rem; border-radius: 6px; font-size: .8125rem; font-weight: 600; border: 1px solid var(--border); background: var(--surface); color: var(--text-primary); white-space: nowrap; }
+    .rts-tabs a[data-block].is-on { background: var(--brand-icon, #0ea5e9); border-color: var(--brand-icon, #0ea5e9); color: #fff; }
+    .rts-tabs a[data-block] small { font-weight: 500; margin-left: .35rem; opacity: .85; }
     .rts-chip { display: inline-block; font-size: .6875rem; font-weight: 700; padding: .05rem .4rem; border-radius: 999px; background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 18%, transparent); color: var(--text-primary); }
     .rts-due-overdue { color: var(--ds-crimson, #dc2626); font-weight: 700; }
     .rts-due-today { color: var(--ds-amber, #d97706); font-weight: 700; }
@@ -61,9 +61,18 @@
     /* 1366 wide: the list needs 1144px and has ~1076, so the least useful column (Last outcome - the History button has it) gives way and the actions stay whole */
     @media (max-width: 1450px) { .rts-col-last { display: none; } }
     /* the list's filter row: Search, Status and Search stay in view, the rest sit behind one Filters button (a floating panel, so it never pushes the list) */
-    .rts-block-body form.rts-filters { display: flex; align-items: center; gap: .5rem !important; flex-wrap: nowrap; }
+    form.rts-filters { display: flex; align-items: center; gap: .5rem !important; flex-wrap: nowrap; }
     .rts-fl { display: flex; align-items: center; gap: .4rem; min-width: 0; }
-    .rts-fl-q { width: 17rem; max-width: 100%; min-width: 7rem; }
+    .rts-fl-q { width: 13rem; max-width: 100%; min-width: 6rem; }
+    /* page layout v2 (23.31): ONE toolbar row - tabs left, search / Status / Filters in the middle, More on the right; it never wraps (the tabs give way first) */
+    .rts-toolbar { display: flex; align-items: center; gap: .5rem; flex-wrap: nowrap; min-width: 0; }
+    .rts-toolbar .rts-tb-search { flex: 1 1 auto; min-width: 0; }
+    .rts-toolbar .rts-tb-search form.rts-filters { justify-content: flex-start; }
+    .rts-toolbar .rts-tb-search .rts-fold-wrap { margin-left: 0; }
+    .rts-more { position: relative; margin-left: auto; flex-shrink: 0; }
+    .rts-more-panel { position: absolute; right: 0; top: calc(100% + 4px); z-index: 30; display: flex; flex-direction: column; gap: .5rem; width: max-content; max-width: 92vw; padding: .6rem; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; box-shadow: 0 6px 18px rgba(0,0,0,.2); }
+
+    .rts-sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
     .rts-fold-wrap { position: relative; margin-left: auto; }
     .rts-fold-panel { position: absolute; right: 0; top: calc(100% + 4px); z-index: 30; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .5rem; width: 36rem; max-width: 92vw; padding: .6rem; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; box-shadow: 0 6px 18px rgba(0,0,0,.2); }
     .rts-fold-panel select, .rts-fold-panel .cx-dmy, .rts-fold-panel .cx-dmy-txt { width: 100% !important; }
@@ -128,12 +137,22 @@
     @media (max-width: 900px) { .rts-inner { min-width: 52rem; } }
 </style>
 
-<div class="flex items-center gap-2 flex-wrap rts-tabs" role="tablist" data-qa="rts-blocks">
+<div class="rts-toolbar rts-tabs" role="tablist" data-qa="rts-blocks">
     @foreach($tabs as $key => [$label, $badge])
         <a href="{{ route('road-to-sold.index', $tabParams($key)) }}" role="tab" aria-selected="{{ $block === $key ? 'true' : 'false' }}" class="{{ $block === $key ? 'is-on' : '' }}" data-block="{{ $key }}">{{ $label }}@if($badge !== null)<small>{{ $badge }}</small>@endif</a>
     @endforeach
+    @unless($viewingOwn)
+        <span class="text-xs ml-2" style="color: var(--text-muted);" data-qa="read-only">Looking at {{ $agentName }} - read only</span>
+    @endunless
+    @if($block === 'intake' && ! $isCaptures)
+        <div class="rts-tb-search">@include('road-to-sold._list-search')</div>
+    @endif
+    {{-- 23.31: Report / Funnel / Outcomes / Recipe / Settings and "Add to my day" sit behind ONE More menu on the same row (a floating panel - it never pushes the list) --}}
+    <div class="rts-more" x-data="{ m: false }" @keydown.escape="m = false" @click.outside="m = false" data-qa="rts-more">
+        <button type="button" class="corex-btn-outline corex-btn-xs" @click="m = !m" :aria-expanded="m ? 'true' : 'false'" data-qa="more-toggle">More &#9662;</button>
+        <div x-show="m" x-cloak class="rts-more-panel" data-qa="rts-tools">
     @if($block === 'intake' && $listView && $counts['any'] > 0 && $canAddToDay && $date->isToday() && count($addChoices))
-        <form method="POST" action="{{ route('road-to-sold.add-to-day') }}" class="flex items-center gap-1 ml-4 text-xs" data-qa="add-to-day">
+        <form method="POST" action="{{ route('road-to-sold.add-to-day') }}" class="flex items-center gap-1 text-xs rts-more-add" data-qa="add-to-day">
                 @csrf
                 @if($track !== 'sales')<input type="hidden" name="track" value="{{ $track }}">@endif
                 <select name="selection" aria-label="Selection to add from" class="rounded-md px-3 py-2 text-xs" style="{{ $inputStyle }}">
@@ -163,11 +182,7 @@
             })();
             </script>
     @endif
-    @unless($viewingOwn)
-        <span class="text-xs ml-2" style="color: var(--text-muted);" data-qa="read-only">Looking at {{ $agentName }} - read only</span>
-    @endunless
-    {{-- Report / Outcomes / Recipe / Settings sit on the tabs row (22.22): the page header stays on one line at 1366 wide. --}}
-    <div class="flex items-center gap-2 ml-auto" data-qa="rts-tools">
+            <div class="flex items-center gap-2 flex-wrap">
             @if(\Illuminate\Support\Facades\Route::has('road-to-sold.report'))
                 <a href="{{ route('road-to-sold.report', \App\Services\RoadToSold\Track::params($track)) }}" class="corex-btn-outline corex-btn-xs">Report</a>
             @endif
@@ -186,6 +201,8 @@
                 && auth()->user()?->hasAnyPermission(['road_to_sold.manage_settings', 'road_to_sold.manage_areas', 'road_to_sold.manage_targets']))
                 <a href="{{ route('road-to-sold.settings.index') }}" class="corex-btn-outline corex-btn-xs">Settings</a>
             @endif
+            </div>
+        </div>
     </div>
 </div>
 

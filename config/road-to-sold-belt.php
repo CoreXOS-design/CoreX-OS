@@ -49,4 +49,28 @@ return [
         ['key' => 'active',     'label' => 'Active',                'short' => 'Active',    'stages' => ['active'],                             'source' => 'properties_active', 'prefer_stage' => true,   'tasks' => [], 'built' => true],
         ['key' => 'advertised', 'label' => 'Advertised',            'short' => 'Advertised', 'stages' => ['listing_live', 'advertising'],       'source' => 'properties_live',   'prefer_stage' => false, 'tasks' => ['listing-live'], 'built' => true],
     ],
+
+    // Page layout v2 (road-to-sold.md 23.31): the three belts of the Road to Sold page. Get stock reads `stations` above; Maintain stock and Sell stock render from the
+    // lists here - no tile markup is hard-coded. `source` names the data (BeltsService::maintainFigures) or is null where the station's data is a GAP in 23.26 / 23.27
+    // (the tile shows 0 and its list says so - no invented number); `gap` is the plain-language reason shown on that list.
+    'belts' => [
+        'get'      => ['label' => 'Get stock'],
+        'maintain' => ['label' => 'Maintain stock', 'stations' => [
+            ['key' => 'portals',    'label' => 'Syndicated to portals',  'short' => 'Syndicated',  'source' => 'portals'],
+            ['key' => 'social',     'label' => 'Shared on social',       'short' => 'On social',   'source' => 'social'],
+            ['key' => 'sellerlink', 'label' => 'Seller live link sent',  'short' => 'Seller link', 'source' => 'sellerlink'],
+        ]],
+        'sell'     => ['label' => 'Sell stock', 'stations' => [
+            ['key' => 'lead',             'label' => 'Lead',                  'short' => 'Lead in',      'source' => null, 'gap' => 'Buyer leads are not tracked per buyer yet, so this station has nothing to list.'],
+            ['key' => 'core_match',       'label' => 'Core Match updated',    'short' => 'Core Match',   'source' => null, 'gap' => 'Buyer leads are not tracked per buyer yet, so this station has nothing to list.'],
+            ['key' => 'wish_list',        'label' => 'Wish list shared',      'short' => 'Wish list',    'source' => null, 'gap' => 'Buyer leads are not tracked per buyer yet, so this station has nothing to list.'],
+            ['key' => 'buyer_moved',      'label' => 'Moved in pipeline',     'short' => 'In pipeline',  'source' => null, 'gap' => 'Buyer leads are not tracked per buyer yet, so this station has nothing to list.'],
+            ['key' => 'viewing',          'label' => 'Appointment',           'short' => 'Appointment',  'source' => null, 'gap' => 'Buyer leads are not tracked per buyer yet, so this station has nothing to list.'],
+            ['key' => 'viewing_pack',     'label' => 'Viewing pack',          'short' => 'Viewing pack', 'source' => null, 'gap' => 'Buyer leads are not tracked per buyer yet, so this station has nothing to list.'],
+            ['key' => 'viewing_feedback', 'label' => 'Appointment feedback',  'short' => 'Feedback',     'source' => null, 'gap' => 'Buyer leads are not tracked per buyer yet, so this station has nothing to list.'],
+            ['key' => 'deal',             'label' => 'Deal registered',       'short' => 'Deal',         'source' => null, 'gap' => 'Buyer leads are not tracked per buyer yet, so this station has nothing to list.'],
+            ['key' => 'bond',             'label' => 'Bond granted',          'short' => 'Bond',         'source' => null, 'gap' => 'Buyer leads are not tracked per buyer yet, so this station has nothing to list.'],
+            ['key' => 'transfer',         'label' => 'Transfer registered',   'short' => 'Transfer',     'source' => null, 'gap' => 'Buyer leads are not tracked per buyer yet, so this station has nothing to list.'],
+        ]],
+    ],
 ];
