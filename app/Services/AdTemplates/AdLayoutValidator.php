@@ -48,6 +48,8 @@ final class AdLayoutValidator
         'instagram' => ['w' => 1080, 'h' => 1080, 'label' => 'Instagram (1080×1080)'],
         'story'     => ['w' => 1080, 'h' => 1920, 'label' => 'Story (1080×1920)'],
         'whatsapp'  => ['w' => 900,  'h' => 900,  'label' => 'WhatsApp (900×900)'],
+        // §22 — the tall 2:3 listing poster (same size as the builder's Pinterest preset, which is the key it shares).
+        'pinterest' => ['w' => 1000, 'h' => 1500, 'label' => 'Poster (1000×1500)'],
     ];
 
     public const MIN_FONT_SIZE = 16;
@@ -94,6 +96,15 @@ final class AdLayoutValidator
     /** When boxes that sit on top of each other are pulled apart, they end this many pixels clear (more than OVERLAP_TOLERANCE). */
     private const SEPARATION_GAP = 8;
 
+    /**
+     * Trimming a box that runs into a neighbour may take its font down to this share of the size the model chose (never under
+     * MIN_FONT_SIZE): a smaller line beside its neighbour reads better than a refused design. The text-fit repair keeps its own 70%.
+     */
+    private const TRIM_MIN_FONT_SHARE = 0.5;
+
+    /** Nudging words back onto the shape they hang over never moves them further than this (px): a bigger move is a different design. */
+    private const CLAMP_MAX_MOVE = 48;
+
     /** Pulling boxes apart never moves one further than this share of the canvas side: a bigger move is a different design. */
     private const SEPARATION_MAX_SHARE = 0.4;
 
@@ -138,7 +149,7 @@ final class AdLayoutValidator
     private const IMAGE_FIELDS = ['image_1', 'image_2', 'image_3', 'image_4', 'image_5', 'agent_avatar', 'agency_logo', 'custom_image'];
 
     /** Fields that draw a block of colour and carry no text. (QR and the photo collage draw pictures, no words.) */
-    private const BLOCK_FIELDS = ['color_block', 'shape', 'gradient', 'line', 'qr', 'collage'];
+    private const BLOCK_FIELDS = ['color_block', 'shape', 'gradient', 'line', 'qr', 'collage', 'feature_strip'];
 
     /** Elements that show the listing's own photos (a collage is 2-5 of them): "a property photo is on the ad". */
     private const PHOTO_FIELDS = ['image_1', 'image_2', 'image_3', 'image_4', 'image_5', 'collage'];
@@ -150,11 +161,15 @@ final class AdLayoutValidator
     private const SCRIPT_FONTS = ['Great Vibes', 'Dancing Script'];
 
     /** The only elements a script face may be put on (headline-type, short words; never a price, phone number or body text). */
-    private const SCRIPT_OK_FIELDS = ['title', 'custom_text', 'badge', 'agency_name'];
+    private const SCRIPT_OK_FIELDS = ['title', 'custom_text', 'badge', 'agency_name', 'tagline', 'status_badge'];
+
+    /** §22 feature icon strip: the least height that holds a ring icon and a one-line label, and the least width per cell. */
+    private const MIN_STRIP_HEIGHT     = 90;
+    private const MIN_STRIP_CELL_WIDTH = 90;
 
     /** The listing facts (text elements whose value is hidden on a real ad when the listing has none). */
     public const FACT_FIELDS = ['erf_size', 'levy', 'rates_taxes', 'price_per_m2', 'pet_friendly', 'available_from', 'rent_per_month',
-        'show_day', 'auction_date', 'auction_venue'];
+        'show_day', 'auction_date', 'auction_venue', 'tagline', 'listing_note'];
 
     /**
      * Every element type the AI may use, with a one-line description (also fed to the prompt,
@@ -182,7 +197,7 @@ final class AdLayoutValidator
         'size_or_land'      => ['label' => 'Size / Land Size',      'help' => 'floor size, else erf size'],
         'reference'         => ['label' => 'Reference',             'help' => 'listing reference number'],
         'address'           => ['label' => 'Address',               'help' => 'street address'],
-        'status_badge'      => ['label' => 'Status Badge',          'help' => 'FOR SALE / TO LET / SOLD, coloured pill'],
+        'status_badge'      => ['label' => 'Status Badge',          'help' => 'FOR SALE / TO LET / SOLD; a red pill by default - to write it straight onto a shape or brush stroke of your own (a script face on a gold stroke, say) set "bgOpacity" 0'],
         'agent_name'        => ['label' => 'Agent 1 · Name',        'help' => 'the listing agent'],
         'agent_email'       => ['label' => 'Agent 1 · Email',       'help' => 'agent email'],
         'agent_phone'       => ['label' => 'Agent 1 · Phone',       'help' => 'agent phone'],
@@ -201,10 +216,13 @@ final class AdLayoutValidator
         'gradient'          => ['label' => 'Gradient',              'help' => 'fade; "gradFrom" → "gradTo" at "gradAngle" (use as a scrim over photos)'],
         'color_block'       => ['label' => 'Color Block',           'help' => 'solid rectangle; colour in "bg"'],
         // AT-456 §B.9-2 — the building blocks added in §B.9-1.
-        'collage'           => ['label' => 'Photo Collage',         'help' => '2-5 of the listing\'s photos in a preset layout ("collagePreset", "collageGap", "collageFirst", corner radius in "borderRadius"); counts as a property photo'],
+        'collage'           => ['label' => 'Photo Collage',         'help' => '2-8 of the listing\'s photos in a preset layout (6_mosaic, 7_mosaic and 8_mosaic are poster-style mosaics) ("collagePreset", "collageGap", "collageFirst", corner radius in "borderRadius"); counts as a property photo'],
         'ribbon'            => ['label' => 'Corner Ribbon',         'help' => 'diagonal sash across one corner of its box ("ribbonCorner" tl/tr/bl/br), band colour "bgColor"+"bgOpacity", words in "text" (short, like JUST LISTED); box at least 80x80'],
         'qr'                => ['label' => 'QR Code to Listing',    'help' => 'scannable code that opens the listing\'s web page; "qrDark" on "qrLight"; at least 120x120; the data is filled in per listing'],
         'feature_pills'     => ['label' => 'Feature Pills',         'help' => '1-4 of the listing\'s own features as separate rounded pills ("pillCount", "pillDirection" row/column, "pillGap"); pill colour "bgColor"+"bgOpacity", text "color"; you cannot choose which features'],
+        'feature_strip'     => ['label' => 'Feature Icon Strip',    'help' => 'a row of 3-8 round icons with a short label under each (the listing\'s bedrooms, bathrooms, garages and own features, icon chosen automatically; "stripCount"); "iconColor", "iconRingColor", "dividerColor", label text "color"/"fontSize"; box about 90 px tall and at least 90 px wide per cell; fewer details = fewer cells'],
+        'tagline'           => ['label' => 'Agency Tagline',        'help' => 'the agency\'s own tagline from its settings (hidden when the agency has none)'],
+        'listing_note'      => ['label' => 'Note for this ad',      'help' => 'one short line the agent types when making the ad, e.g. a nearby landmark (hidden when left blank)'],
         'erf_size'          => ['label' => 'Erf Size',              'help' => 'plot size, e.g. "Erf: 800 m²" (hidden when the listing has none)'],
         'levy'              => ['label' => 'Levy per Month',        'help' => 'sectional-title levy, e.g. "Levy: R 1 250 pm" (hidden when the listing has none)'],
         'rates_taxes'       => ['label' => 'Rates & Taxes per Month', 'help' => 'rates and taxes (hidden when the listing has none)'],
@@ -219,7 +237,8 @@ final class AdLayoutValidator
 
     /** Mirrors SHAPES + DECOR_SHAPES in the render kernel (a drift test compares them). */
     private const SHAPES   = ['rectangle', 'rounded', 'circle', 'pill', 'triangle', 'diamond', 'pentagon', 'hexagon', 'star', 'chevron',
-        'wave', 'curve_top', 'curve_bottom', 'arc', 'blob_1', 'blob_2', 'blob_3'];
+        'wave', 'curve_top', 'curve_bottom', 'arc', 'blob_1', 'blob_2', 'blob_3',
+        'brush_stroke_1', 'brush_stroke_2', 'cut_panel_left', 'cut_panel_right'];
     /** Mirrors FONTS in the render kernel (and _ad-fonts.blade.php). */
     private const FONTS    = ['Figtree', 'Inter', 'Poppins', 'Montserrat', 'Oswald', 'Bebas Neue', 'Playfair Display', 'Lora',
         'Cormorant Garamond', 'DM Serif Display', 'Libre Baskerville', 'Great Vibes', 'Dancing Script', 'Barlow Condensed', 'Anton',
@@ -235,7 +254,7 @@ final class AdLayoutValidator
     private const PHOTO_MASKS     = ['none', 'rounded', 'circle', 'arch', 'blob'];
     private const PHOTO_EFFECTS   = ['none', 'bw', 'duotone', 'warm', 'cool', 'brighter'];
     private const LINE_STYLES     = ['solid', 'dashed', 'dotted'];
-    private const COLLAGE_PRESETS = ['2_side', '2_stack', '3_hero_left', '3_hero_top', '4_grid', '5_hero'];
+    private const COLLAGE_PRESETS = ['2_side', '2_stack', '3_hero_left', '3_hero_top', '4_grid', '5_hero', '6_mosaic', '7_mosaic', '8_mosaic'];
     private const RIBBON_CORNERS  = ['tl', 'tr', 'bl', 'br'];
     private const PILL_DIRECTIONS = ['row', 'column'];
 
@@ -249,6 +268,7 @@ final class AdLayoutValidator
         'erf_size' => '800 m²', 'levy' => 'R 1 250 pm', 'rates_taxes' => 'R 900 pm', 'price_per_m2' => 'R 7 656 per m²',
         'pet_friendly' => 'Pet friendly', 'available_from' => 'Available from 1 Nov 2026', 'rent_per_month' => 'R 12 500 per month',
         'show_day' => 'Sat 25 Oct · 10:00–13:00', 'auction_date' => '12 Nov 2026 · 11:00', 'auction_venue' => 'Sample Venue, Sample Town',
+        'tagline' => 'Your Property Partner', 'listing_note' => 'Situated close to the shops',
     ];
 
     /**
@@ -262,9 +282,11 @@ final class AdLayoutValidator
         'iconSize' => [8, 200, 0],
         // AT-456 §B.9-1 — collage, pills.
         'collageGap' => [0, 60, 0], 'collageFirst' => [1, 5, 0], 'pillCount' => [1, 4, 0], 'pillGap' => [0, 60, 0],
+        // §22 — the feature icon strip.
+        'stripCount' => [3, 8, 0],
     ];
 
-    private const COLOR_KEYS = ['color', 'bgColor', 'bg', 'gradFrom', 'gradTo', 'frameBorderColor', 'shadowColor', 'duoColor1', 'duoColor2', 'qrDark', 'qrLight'];
+    private const COLOR_KEYS = ['color', 'bgColor', 'bg', 'gradFrom', 'gradTo', 'frameBorderColor', 'shadowColor', 'duoColor1', 'duoColor2', 'qrDark', 'qrLight', 'iconColor', 'iconRingColor', 'dividerColor'];
 
     private const ENUMS = [
         'fontFamily'    => self::FONTS,
@@ -365,12 +387,67 @@ final class AdLayoutValidator
         $size    = self::SIZES[$sizeKey] ?? null;
         if ($size !== null) {
             $option = $this->repairRaw($option, $size['w'], $size['h'], $repairs, $mode);
+            $option = $this->clearPillsOverShapes($option, $size['w'] * $size['h'], $repairs);
         }
 
         $result = $this->run($option, $sizeKey, true, $repairs, $mode);
         $result['repairs'] = array_values(array_unique($repairs));
 
         return $result;
+    }
+
+    /**
+     * A status badge / badge the model left on its DEFAULT coloured pill (it set neither bgColor nor bgOpacity) but placed on top of a
+     * shape or colour block of its own - a "FOR SALE" in script across a gold brush stroke - is meant to be written straight onto that
+     * shape. The default red pill would be painted over the artwork and hide it, so the pill is switched off. A badge whose colours
+     * the model chose is never touched.
+     *
+     * @param  array<string, mixed> $option
+     * @param  array<int, string>   $repairs
+     * @return array<string, mixed>
+     */
+    private function clearPillsOverShapes(array $option, int $canvasArea, array &$repairs): array
+    {
+        $els = $option['elements'] ?? null;
+        if (! is_array($els) || ! array_is_list($els)) {
+            return $option;
+        }
+        $box = static function ($e): ?array {
+            if (! is_array($e) || ! isset($e['x'], $e['y'], $e['w'], $e['h']) || ! is_numeric($e['x']) || ! is_numeric($e['y']) || ! is_numeric($e['w']) || ! is_numeric($e['h'])) {
+                return null;
+            }
+
+            return [(float) $e['x'], (float) $e['y'], (float) $e['x'] + (float) $e['w'], (float) $e['y'] + (float) $e['h']];
+        };
+        foreach ($els as $i => $e) {
+            if (! is_array($e) || ! in_array($e['field'] ?? '', ['status_badge', 'badge'], true) || isset($e['bgOpacity']) || isset($e['bgColor'])) {
+                continue;
+            }
+            $b = $box($e);
+            if ($b === null || ($b[2] - $b[0]) * ($b[3] - $b[1]) <= 0) {
+                continue;
+            }
+            $z = isset($e['zIndex']) && is_numeric($e['zIndex']) ? (int) $e['zIndex'] : $i + 1;
+            foreach ($els as $j => $s) {
+                $sb = $box($s);
+                if ($sb === null || ! in_array($s['field'] ?? '', ['shape', 'color_block'], true)) {
+                    continue;
+                }
+                $sz = isset($s['zIndex']) && is_numeric($s['zIndex']) ? (int) $s['zIndex'] : $j + 1;
+                $op = isset($s['opacity']) && is_numeric($s['opacity']) ? (float) $s['opacity'] : 1.0;
+                if ($sz >= $z || $op < self::BACKDROP_MIN_ALPHA || ($sb[2] - $sb[0]) * ($sb[3] - $sb[1]) > $canvasArea * 0.5) {
+                    continue;   // not beneath it, too faint to count, or a page-sized background rather than a shape of its own
+                }
+                $overlap = max(0.0, min($b[2], $sb[2]) - max($b[0], $sb[0])) * max(0.0, min($b[3], $sb[3]) - max($b[1], $sb[1]));
+                if ($overlap >= 0.6 * ($b[2] - $b[0]) * ($b[3] - $b[1])) {
+                    $option['elements'][$i]['bgOpacity'] = 0;
+                    $repairs[] = 'Element ' . ($i + 1) . " ({$e['field']}): sat on a shape of its own, so its default coloured pill was removed (bgOpacity 0).";
+                    break;
+                }
+            }
+        }
+
+        return $option;
     }
 
     /**
@@ -444,8 +521,19 @@ final class AdLayoutValidator
             $errors[] = 'A property ad needs at least one property photo element (image_1 … image_5, or a collage), or the agent photo (agent_avatar) when the ad is about the agent.';
         }
 
+        // The font sizes the model chose, kept so that repairs one after the other cannot each take their share off the same line:
+        // every repair measures its limit from THIS size, never from what an earlier repair left.
+        $fontFloors = [];
+        foreach ($elements as $i => $el) {
+            $fontFloors[$i] = (float) $el['fontSize'];
+        }
+        if ($repair) {
+            // Boxes bigger than their words need that run into a neighbour are trimmed back first: that is the cheapest fix, and it
+            // frees the room the text-fit repair below may then want.
+            $this->trimOverlaps($elements, $repairs, $fontFloors);
+        }
         if ($layoutMode === self::MODE_PROPERTY) {
-            $this->checkTextFit($elements, $errors, $repair, $repairs);
+            $this->checkTextFit($elements, $errors, $repair, $repairs, $cw, $ch, $fontFloors);
         }
         if ($repair) {
             // Nudge words that run over a shape's edge back onto it, then pull apart boxes that sit on top of each other, before
@@ -774,6 +862,12 @@ final class AdLayoutValidator
             }
         }
 
+        if ($field === 'feature_strip' && isset($raw['h']) && $raw['h'] < self::MIN_STRIP_HEIGHT) {
+            $raw['h']  = self::MIN_STRIP_HEIGHT;
+            $resized   = true;
+            $repairs[] = "{$tag}: the icon strip was too short to show its icons and words, so it was made " . self::MIN_STRIP_HEIGHT . ' pixels tall.';
+        }
+
         if ($field === 'feature_pills' && isset($raw['h'])) {
             $min = $this->pillsMinHeight($num('fontSize'), $num('padding'), (string) ($raw['pillDirection'] ?? $d['pillDirection']), (int) $num('pillCount'), (int) $num('pillGap'));
             if ($raw['h'] < $min) {
@@ -845,6 +939,10 @@ final class AdLayoutValidator
             if ($problem !== null) {
                 $out[] = "{$tag}: {$problem}";
             }
+        }
+
+        if ($field === 'feature_strip' && $el['w'] / max(1, (int) $el['stripCount']) < self::MIN_STRIP_CELL_WIDTH) {
+            $out[] = "{$tag}: each icon cell needs at least " . self::MIN_STRIP_CELL_WIDTH . " pixels of width - use a wider box or a smaller stripCount.";
         }
 
         if ($field === 'feature_pills') {
@@ -941,17 +1039,17 @@ final class AdLayoutValidator
         if (preg_match('/\d/', $v, $m) === 1) {
             $n = (int) $m[0];
         } else {
-            foreach (['two' => 2, 'three' => 3, 'four' => 4, 'five' => 5] as $word => $digit) {
+            foreach (['two' => 2, 'three' => 3, 'four' => 4, 'five' => 5, 'six' => 6, 'seven' => 7, 'eight' => 8] as $word => $digit) {
                 if (str_contains($v, $word)) {
                     $n = $digit;
                     break;
                 }
             }
         }
-        $n = $n === null ? null : max(2, min(5, $n));
+        $n = $n === null ? null : max(2, min(8, $n));
 
         $synonyms = ['side' => ['side', 'beside', 'horizontal', 'row', 'duo'], 'stack' => ['stack', 'stacked', 'vertical', 'column'],
-            'top' => ['top', 'above', 'upper'], 'left' => ['left', 'right'], 'grid' => ['grid', 'tile', 'tiles', 'quad'], 'hero' => ['hero', 'main', 'big', 'large', 'feature']];
+            'top' => ['top', 'above', 'upper'], 'left' => ['left', 'right'], 'grid' => ['grid', 'tile', 'tiles', 'quad'], 'hero' => ['hero', 'main', 'big', 'large', 'feature'], 'mosaic' => ['mosaic', 'gallery', 'montage', 'many']];
         $tokens = preg_split('/[^a-z]+/', $v, -1, PREG_SPLIT_NO_EMPTY) ?: [];
 
         $best      = null;
@@ -1171,7 +1269,7 @@ final class AdLayoutValidator
                 $out[$k] = (string) $el[$k];
             }
         }
-        foreach (['shadowOn', 'showLabel'] as $k) {
+        foreach (['shadowOn', 'showLabel', 'shapeGradient'] as $k) {
             if (isset($el[$k]) && is_bool($el[$k]) && $el[$k] !== $base[$k]) {
                 $out[$k] = $el[$k];
             }
@@ -1270,6 +1368,9 @@ final class AdLayoutValidator
         if (array_key_exists('showLabel', $raw)) {
             $el['showLabel'] = filter_var($raw['showLabel'], FILTER_VALIDATE_BOOLEAN);
         }
+        if (array_key_exists('shapeGradient', $raw)) {
+            $el['shapeGradient'] = filter_var($raw['shapeGradient'], FILTER_VALIDATE_BOOLEAN);
+        }
 
         // Literal copy — only the element types that carry it.
         if (in_array($field, ['custom_text', 'badge', 'watermark', 'ribbon'], true)) {
@@ -1336,6 +1437,8 @@ final class AdLayoutValidator
             'photoMask' => 'none', 'photoEffect' => 'none', 'duoColor1' => '#0b2a4a', 'duoColor2' => '#f4d58d', 'lineStyle' => 'solid',
             'collagePreset' => '3_hero_left', 'collageGap' => 8, 'collageFirst' => 1, 'ribbonCorner' => 'tl',
             'qrDark' => '#000000', 'qrLight' => '#ffffff', 'pillCount' => 4, 'pillDirection' => 'row', 'pillGap' => 10, 'showLabel' => true,
+            // §22 — feature icon strip; a decorative shape's gradient fill.
+            'stripCount' => 8, 'iconColor' => '#d4af37', 'iconRingColor' => '#d4af37', 'dividerColor' => '#d4af37', 'shapeGradient' => false,
         ];
 
         if ($field === 'status_badge') {
@@ -1371,6 +1474,9 @@ final class AdLayoutValidator
         if ($field === 'feature_pills') {
             // Same as the builder's, except the font starts at the minimum the validator allows (the builder's 15 is below it).
             $el = array_merge($el, ['fontSize' => 16, 'fontWeight' => '700', 'padding' => 8, 'bgColor' => '#00b4d8', 'bgOpacity' => 1, 'borderRadius' => 999]);
+        }
+        if ($field === 'feature_strip') {
+            $el = array_merge($el, ['w' => 960, 'h' => 120, 'fontSize' => 16, 'fontWeight' => '700', 'textAlign' => 'center', 'textTransform' => 'uppercase', 'padding' => 8]);
         }
         if ($field === 'watermark') {
             $el['fontSize'] = 60;
@@ -1409,7 +1515,11 @@ final class AdLayoutValidator
             }
         }
 
-        $box = fn (int $i): array => [(float) $elements[$i]['x'], (float) $elements[$i]['y'], (float) $elements[$i]['x'] + (float) $elements[$i]['w'], (float) $elements[$i]['y'] + (float) $elements[$i]['h']];
+        // By reference on purpose: an arrow function would capture a COPY of the elements, so after a box was moved this would keep
+        // reporting its old position and the box would be moved again on every pass (the "pushed hundreds of pixels" bug).
+        $box = function (int $i) use (&$elements): array {
+            return [(float) $elements[$i]['x'], (float) $elements[$i]['y'], (float) $elements[$i]['x'] + (float) $elements[$i]['w'], (float) $elements[$i]['y'] + (float) $elements[$i]['h']];
+        };
         $hit = fn (array $a, array $b): bool => min($a[2], $b[2]) - max($a[0], $b[0]) > $tol && min($a[3], $b[3]) - max($a[1], $b[1]) > $tol;
 
         for ($pass = 0; $pass < 12; $pass++) {
@@ -1470,6 +1580,144 @@ final class AdLayoutValidator
     }
 
     /**
+     * Two word boxes that overlap are usually one box far bigger than its words need (a name box running on under the next column,
+     * a badge twice as tall as its line). Before refusing the clash or moving anything, TRIM the box on the side facing the other one,
+     * when its longest realistic words still fit what is left. The side away from where the words are anchored is trimmed when
+     * possible (a left-aligned line loses its empty right end), so the words themselves hardly move. Only word boxes are trimmed -
+     * never a picture, QR code, logo or avatar - and never in a way that changes what the words sit on.
+     *
+     * @param array<int, array<string, mixed>> $elements
+     * @param array<int, string>               $repairs
+     * @param array<int, float>                $fontFloors element index => the font size the model chose
+     */
+    private function trimOverlaps(array &$elements, array &$repairs, array $fontFloors): void
+    {
+        $tol  = (float) self::OVERLAP_TOLERANCE;
+        $live = [];
+        foreach ($elements as $i => $el) {
+            if (! in_array($el['field'], self::OVERLAP_EXEMPT_FIELDS, true)) {
+                $live[] = $i;
+            }
+        }
+        // By reference on purpose: an arrow function would capture a COPY of the elements, so after a box was moved this would keep
+        // reporting its old position and the box would be moved again on every pass (the "pushed hundreds of pixels" bug).
+        $box = function (int $i) use (&$elements): array {
+            return [(float) $elements[$i]['x'], (float) $elements[$i]['y'], (float) $elements[$i]['x'] + (float) $elements[$i]['w'], (float) $elements[$i]['y'] + (float) $elements[$i]['h']];
+        };
+
+        for ($pass = 0; $pass < 8; $pass++) {
+            $changed = false;
+            foreach ($live as $a) {
+                foreach ($live as $b) {
+                    if ($b <= $a) {
+                        continue;
+                    }
+                    [$ab, $bb] = [$box($a), $box($b)];
+                    if (min($ab[2], $bb[2]) - max($ab[0], $bb[0]) <= $tol || min($ab[3], $bb[3]) - max($ab[1], $bb[1]) <= $tol) {
+                        continue;
+                    }
+                    $best = null;   // [cost, index, newX, newY, newW, newH, description]
+                    foreach ([[$a, $b], [$b, $a]] as [$m, $o]) {
+                        $cand = $this->trimCandidates($elements, $m, $box($m), $box($o), max((float) self::MIN_FONT_SIZE, ceil((float) ($fontFloors[$m] ?? $elements[$m]['fontSize']) * self::TRIM_MIN_FONT_SHARE)));
+                        foreach ($cand as $c) {
+                            if ($best === null || $c[0] < $best[0]) {
+                                $best = [$c[0], $m, $c[1], $c[2], $c[3], $c[4], $c[5], $o, $c[6]];
+                            }
+                        }
+                    }
+                    if ($best === null) {
+                        continue;
+                    }
+                    [, $m, $nx, $ny, $nw, $nh, $what, $o, $nfs] = $best;
+                    $repairs[] = 'Element ' . ($m + 1) . " ({$elements[$m]['field']}): its box ran into Element " . ($o + 1) . " ({$elements[$o]['field']}), so it was trimmed to {$nw} x {$nh} ({$what})"
+                        . ($nfs < (int) $elements[$m]['fontSize'] ? " and fontSize {$elements[$m]['fontSize']} was reduced to {$nfs}" : '') . '.';
+                    $elements[$m]['fontSize'] = $nfs;
+                    $elements[$m]['x'] = $nx;
+                    $elements[$m]['y'] = $ny;
+                    $elements[$m]['w'] = $nw;
+                    $elements[$m]['h'] = $nh;
+                    $changed = true;
+                }
+            }
+            if (! $changed) {
+                break;
+            }
+        }
+    }
+
+    /**
+     * The ways to trim element $m's box clear of $ob, each still holding its longest realistic words and still sitting on the same
+     * panels. [cost, x, y, w, h, description]; cost = pixels removed + a penalty for words that would visibly shift.
+     *
+     * @param  array<int, array<string, mixed>> $elements
+     * @param  float $floor the smallest font size this line may be given (see run())
+     * @param  array{0: float, 1: float, 2: float, 3: float} $mb
+     * @param  array{0: float, 1: float, 2: float, 3: float} $ob
+     * @return array<int, array{0: float, 1: int, 2: int, 3: int, 4: int, 5: string, 6: int}>
+     */
+    private function trimCandidates(array $elements, int $m, array $mb, array $ob, float $floor): array
+    {
+        $el = $elements[$m];
+        if (! $this->isTextField($el['field']) || in_array($el['field'], ['watermark', 'ribbon', 'feature_pills', 'feature_strip', 'qr'], true)) {
+            return [];
+        }
+        $text = $this->copyFor($el);
+        if ($text === '') {
+            return [];
+        }
+        [$x, $y, $r, $b] = $mb;
+        $out   = [];
+        $align = (string) $el['textAlign'];
+        $valign = (string) $el['verticalAlign'];
+        $tryout = function (float $nx, float $ny, float $nr, float $nb, float $shift, string $what) use (&$out, $el, $text, $elements, $m, $floor): void {
+            $w = $nr - $nx;
+            $h = $nb - $ny;
+            if ($w < 24 || $h < 16) {
+                return;
+            }
+            $probe = $el;
+            [$probe['x'], $probe['y'], $probe['w'], $probe['h']] = [$nx, $ny, $w, $h];
+            $fits  = null;
+            for ($fs = (float) $el['fontSize']; $fs >= $floor; $fs--) {
+                if ($this->copyFits($probe, $text, $fs)) {
+                    $fits = $fs;
+                    break;
+                }
+            }
+            if ($fits === null) {
+                return;
+            }
+            $probe['fontSize'] = (int) $fits;
+            foreach ($elements as $k => $o) {
+                if ($k === $m) {
+                    continue;
+                }
+                $before = $this->shapeRelation($el, $o);
+                if ($before !== 'over' && $before !== $this->shapeRelation($probe, $o)) {
+                    return;
+                }
+            }
+            $removed = ((float) $el['w'] * (float) $el['h']) > 0 ? ((float) $el['w'] - $w) + ((float) $el['h'] - $h) : 0.0;
+            $out[] = [$removed + 3 * $shift + 4 * ((float) $el['fontSize'] - $fits), (int) round($nx), (int) round($ny), (int) round($w), (int) round($h), $what, (int) $fits];
+        };
+
+        // Across: the other box is to the right of, or to the left of, this one.
+        if (($ob[0] + $ob[2]) / 2 >= ($x + $r) / 2) {
+            $tryout($x, $y, $ob[0], $b, $align === 'left' || $align === 'justify' ? 0.0 : ($align === 'center' ? ($r - $ob[0]) / 2 : $r - $ob[0]), 'right edge pulled in');
+        } else {
+            $tryout($ob[2], $y, $r, $b, $align === 'right' ? 0.0 : ($align === 'center' ? ($ob[2] - $x) / 2 : $ob[2] - $x), 'left edge pulled in');
+        }
+        // Down: the other box is below, or above.
+        if (($ob[1] + $ob[3]) / 2 >= ($y + $b) / 2) {
+            $tryout($x, $y, $r, $ob[1], $valign === 'top' ? 0.0 : ($valign === 'middle' ? ($b - $ob[1]) / 2 : $b - $ob[1]), 'bottom edge pulled up');
+        } else {
+            $tryout($x, $ob[3], $r, $b, $valign === 'bottom' ? 0.0 : ($valign === 'middle' ? ($ob[3] - $y) / 2 : $ob[3] - $y), 'top edge pulled down');
+        }
+
+        return $out;
+    }
+
+    /**
      * Words that sit partly on and partly off a shape or colour block are moved wholly onto it when their box fits inside the
      * shape's safe area (checkShapeEdges() refuses what this cannot fix).
      *
@@ -1512,6 +1760,9 @@ final class AdLayoutValidator
                 }
                 $nx = (int) round(min(max($tl, $sl), $sl + $sw - $tw));
                 $ny = (int) round(min(max($tt, $st), $st + $sh - $th));
+                if (abs($nx - $tl) > self::CLAMP_MAX_MOVE || abs($ny - $tt) > self::CLAMP_MAX_MOVE) {
+                    continue;   // a long way to the shape: that is a different design, left for the check to refuse (never teleport words)
+                }
                 if ($nx !== (int) round($tl) || $ny !== (int) round($tt)) {
                     $elements[$ti]['x'] = $nx;
                     $elements[$ti]['y'] = $ny;
@@ -1624,11 +1875,44 @@ final class AdLayoutValidator
         'blob_1' => [0.65, 0.65], 'blob_2' => [0.65, 0.65], 'blob_3' => [0.65, 0.65],
     ];
 
+    /** The fields that belong to the AGENCY, not to a listing: the same words on every ad the agency makes. */
+    public const AGENCY_WIDE_FIELDS = ['agency_name', 'website', 'agency_phone'];
+
+    /**
+     * The agency's real wording for AGENCY_WIDE_FIELDS (set by withAgencyCopy()). Empty = unknown, so the worst-case sample is used.
+     *
+     * @var array<string, string>
+     */
+    private array $agencyCopy = [];
+
+    /**
+     * A copy of this validator that judges the agency-wide fields (name, website, phone) against THIS agency's own details instead
+     * of a made-up long sample. Those words never change from one listing to the next, so "the longest realistic value" for them is
+     * the real one - and the sample ("Home Finders Coastal ...") was one particular agency's wording, wrong for every other agency.
+     * A field the agency has no value for is not checked (the ad leaves it off). Listing fields keep their worst-case sample.
+     *
+     * @param array<string, mixed> $copy field => the agency's wording; fields other than AGENCY_WIDE_FIELDS are ignored
+     */
+    public function withAgencyCopy(array $copy): static
+    {
+        $clone = clone $this;
+        foreach (self::AGENCY_WIDE_FIELDS as $field) {
+            if (array_key_exists($field, $copy)) {
+                $clone->agencyCopy[$field] = trim((string) $copy[$field]);
+            }
+        }
+
+        return $clone;
+    }
+
     /** The copy to test an element against: its own words, else the worst realistic value of its field, else its sample copy. */
     private function copyFor(array $el): string
     {
         if (in_array($el['field'], ['custom_text', 'badge', 'ribbon'], true)) {
             return (string) $el['text'];
+        }
+        if (array_key_exists($el['field'], $this->agencyCopy)) {
+            return $this->agencyCopy[$el['field']];
         }
 
         return self::WORST_CASE_COPY[$el['field']] ?? (string) ($el['preview'] ?? '');
@@ -1708,14 +1992,15 @@ final class AdLayoutValidator
 
     /**
      * Words must fit the box they are drawn in, for the longest realistic listing. A box that is too small is repaired by shrinking
-     * the font (never below the minimum, and never by more than 30%); if even that does not fit, the design is refused with the
-     * numbers the AI needs to enlarge the box. Skips the elements the page draws itself (logo, QR, pills, ribbon, photos, blocks).
+     * the font (never below the minimum, and never by more than 30%); when that is not enough the BOX is grown into the free space
+     * beside it (growBoxToFit), and only if that fails too is the design refused with the numbers the AI needs to enlarge the box.
+     * Skips the elements the page draws itself (logo, QR, pills, ribbon, photos, blocks).
      *
      * @param array<int, array<string, mixed>> $elements  Updated in place when $repair shrinks a font.
      * @param array<int, string>               $errors
      * @param array<int, string>               $repairs
      */
-    private function checkTextFit(array &$elements, array &$errors, bool $repair, array &$repairs): void
+    private function checkTextFit(array &$elements, array &$errors, bool $repair, array &$repairs, int $cw, int $ch, array $fontFloors = []): void
     {
         foreach ($elements as $idx => $el) {
             if (! $this->isTextField($el['field']) || in_array($el['field'], ['watermark', 'ribbon', 'feature_pills'], true)) {
@@ -1728,12 +2013,27 @@ final class AdLayoutValidator
             $tag = 'Element ' . ($idx + 1) . " ({$el['field']} at x " . (int) $el['x'] . ', y ' . (int) $el['y'] . ')';
 
             if ($repair) {
-                $floor = max((float) self::MIN_FONT_SIZE, ceil((float) $el['fontSize'] * 0.7));
+                $floor = max((float) self::MIN_FONT_SIZE, ceil((float) ($fontFloors[$idx] ?? $el['fontSize']) * 0.7));
                 for ($fs = (float) $el['fontSize'] - 1; $fs >= $floor; $fs--) {
                     if ($this->copyFits($el, $text, $fs)) {
                         $repairs[] = "{$tag}: the longest realistic value (\"" . mb_substr($text, 0, 40) . "\") did not fit its box, so fontSize {$el['fontSize']} was reduced to " . (int) $fs . '.';
                         $elements[$idx]['fontSize'] = (int) $fs;
                         continue 2;
+                    }
+                }
+                // A reference picture has small, tight footer and header lines whose boxes the AI sizes by eye: shrinking alone cannot
+                // make the longest agency name fit there. Grow the box into free space instead, keeping the biggest font that fits.
+                // Wider first, at any font size down to the floor: a taller box eats the room the lines above and below it need.
+                foreach ([false, true] as $allowTaller) {
+                    for ($fs = (float) $el['fontSize']; $fs >= $floor; $fs--) {
+                        $box = $this->growBoxToFit($elements, $idx, $text, $fs, $cw, $ch, $allowTaller);
+                        if ($box === null) {
+                            continue;
+                        }
+                        $repairs[] = "{$tag}: the longest realistic value (\"" . mb_substr($text, 0, 40) . "\") did not fit its {$el['w']} x {$el['h']} box, so the box was made "
+                            . $box['w'] . ' x ' . $box['h'] . ($fs < (float) $el['fontSize'] ? " and fontSize {$el['fontSize']} was reduced to " . (int) $fs : '') . '.';
+                        $elements[$idx] = array_merge($elements[$idx], $box, ['fontSize' => (int) $fs]);
+                        continue 3;
                     }
                 }
             }
@@ -1743,6 +2043,195 @@ final class AdLayoutValidator
                 . ' box at fontSize ' . $el['fontSize'] . ' - ' . ($single ? 'it must stay on ONE line' : 'words that do not fit are cut off')
                 . '. Make the box wider' . ($single ? '' : ' or taller') . ' or lower the fontSize (but not below ' . self::MIN_FONT_SIZE . ').';
         }
+    }
+
+    /**
+     * The smallest bigger box, grown only into free space, in which the copy fits at $fontSize - or null when there is none.
+     * Free space is bounded by the canvas (with a small margin), the nearest word/picture box beside or below it, and the shapes
+     * behind it: a grown box that would run over a shape's edge (or onto a neighbour) is never offered, so growing can never create
+     * a new overlap or edge problem for the later checks to refuse. The box grows away from the side the words are anchored to
+     * (a right-aligned line grows leftwards) and only reaches to the other side when that is not enough.
+     *
+     * @param  array<int, array<string, mixed>> $elements
+     * @return array{x: int, y: int, w: int, h: int}|null
+     */
+    private function growBoxToFit(array $elements, int $idx, string $text, float $fontSize, int $cw, int $ch, bool $allowTaller = true): ?array
+    {
+        $el  = $elements[$idx];
+        $tol = (float) self::OVERLAP_TOLERANCE;
+        [$x0, $y0, $w0, $h0] = [(float) $el['x'], (float) $el['y'], (float) $el['w'], (float) $el['h']];
+        $margin = 12.0;
+        $single = in_array($el['field'], self::SINGLE_LINE_FIELDS, true);
+
+        $boxes = [];
+        foreach ($elements as $k => $o) {
+            if ($k === $idx || in_array($o['field'], self::OVERLAP_EXEMPT_FIELDS, true)) {
+                continue;
+            }
+            $boxes[] = [(float) $o['x'], (float) $o['y'], (float) $o['x'] + (float) $o['w'], (float) $o['y'] + (float) $o['h']];
+        }
+        $hit = fn (array $a, array $b): bool => min($a[2], $b[2]) - max($a[0], $b[0]) > $tol && min($a[3], $b[3]) - max($a[1], $b[1]) > $tol;
+        foreach ($boxes as $b) {
+            if ($hit([$x0, $y0, $x0 + $w0, $y0 + $h0], $b)) {
+                return null;   // already sitting on something: that is separateOverlaps()'s job, not a reason to grow into it
+            }
+        }
+
+        // Free room on each side, across the rows (for width) or columns (for height) the box already occupies.
+        $left = min($margin, $x0);
+        $right = max($cw - $margin, $x0 + $w0);
+        $top = min($margin, $y0);
+        $bottom = max($ch - $margin, $y0 + $h0);
+        foreach ($boxes as $b) {
+            if (min($b[3], $y0 + $h0) - max($b[1], $y0) > $tol) {
+                if ($b[2] <= $x0 + $tol) {
+                    $left = max($left, min($b[2], $x0));
+                } elseif ($b[0] >= $x0 + $w0 - $tol) {
+                    $right = min($right, max($b[0], $x0 + $w0));
+                }
+            }
+            if (min($b[2], $x0 + $w0) - max($b[0], $x0) > $tol) {
+                if ($b[3] <= $y0 + $tol) {
+                    $top = max($top, min($b[3], $y0));
+                } elseif ($b[1] >= $y0 + $h0 - $tol) {
+                    $bottom = min($bottom, max($b[1], $y0 + $h0));
+                }
+            }
+        }
+        $availL = $x0 - $left;
+        $availR = $right - ($x0 + $w0);
+        $availU = $y0 - $top;
+        $availD = $bottom - ($y0 + $h0);
+
+        $fits = function (float $w, float $h) use ($el, $text, $fontSize): bool {
+            $probe = $el;
+            $probe['w'] = $w;
+            $probe['h'] = $h;
+
+            return $this->copyFits($probe, $text, $fontSize);
+        };
+
+        // Width first (a line that needs more room almost always needs it sideways), then height for copy that may wrap, then both.
+        $newW = null;
+        $newH = $h0;
+        for ($w = $w0 + 2; $w <= $w0 + $availL + $availR; $w += 2) {
+            if ($fits($w, $h0)) {
+                $newW = $w;
+                break;
+            }
+        }
+        if ($newW === null && ! $single && $allowTaller) {
+            $maxW = $w0 + $availL + $availR;
+            for ($h = $h0 + 2; $h <= $h0 + $availU + $availD; $h += 2) {
+                if ($fits($w0, $h)) {
+                    $newW = $w0;
+                    $newH = $h;
+                    break;
+                }
+            }
+            if ($newW === null) {
+                for ($h = $h0 + 2; $h <= $h0 + $availU + $availD; $h += 2) {
+                    if ($fits($maxW, $h)) {
+                        $newW = $maxW;
+                        $newH = $h;
+                        break;
+                    }
+                }
+            }
+        }
+        if ($newW === null) {
+            return null;
+        }
+
+        // Spread the extra width / height: away from the anchored side first, spilling to the other only when that side runs out.
+        $extraW = $newW - $w0;
+        $align  = (string) $el['textAlign'];
+        if ($align === 'center') {
+            $dl = min($extraW / 2, $availL);
+            $dr = min($extraW - $dl, $availR);
+            $dl = $extraW - $dr;
+        } elseif ($align === 'right') {
+            $dl = min($extraW, $availL);
+            $dr = $extraW - $dl;
+        } else {
+            $dr = min($extraW, $availR);
+            $dl = $extraW - $dr;
+        }
+        $extraH = $newH - $h0;
+        $v      = (string) $el['verticalAlign'];
+        if ($v === 'middle') {
+            $du = min($extraH / 2, $availU);
+            $dd = min($extraH - $du, $availD);
+            $du = $extraH - $dd;
+        } elseif ($v === 'bottom') {
+            $du = min($extraH, $availU);
+            $dd = $extraH - $du;
+        } else {
+            $dd = min($extraH, $availD);
+            $du = $extraH - $dd;
+        }
+
+        $box = ['x' => (int) round($x0 - $dl), 'y' => (int) round($y0 - $du), 'w' => (int) ceil($newW), 'h' => (int) ceil($newH)];
+        // Rounding must not nudge the box out of the room found for it, or off a shape it sat wholly on / off.
+        if ($box['x'] < 0 || $box['y'] < 0 || $box['x'] + $box['w'] > $cw || $box['y'] + $box['h'] > $ch) {
+            return null;
+        }
+        $grown = [$box['x'], $box['y'], $box['x'] + $box['w'], $box['y'] + $box['h']];
+        foreach ($boxes as $b) {
+            if ($hit($grown, $b)) {
+                return null;
+            }
+        }
+        foreach ($elements as $k => $b) {
+            // Wholly on a panel stays wholly on it, wholly off stays wholly off: growing never changes what the words sit on.
+            if ($k === $idx) {
+                continue;
+            }
+            $before = $this->shapeRelation($el, $b);
+            if ($before !== 'over' && $before !== $this->shapeRelation($box + ['zIndex' => $el['zIndex']], $b)) {
+                return null;
+            }
+        }
+
+        return $box;
+    }
+
+    /**
+     * How a text box relates to a shape / colour block drawn beneath it: 'off' (clear of it), 'on' (wholly inside the part of it
+     * that words may use - the same safe area checkShapeEdges() applies), or 'over' (half on / half off it, or swallowing it). Null
+     * when $b is not a solid block beneath the text, so it does not matter. $t needs x, y, w, h and zIndex.
+     *
+     * @param array<string, mixed> $t
+     * @param array<string, mixed> $b
+     */
+    private function shapeRelation(array $t, array $b): ?string
+    {
+        if (! in_array($b['field'], ['shape', 'color_block'], true) || (float) $b['opacity'] < self::BACKDROP_MIN_ALPHA || (int) $b['zIndex'] >= (int) $t['zIndex']) {
+            return null;
+        }
+        $kind = $b['field'] === 'shape' ? (string) $b['shapeType'] : 'rectangle';
+        if (! isset(self::SHAPE_SAFE_AREA[$kind])) {
+            return null;
+        }
+        $tol = (float) self::OVERLAP_TOLERANCE;
+        $tl  = (float) $t['x'];
+        $tt  = (float) $t['y'];
+        $tr  = $tl + (float) $t['w'];
+        $tb  = $tt + (float) $t['h'];
+        $bl  = (float) $b['x'];
+        $bt  = (float) $b['y'];
+        $br  = $bl + (float) $b['w'];
+        $bb  = $bt + (float) $b['h'];
+        if (min($tr, $br) - max($tl, $bl) <= $tol || min($tb, $bb) - max($tt, $bt) <= $tol) {
+            return 'off';
+        }
+        [$fx, $fy] = self::SHAPE_SAFE_AREA[$kind];
+        $sw = ($br - $bl) * $fx;
+        $sh = ($bb - $bt) * $fy;
+        $sl = $bl + (($br - $bl) - $sw) / 2;
+        $st = $bt + (($bb - $bt) - $sh) / 2;
+
+        return $tl >= $sl - $tol && $tr <= $sl + $sw + $tol && $tt >= $st - $tol && $tb <= $st + $sh + $tol ? 'on' : 'over';
     }
 
     /**

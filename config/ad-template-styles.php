@@ -3,7 +3,7 @@
 /**
  * AI Template Builder — the built-in style library (AT-456 §B.9, item 10).
  *
- * Eight neutral looks the agent can pick on "Create with AI" (or leave on "Let the AI choose"). They are code, not an
+ * Nine neutral looks the agent can pick on "Create with AI" (or leave on "Let the AI choose"). They are code, not an
  * agency setting: nothing here belongs to any one agency, so they are NOT in the Setup Wizard. Every style is written for
  * "the agency's own brand colours" — the colours themselves always come from the requesting agency's record at generation
  * time (AiTemplateBuilderService::brandBlock) and a style never brings a palette of its own.
@@ -144,4 +144,20 @@ return [
         'avoid'   => 'Condensed or script fonts for anything but a single flourish, neon colours, busy shapes.',
     ],
 
+    'premium_poster' => [
+        'property_only' => true,   // uses the feature icon strip / mosaic, which a company ad does not have
+        'name'    => 'Premium poster',
+        'summary' => 'A full, dense listing poster: dark header and footer panels, a "For Sale" banner, a mosaic of room photos and a row of feature icons.',
+        'fonts'   => [
+            ['headline' => 'Playfair Display', 'body' => 'Montserrat'],
+            ['headline' => 'Cormorant Garamond', 'body' => 'Raleway'],
+        ],
+        'accent_script' => 'Great Vibes',
+        'brand'   => 'A near-black ground (or the darkest brand colour) with the agency\'s main brand colour as the metal accent: banner, thin rules, icon rings, price. If the agency has no strong brand colour use a warm gold. Use shapeGradient on the banner for a polished look. Never copy another company\'s colours or name.',
+        'photo'   => ['min' => 0.55, 'max' => 0.8, 'placement' => 'one big hero photo across the top, then a collage (6_mosaic, 7_mosaic or 8_mosaic) of the other rooms in the middle band'],
+        'text'    => 'Header: logo on a cut_panel_left panel at the top left, and the status badge ("For Sale") plus the suburb on a brush_stroke shape at the top right (script headline over it). A pin line and the price on dark pills over the photo edge. Footer: a feature_strip of icons, then the agent photo in a ring, name, phone and the agency tagline.',
+        'sizes'   => ['pinterest', 'story'],
+        'blocks'  => ['collage', 'feature_strip', 'tagline', 'listing_note', 'shapeType=brush_stroke_1', 'shapeType=cut_panel_left', 'frameBorderWidth=3', 'photoMask=circle'],
+        'avoid'   => 'Pale grounds, more than one metal accent colour, text straight on a photo without a panel, fewer than six photos in the mosaic when the listing has them.',
+    ],
 ];

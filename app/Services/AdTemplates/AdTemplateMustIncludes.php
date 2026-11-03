@@ -19,6 +19,9 @@ final class AdTemplateMustIncludes
     public const BIG_PRICE_MIN_FONT = 48;
     public const RIBBON_KEY         = 'ribbon';
 
+    /** Pseudo key passed to the extras helpers (never a real tick): every extra is allowed. Used when a reference picture is given. */
+    public const ALL_EXTRAS         = '*';
+
     /**
      * Key => definition. `needs` is a list of alternatives; each alternative is a list of element types that must ALL be
      * present (so [['agent_avatar', 'agent_phone'], ['agent_avatar', 'agent_email']] = the avatar AND (phone OR email)).
@@ -162,6 +165,11 @@ final class AdTemplateMustIncludes
      */
     public static function unticked(array $keys): array
     {
+        // §22.8: with a reference picture the picture decides which blocks appear - nothing is "unticked".
+        if (in_array(self::ALL_EXTRAS, $keys, true)) {
+            return [];
+        }
+
         return array_diff_key(self::extras(), array_flip($keys));
     }
 

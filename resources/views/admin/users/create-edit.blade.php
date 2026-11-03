@@ -539,6 +539,17 @@
                     </div>
                 </div>
             </div>
+            @if($isEdit)
+            {{-- Card: Client QR Code --}}
+            <div class="rounded-md p-5" style="background:var(--surface); border:1px solid var(--border);">
+                <div class="flex items-center gap-2 mb-3">
+                    <h3 class="text-sm font-bold uppercase tracking-wider" style="color:var(--text-primary);">Client QR Code</h3><span class="ue-desc">Prospects who scan it sign up as this person's client.</span>
+                </div>
+                <a href="{{ route('admin.users.qr-code.download', $user) }}"
+                   class="inline-block text-xs font-medium px-3 py-2 rounded-md"
+                   style="color:var(--brand-icon, #0ea5e9); border:1px solid var(--border); background:var(--surface-2);">Download QR code (PNG)</a>
+            </div>
+            @endif
         </div>
 
         {{-- ====================== ROLE & ACCESS TAB ====================== --}}

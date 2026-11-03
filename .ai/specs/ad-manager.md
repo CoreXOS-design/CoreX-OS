@@ -2930,3 +2930,116 @@ pet_friendly available_from rent_per_month show_day auction_date auction_venue`)
 ## Audit fix 2026-10-18 (outbound batch, C-F1) - Meta posts on a copy of live
 
 `MetaPublishingService::publishToFacebook/publishToInstagram` call `ExternalPublishingGuard` first and throw `ExternalPublishingRefused` before any HTTP call. `ScheduledPostPublisher::publishClaimed()` checks it before the token refresh and records the post as `failed` with a plain reason ("Publishing ... is switched off on this copy of CoreX, so nothing was sent"), so a refused post is never published later; the direct "Post now" path stores the same reason. Config: `corex.external_publishing` / `COREX_EXTERNAL_PUBLISHING` (default true; demo instance always refused).
+
+---
+
+## 22. "Premium listing poster" building blocks — APPROVED by Johan 2026-11-03
+
+> Trigger: a finished agent poster (gold-on-black, "For Sale" brush-stroke banner, 7-photo mosaic, 8-icon feature strip,
+> agent portrait ring, tagline) that the AI Template Builder cannot reproduce today. Reference image: `public/images/WhatsApp Image 2026-11-03 at 9.47.11 AM.jpeg`.
+> The Muller branding in that image is an EXAMPLE only — every name, logo, tagline and colour comes from the agency (Non-negotiable 9, multi-agency).
+
+### 22.1 Gap analysis (what the poster needs vs what exists)
+
+| Poster element | Today | Gap |
+|---|---|---|
+| Mosaic of 7 room photos | `collage` = 2-5 photos, 6 presets; `image_1..5` | No 6/7/8-photo mosaic |
+| 8-cell icon strip ("2 Bedrooms", "Secure Complex"...) | `feature_pills` = 1-4 text pills, no icon-above-label, no choice of features | No icon strip, max 4 |
+| Gold brush-stroke "For Sale" banner | plain shapes/waves/blobs | No brush-stroke / slanted-panel shapes; no gold metallic gradient fill |
+| Black header/footer panels with angled cut corner | rectangle/chevron only | No cut-corner / parallelogram panel |
+| Location line with pin ("Situated across from ...") | `address`/`custom_text` + `pin` icon | No per-listing free line; custom_text is fixed per template |
+| Agent portrait with gold ring | `agent_avatar` + `frameBorder*` | Exists |
+| Agency tagline in script ("Your Property Partner") | `agencies.tagline` (Company settings, already in the Setup Wizard; a branch tagline wins) exists, not a catalogue field | Not offered as a field |
+| Suburb in the headline ("For Sale  SYDENHAM") | `title`/`suburb` fields | Exists |
+
+### 22.2 New building blocks (render kernel + validator + builder + AI prompt, all three surfaces)
+
+1. **Collage presets** `6_mosaic`, `7_mosaic`, `8_mosaic` (hero row + grid rows), same `collageGap/collageFirst/borderRadius`; falls back to the nearest smaller preset when the listing has fewer photos (existing fallback rule).
+2. **`feature_strip`** element: 3-8 equal cells, each icon-over-label with thin dividers; `stripCount`, `iconColor`, `iconRingColor`, `dividerColor`. Cells are filled from the listing's own features, icon chosen by matching the feature name to the 47 existing icons; a listing with fewer features simply shows fewer cells (re-centred), never an empty cell.
+3. **Shapes** `brush_stroke_1`, `brush_stroke_2`, `cut_panel_left`, `cut_panel_right` (SVG-drawn, so html2canvas exports them) plus `gradFrom/gradTo/gradAngle` on any shape so a gold metallic fill is possible.
+4. **`tagline`** text field = the agency's `website_tagline` (blank = left off the ad).
+5. **`listing_note`** text field = an optional one-line note typed by the agent when making the ad (e.g. a nearby landmark); blank = left off. (See open business question.)
+6. **Style** "Premium poster" added to the AI style catalogue, and the AI prompt told these blocks exist so "make me a poster like this" can use them; a reference image upload (already supported) steers the look.
+
+Nothing uses `clip-path`, CSS `filter` or `backdrop-filter` or `background-clip:text` (html2canvas ignores them). Metallic text = solid gold colour; the metallic look comes from shapes/lines.
+
+### 22.3 Multi-agency
+No colour, wording or tagline is hardcoded: gold/black is a style preset the agency may pick or ignore; tagline from agency settings; logo/agent/phone from the listing. Any new agency setting surfaces in the Setup Wizard (10a) in the same prompt — none planned (tagline already exists), confirm at build.
+
+### 22.4 Template Manager (§19)
+Already has full CRUD/archive/restore/search/sort/filter/pagination and scoping; unchanged. New blocks show in row previews automatically via the shared kernel. AI-save must keep the existing own-agency scoping.
+
+### 22.5 Acceptance criteria
+- [ ] Asking the AI for a poster like the reference yields a template with a 7-photo mosaic, an 8-cell icon strip, a brush-stroke banner and agent ring, that validates and saves.
+- [ ] Renders identically in builder, generator and Template Manager preview, and exports to PNG.
+- [ ] A listing with 4 photos / 5 features degrades cleanly (no empty cells or gaps).
+- [ ] Old templates render unchanged (all new properties default to "not set").
+- [ ] Drift tests (kernel vs validator lists) updated and green; single-file tests only.
+
+### 22.6 Files (planned)
+`public/js/corex-ad-render.js`, `app/Services/AdTemplates/AdLayoutValidator.php`, `AiTemplateBuilderService.php`, `AdTemplateStyles.php` + `config/ad-template-styles.php`, builder blade, `tests/Feature/Tools/*` drift + validator tests.
+
+### 22.7 As built (2026-11-03)
+
+Deviations from the draft, all small: the poster size key is `pinterest` (label "Poster (1000×1500)") because the kernel's canvas preset of that size already has that key; the tagline field reads the **branch tagline, else `agencies.tagline`** (Company settings; already in the Setup Wizard) - not `website_tagline`; `tagline` joins the script-font-allowed fields; the "Premium poster" style carries `property_only` so it is never offered to company ads (`AdTemplateStyles::allFor/keys/forPanel/catalogueBlock` take a `$company` flag); the style library is now nine. Feature strip cells = beds, baths, garages, then the listing's `features_list` (de-duplicated, capped at `stripCount`); icon chosen by wording. Collage photos come from `image_1..image_8` (`Property::adData()` now sends 6-8; the demo preview set sends 8). "Note for this ad" is a text box in the generator toolbar, shown only when the chosen template has that element; never stored. Builder: Feature Icon Strip panel, gradient-fill controls on decorative shapes. Validator: `feature_strip` is a block field (min height 90 repaired, min 90 px per cell refused), new enum/number/colour keys, `nearestCollagePreset` knows 6-8 and "mosaic".
+Proved: `tests/js/ad-building-blocks.mjs` 165 checks (17 new), legacy snapshot identical, kernel contract 125, export shapes 59; a poster of the new blocks validated and rendered by the real kernel in headless Chromium. PHP tests (`AdPremiumPosterBlocksTest`, updated `AdBuildingBlocksKernelTest`, `AiTemplateBlocksAndStylesTest`) are written but were NOT run (no test DB / phpunit on the live host).
+Files: `public/js/corex-ad-render.js`, `AdLayoutValidator.php`, `AiTemplateBuilderService.php`, `AdTemplateStyles.php`, `CompanyAdBuilderService.php`, `CompanyAdsController.php`, `AdListingFacts.php`, `AdTemplateDemoPhotos.php`, `AdTemplateManagerController.php`, `Property.php`, `config/ad-template-styles.php`, `ad-builder.blade.php`, `ad.blade.php`, `_ai-template-modal.blade.php`, tests above.
+
+### 22.8 Reference picture = the picture decides (Johan, 2026-11-03)
+
+When a reference image is uploaded in "Create with AI": the **Ad size, Style, Design extras (incl. Key features as pills / must-include ticks) and "Match our existing templates"** are hidden and ignored - a note says so. The size is taken from the picture's shape (nearest ad size: wide = Facebook, square = Instagram, 2:3 = Poster, 9:16 = Story; the server decides, the form only mirrors it). Nothing is "unticked": every building block may be used (`AdTemplateMustIncludes::ALL_EXTRAS`), no style catalogue is sent, and the prompt tells the AI to rebuild the picture element for element (panels, photo arrangement, banner shapes, icon row, colours) using up to 40 elements, never copying the picture's words, names, prices, phone numbers or people - listing fields, tagline and a listing_note are used instead. Kept: the idea box, property types and the information ticks are hidden only where listed above (property types stay). Results show "Style: matched to your picture". Files: `_ai-template-modal.blade.php`, `AiTemplateBuilderService.php` (`generate`, `sizeFromPicture`, `extraKeys`, reference prompt), `AdTemplateMustIncludes.php`.
+
+### 22.9 Text-fit repair grows the box (2026-11-03)
+
+Found from the first reference-picture run on Staging (generation #4, Poster size): both AI tries were refused by the text-fit rule alone — small header/footer lines (agency name, website, suburb, status badge) whose boxes the AI had sized by eye, and which shrinking the font (floor 16, never below 70%) could not rescue for the longest realistic value ("Home Finders Coastal Property Group", "WWW.COASTALPROPERTYGROUP.CO.ZA").
+
+`AdLayoutValidator::checkTextFit()` now, when shrinking is not enough, GROWS the box (`growBoxToFit()`), keeping the biggest font that fits:
+- Grows only into free space: inside the canvas (12px margin), clear of every other word/picture box, and above the PPRA strip. It grows away from the side the words are anchored to (right-aligned grows leftwards) and spills to the other side only if needed. Copy that may wrap can also grow taller; single-line fields (price, phone, website, badge...) only grow wider.
+- Never changes what the words sit on: a text box wholly on a shape / colour block stays wholly on it, wholly off stays wholly off (`shapeRelation()`); otherwise it is refused as before.
+- The 16px minimum, the 30% shrink limit and the rule itself are unchanged; nothing is loosened. A box with no room to grow is still refused with the same numbers for the AI's retry.
+- Tests: `AiTemplateTextFitTest` (grow right, grow left for right-aligned, boxed-in refused, off-the-panel refused).
+- Known and NOT touched here: `separateOverlaps()` can push a box far off its place, and 8 older tests in `AiTemplateRepairTest` / `AiTemplateOverlapGuardTest` fail on unmodified Staging (they predate the text-fit rule and assert boxes the rule now refuses). Reported to the conductor.
+
+### 22.10 Agency-wide text is judged against the agency's own wording (2026-11-03)
+
+Found by replaying the AI's saved answers for generation #5 (reference-picture poster, agency 20 "Demo Agency Test"): the AI's footer put the agency name and website on a 214px panel, and the text-fit rule refused it for not fitting "Home Finders Coastal Property Group" / "WWW.COASTALPROPERTYGROUP.CO.ZA" — an invented long sample (and one particular agency's wording, against the multi-agency rule). No panel that size could ever satisfy it, so growing the box (§22.9) could not help.
+
+`agency_name`, `website` and `agency_phone` are agency-wide: the same words on every ad the agency makes, unlike a listing's title or price. `AdLayoutValidator::withAgencyCopy()` returns a validator that checks those three against the agency's real values (`agencies.name`, `website_url`, `phone`); `AiTemplateBuilderService::validatorFor($agencyId)` supplies them for AI template generation. A field the agency has no value for (e.g. no website) is not fit-checked. Listing fields (price, title, agent name, address...) keep their worst-case sample. Without an agency the old sample is used. Rendering is unchanged.
+- Tests: `AiTemplateTextFitTest` (agency wording used; the agency's own long wording still held to the box; empty website skipped; listing fields unchanged).
+- Replay proof: with agency 20's details the saved second answer validates; the first still has a genuine QR-code-on-address overlap (the AI's mistake, which its retry is told about).
+- Not touched: the overlap mover, and 5 older `AiTemplateBuilderTest` tests that fail on unmodified Staging.
+
+### 22.11 Overlaps: trim first; the mover bug; three tries for a reference picture (2026-11-03)
+
+Found by replaying generation #6's saved answers (reference-picture poster). Three separate faults, all in `AdLayoutValidator` / `AiTemplateBuilderService`:
+
+1. **The overlap mover moved a box again on every pass.** `separateOverlaps()` read box positions through an arrow function, which captures a COPY of the element list: after a box was moved it still reported the old position, so the same clash was "found" again and the box moved by the same step on all 12 passes (the suburb line ended 400px down the poster, onto the price panel). The lookup now reads the live list (`use (&$elements)`). This was the "pushes a colliding element hundreds of pixels" defect recorded earlier.
+2. **`clampTextToShapes()` could teleport words.** It moved text "wholly onto" a shape however far away it was; it now never moves words more than `CLAMP_MAX_MOVE` (48px) — a longer move is a different design and is left for the check to refuse.
+3. **New repair `trimOverlaps()` (runs before the text-fit repair).** Most clashes in a reference-matched poster are a box far bigger than its words need running into the next one. The box is trimmed on the side facing the neighbour (away from where its words are anchored where possible) when its longest realistic words still fit what is left, it still sits on the same panels, and it is a word box (never a picture / QR / logo / avatar). It may lower the font to `TRIM_MIN_FONT_SHARE` (50%) of the size the model chose, never under the 16px minimum. The text-fit repair keeps its own 30% limit, now measured from the model's original size.
+4. **Text-fit growth (§22.9)** now widens first (at any font down to the floor) and only adds height as a last resort, so one line cannot use up the vertical room the next line needs.
+5. **A reference-picture run gets three tries, not two** (`designDefaults`): 25–40 tightly packed boxes make one slip somewhere far likelier than in a free-style design. A try is only paid for when the ones before it failed.
+
+- Replay proof: generation #6's first saved answer (3 overlap errors) now validates; its second still fails honestly (the longest possible suburb cannot fit that header band).
+- Tests: `AiTemplateOverlapTrimTest` (trim, never clips words, font floor, a moved box moves once). `AiTemplateOverlapGuardTest` accepts "trimmed" as well as "moved" for the vacant-land clash. Two `AiTemplateRepairTest` cases that failed on untouched Staging now pass.
+- Still failing on untouched Staging and NOT touched: 11 older tests (`AiTemplateRepairTest` ×2, `AiTemplateOverlapGuardTest` ×4, `AiTemplateBuilderTest` ×5) written before the text-fit rule.
+
+### 22.12 The poster rendered flat — pill over the brush stroke, junk strip labels (2026-11-03)
+
+First reference-picture poster that got through (generation #7, template #5) was rendered in headless Chromium and compared with the picture. The AI had asked for the right pieces (slanted header panel, gold brush stroke, script "For Sale", mosaic, icon strip, agent panel) but three things flattened it:
+1. **The status badge's default red pill covered the brush stroke.** `status_badge` starts as an opaque red pill; the model wrote its script "For Sale" over a gold stroke without setting `bgOpacity` 0. New repair `clearPillsOverShapes()` (runs on the raw answer): a `status_badge` / `badge` for which the model set neither `bgColor` nor `bgOpacity`, sitting >=60% on top of a shape / colour block of its own (beneath it, solid, not page-sized), gets `bgOpacity` 0. A badge whose colours the model chose is never touched. The prompt's status_badge help now says so.
+2. **A script face was refused on the status badge** ("a script font is for a short headline") although "For Sale" is exactly that; `status_badge` joins `SCRIPT_OK_FIELDS` (same length / size rules).
+3. **The icon strip showed junk cells** ("1", "18119": listing values with no name). `stripCells()` now skips any label without three letters in a row.
+4. **Brush stroke band told to the AI**: the stroke paints only the middle ~30-70% of its box height with ragged ends; the prompt now says to size the box ~2.5x the words and keep words inside the band (no hard checker rule: that would have added refusals).
+- Proof: generation #7's saved answer, replayed through the fixed checker and rendered, shows the gold brush stroke with the script "For Sale". Tests: `AiTemplatePremiumLookTest`; `tests/js/ad-building-blocks.mjs` (junk strip labels).
+- Not changed (data, not design): an empty "note for this ad" leaves its dark panel empty; a listing without an agent photo / agency without a tagline or website leaves those spots blank.
+
+### 22.13 Making a reference-picture run more accurate (2026-11-03)
+
+Generation #10 (the best so far) still differed from the picture in three visible ways: navy where the picture is black and gold, the suburb on the photo below the brush stroke, and an icon strip with three widely spaced cells and a generic tick. Causes and fixes:
+1. **The brand colours overrode the picture.** `brandBlock()` told the model to "build the palette around" the agency's brand colours even when a picture was attached. With a reference picture (`pictureLeads`) it now says the PICTURE decides the colours and the brand colours are only a fallback for things the picture does not show.
+2. **No worked example.** `AdPosterExemplar` (Poster size only) is one tested, rendered gold-and-black poster built only from the allowed blocks, shown to the model as a finished answer by `referenceExample()` with a note that it teaches TECHNIQUE (brush-stroke box about 2.5x the words on it; `status_badge` on the stroke with `bgOpacity` 0; a suburb can be 38 characters so give it two lines; which way `cut_panel_left` leans; gradient fill is `shapeGradient`) and that every position, colour, font and count must come from the picture. It contains no agency's words (fields only) and is kept valid by `AdPosterExemplarTest`.
+3. **Panel direction was ambiguous** in the prompt; it now says `cut_panel_left` hugs the left with its right edge leaning inward at the bottom, `cut_panel_right` is its mirror.
+4. **Strip icons.** Lounge / living -> a sofa, blinds / curtains -> slats (kept in `STRIP_ONLY_ICONS`, not the public ICONS list the AI picks from, so no drift); "room" no longer swallows them. The picture's eight amenities now each get their own icon.
+5. `PROMPT_VERSION` -> `at456b10-v6-poster` (the column holds 18 characters: a longer label failed every generation in the tests).
+- The 38-character suburb worst case was kept: real listings reach it ("PORT SHEPSTONE CENTRAL, PORT SHEPSTONE").
+- Not proved: the effect on the AI's own answers needs a real run on Staging.

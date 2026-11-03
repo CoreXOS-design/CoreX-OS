@@ -90,6 +90,12 @@
                                     @else
                                         <span class="ds-badge ds-badge-default">Inactive</span>
                                     @endif
+                                    @if($agency->isSuspended())
+                                        <span class="ds-badge ds-badge-danger"
+                                              title="Suspended {{ $agency->suspended_at->diffForHumans() }}. Its users cannot sign in.">
+                                            Suspended
+                                        </span>
+                                    @endif
                                     @if($agency->isInMaintenance())
                                         <span class="ds-badge ds-badge-warning"
                                               title="Only System Owners can access this agency. Users see the maintenance screen after login.@if($agency->maintenance_started_at) Since {{ $agency->maintenance_started_at->diffForHumans() }}.@endif">
@@ -111,6 +117,18 @@
                                         <button type="submit" class="text-xs font-semibold"
                                                 style="color: {{ $agency->is_active ? 'var(--ds-amber)' : 'var(--ds-green)' }};">
                                             {{ $agency->is_active ? 'Disable' : 'Enable' }}
+                                        </button>
+                                    </form>
+                                    {{-- Suspend: blocks this agency's users from signing in (spec: agency-suspension). --}}
+                                    <form method="POST" action="{{ route('agencies.toggle-suspend', $agency) }}"
+                                          class="inline"
+                                          onsubmit="return confirm('{{ $agency->isSuspended()
+                                              ? 'Lift the suspension on agency &quot;'.e($agency->name).'&quot;? Its users will be able to sign in again.'
+                                              : 'SUSPEND agency &quot;'.e($agency->name).'&quot;? None of its users will be able to sign in, and anyone signed in is logged out. Nothing is deleted. You can lift it at any time.' }}');">
+                                        @csrf
+                                        <button type="submit" class="text-xs font-semibold"
+                                                style="color: {{ $agency->isSuspended() ? 'var(--ds-green)' : 'var(--ds-crimson)' }};">
+                                            {{ $agency->isSuspended() ? 'Lift suspension' : 'Suspend' }}
                                         </button>
                                     </form>
                                     {{-- Per-agency maintenance toggle (AT-93). Login stays up;

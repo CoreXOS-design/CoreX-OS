@@ -34,6 +34,10 @@ return [
     // Spec: .ai/specs/webinar-registration.md §4.3
     'corex_website_url'    => env('COREX_WEBSITE_URL', 'https://corexweb.co.za'),
 
+    // Platform support contact shown to an agency's users when the agency is suspended
+    // (.ai/specs/agency-suspension.md). Platform-level, not per-agency.
+    'support_email'        => env('COREX_SUPPORT_EMAIL', 'info@corexweb.co.za'),
+
     /*
     |--------------------------------------------------------------------------
     | Agency Public API — auth debug

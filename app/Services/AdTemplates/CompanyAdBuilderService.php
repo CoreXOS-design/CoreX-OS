@@ -579,7 +579,7 @@ final class CompanyAdBuilderService
 
         $limits   = $this->validator->promptLimits($w, $h, $forbidden, AdLayoutValidator::MODE_COMPANY);
         $auto     = $generation->style === AdTemplateStyles::AUTO || $generation->style === null;
-        $style    = $auto ? AdTemplateStyles::catalogueBlock((string) $generation->ad_size, $forbidden) : AdTemplateStyles::chosenBlock((string) $generation->style, (string) $generation->ad_size, $forbidden);
+        $style    = $auto ? AdTemplateStyles::catalogueBlock((string) $generation->ad_size, $forbidden, true) : AdTemplateStyles::chosenBlock((string) $generation->style, (string) $generation->ad_size, $forbidden);
         $styleOut = $auto ? ',"style":"<style key>"' : '';
         $brand    = $this->templates->brandBlock($agencyId);
         $ppra     = AdPpraFooter::promptBlock($w, $h);

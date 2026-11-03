@@ -52,6 +52,30 @@ class UserDocumentDownloadController extends Controller
         return $this->streamPath($path, $name);
     }
 
+    /**
+     * Agent's client-onboarding QR code as a PNG download (admin user page).
+     * Same gate as the other user downloads: the user themself, or a
+     * manage_users-type viewer in the same agency. Generated locally.
+     */
+    public function downloadQr(User $user, Request $request)
+    {
+        $this->authorizeAccess($request->user(), $user->id, $user->agency_id);
+
+        $png = (new \Endroid\QrCode\Writer\PngWriter())->write(new \Endroid\QrCode\QrCode(
+            data: $user->qrCodeUrl(),
+            errorCorrectionLevel: \Endroid\QrCode\ErrorCorrectionLevel::High,
+            size: 1024,
+            margin: 32,
+        ))->getString();
+
+        $name = \Illuminate\Support\Str::slug((string) $user->name) ?: 'agent';
+
+        return response($png, 200, [
+            'Content-Type'        => 'image/png',
+            'Content-Disposition' => 'attachment; filename="' . $name . '-qr-code.png"',
+        ]);
+    }
+
     private function authorizeAccess(?User $viewer, int $ownerUserId, ?int $ownerAgencyId): void
     {
         abort_unless($viewer, 403);
