@@ -374,10 +374,18 @@ class CampaignController extends Controller
         }
         $this->applyDateRange($query, $request, 'campaign_sends.created_at');
 
+        // Totals for the whole campaign (ignoring search/filters) - the one-click buttons above the table.
+        $totals = CampaignSend::where('campaign_id', $campaign->id)
+            ->selectRaw('count(*) as total, sum(status = ?) as sent, sum(status = ?) as failed, sum(status = ?) as sending, sum(status = ?) as unknown, '
+                . 'sum(bounced_at is not null) as bounced, sum(replied_at is not null) as replied, sum(unsubscribed_at is not null) as unsubscribed',
+                [CampaignSend::STATUS_SENT, CampaignSend::STATUS_FAILED, CampaignSend::STATUS_SENDING, CampaignSend::STATUS_UNKNOWN])
+            ->first();
+
         return [
             'rows' => $query->orderBy($sortCol, $dir)->orderByDesc('campaign_sends.id')->paginate(50)->withQueryString(),
             'sort' => $sortKey,
             'direction' => $dir,
+            'totals' => $totals,
         ];
     }
 

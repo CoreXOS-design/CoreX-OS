@@ -404,3 +404,7 @@ Asked for by the owner. Where this section differs from 9.3, this section wins.
 ## Short unsubscribe link (2026-11-03)
 
 The 64-character `?signature=` link looked like phishing in the email. New emails carry `/u/{send id}-{12 hex}` (about 38 characters), e.g. `https://corexos.co.za/u/1-3fa9c2e81b04`. The 12 hex are the first 12 characters of an HMAC (app key) of the send id; a wrong token shows the plain "not found" page. GET still never writes; POST unsubscribes and is also the `List-Unsubscribe` one-click target (`u/*` is CSRF-excepted like `campaign-unsubscribe/*`). The old long signed link keeps working for emails already sent.
+
+## Activity tab: totals buttons (2026-11-03)
+
+Above the Activity table: one button per outcome with the campaign-wide count (All, Sent, Failed always shown; Sending, Unknown, Bounced, Replied, Unsubscribed shown when above 0). Clicking one applies the existing Status filter. Counts ignore search/date filters. Failed rows already show the failure reason and attempt count in the Status column.

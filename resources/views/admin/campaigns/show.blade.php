@@ -167,6 +167,16 @@
         </div>
     @else
         @php $sort = $activity['sort']; $direction = $activity['direction']; @endphp
+        <div class="mt-2 flex-shrink-0 flex flex-wrap gap-2 text-xs" data-activity-totals>
+            @foreach([['', 'All', 'total'], ['sent', 'Sent', 'sent'], ['failed', 'Failed', 'failed'], ['sending', 'Sending', 'sending'], ['unknown', 'Unknown', 'unknown'], ['bounced', 'Bounced', 'bounced'], ['replied', 'Replied', 'replied'], ['unsubscribed', 'Unsubscribed', 'unsubscribed']] as [$sv, $sl, $sk])
+                @php $n = (int) ($activity['totals']->{$sk} ?? 0); $on = (string) request('status', '') === $sv; @endphp
+                @if($sk === 'total' || $n > 0 || in_array($sk, ['sent', 'failed'], true))
+                    <a href="{{ $tabUrl('activity') }}{{ $sv !== '' ? '&status=' . $sv : '' }}" data-total="{{ $sk }}" class="cmp-panel px-3 py-1.5 {{ $on ? 'font-semibold' : '' }}" @if($on) style="outline:2px solid currentColor;" @endif>
+                        {{ $sl }} <span class="cmp-muted">{{ number_format($n) }}</span>
+                    </a>
+                @endif
+            @endforeach
+        </div>
         <form method="GET" class="cmp-panel p-3 mt-2 flex-shrink-0 grid grid-cols-2 md:grid-cols-6 gap-2 items-end">
             <input type="hidden" name="tab" value="activity">
             <div class="col-span-2"><label class="cmp-label">Search</label><input type="search" name="q" value="{{ request('q') }}" placeholder="Lead, email or subject" class="cmp-input"></div>
