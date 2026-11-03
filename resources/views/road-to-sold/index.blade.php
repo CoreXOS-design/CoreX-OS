@@ -361,11 +361,19 @@
                                         @click="openHistory($el.dataset)">View</button>
                             @endif
                             @if($viewingOwn && $r['status'] === 'open' && ! empty($intakeProspects[$r['tracked_property_id']]))
-                                @php $stepKey = 'find_owner'; /* Belt v2: Today's work - Find owner (claims, opens the popup at Owner) */ @endphp
-                                <button type="button" class="corex-btn-outline corex-btn-xs" data-qa="intake-step" data-tracked="{{ isset($__pitchCards[(int) $r['tracked_property_id']]) ? $r['tracked_property_id'] : '' }}"
+                                @php
+                                    // Belt v2: the row's ONE button is the record's own stage button (the same map as the station lists): only a true Loaded row says Find owner (and claims first);
+                                    // a row on today's desk that is already past Loaded shows its real next step
+                                    $rowStage = (string) ($intakeStages[$r['tracked_property_id']] ?? 'found');
+                                    $rowStep = app(\App\Services\RoadToSold\ProspectStepService::class)->primary(['stage' => $rowStage], true);
+                                    $stepKey = $rowStep['key'];
+                                    $rowLabel = $rowStage === 'evaluation_done' ? 'Record result' : $rowStep['label'];
+                                @endphp
+                                <button type="button" class="corex-btn-outline corex-btn-xs" data-qa="intake-step" data-action="{{ $rowLabel }}" data-tracked="{{ isset($__pitchCards[(int) $r['tracked_property_id']]) ? $r['tracked_property_id'] : '' }}"
                                         data-step-url="{{ route('road-to-sold.prospects.step', [$intakeProspects[$r['tracked_property_id']], $stepKey]) }}"
-                                        data-step-label="{{ \App\Services\RoadToSold\ProspectStepService::LABELS[$stepKey] }} - {{ $r['address'] }}"
-                                        @click="$dispatch('rts-step', $el.dataset)">{{ \App\Services\RoadToSold\ProspectStepService::LABELS[$stepKey] }}</button>
+                                        data-step-label="{{ $rowLabel }} - {{ $r['address'] }}"
+                                        @if($rowStage === 'found' && ! empty($r['list_item_id']) && ($r['origin'] ?? '') !== 'follow_up') data-claim-url="{{ route('road-to-sold.claim-loaded', $r['list_item_id']) }}" @endif
+                                        @click="rtsClaimFirst($el)">{{ $rowLabel }}</button>
                             @endif
                             @if($viewingOwn && $r['status'] === 'open' && ! empty($r['list_item_id']) && ($r['origin'] ?? '') !== 'follow_up' && ! in_array((int) $r['tracked_property_id'], $startedTracked ?? [], true))
                                 {{-- 23.14 + Belt v2: swap this loaded property for the next one - the Stops here control (public/js/pitch-offramp.js), the step 1 "Not for me" reasons, counted at Today's work --}}

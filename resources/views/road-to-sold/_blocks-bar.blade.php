@@ -202,6 +202,27 @@
     </div>
 </div>
 <script>
+// Belt v2 (3 Nov): "Find owner" on a Today's work row CLAIMS first (cc1's LoadedRowClaimService: the record goes Loaded -> Claimed with a hold, in one transaction, idempotent), then opens the popup
+// at Owner. A refusal (someone else started first) is shown on the row and the popup does not open. A button without data-claim-url (a Claimed row, a later stage) just opens the popup.
+function rtsClaimFirst(btn, afterClaim) {
+    var open = function () { btn.dispatchEvent(new CustomEvent('rts-step', { detail: Object.assign({}, btn.dataset), bubbles: true })); };
+    var url = btn.dataset.claimUrl;
+    if (!url) { open(); if (afterClaim) afterClaim(); return; }
+    var host = btn.parentNode, msg = host.querySelector('[data-qa="claim-msg"]');
+    if (!msg) { msg = document.createElement('span'); msg.setAttribute('data-qa', 'claim-msg'); msg.setAttribute('role', 'alert'); msg.style.cssText = 'font-size:.75rem;font-weight:600;color:var(--ds-red,#f87171);margin-left:8px'; host.appendChild(msg); }
+    msg.textContent = ''; btn.disabled = true;
+    var token = document.querySelector('meta[name="csrf-token"]');
+    fetch(url, { method: 'POST', credentials: 'same-origin', headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest', 'X-CSRF-TOKEN': token ? token.content : '' } })
+        .then(function (r) { return r.json().then(function (j) { return { ok: r.ok && j.ok, j: j }; }); })
+        .then(function (x) {
+            btn.disabled = false;
+            if (!x.ok) { msg.textContent = (x.j && x.j.message) || 'We could not claim that just now. Try again.'; return; }
+            btn.removeAttribute('data-claim-url'); delete btn.dataset.claimUrl;
+            open();
+            if (afterClaim) afterClaim();
+        })
+        .catch(function () { btn.disabled = false; msg.textContent = 'We could not claim that just now. Try again.'; });
+}
 function rtsStepModal() {
     return {
         isOpen: false, label: '', opener: null, touched: false,

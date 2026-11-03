@@ -30,6 +30,8 @@
         })() : null, 'due_state' => $c['due_state'], 'due_words' => $c['due_words'], 'next_at' => $c['next_action_at'], 'days' => $c['days_in_stage'], 'reason' => $c['reason'], 'journey' => (object) $c['journey'],
         // v4 (23.12): ONE next action per station - Loaded / Claimed: Find owner; Owner found: Log contact; Contacted: Book evaluation; Booked / Prepared: Evaluation
         // feedback; Held: Result (it is never offered before the evaluation happened). Everything else sits behind "More".
+        // Belt v2: at Today's work (found) the primary Find owner CLAIMS first (cc1's claim-loaded endpoint, on the record's open list item)
+        'claim_url' => $c['stage'] === 'found' && ($__itemId = \App\Models\RoadToSold\RtsListItem::withoutGlobalScopes()->where('prospect_id', $c['id'])->where('status', 'open')->orderByDesc('id')->value('id')) ? route('road-to-sold.claim-loaded', $__itemId) : null,
         'primary_kind' => match (true) {
             in_array($c['stage'], ['evaluation_done', 'presentation_given', 'presentation_feedback'], true) => 'result',
             default => 'step',
@@ -196,8 +198,8 @@
                 <div class="flex items-center gap-2 flex-wrap" data-qa="card-actions">
                     @if($canWriteProspects)
                         <template x-if="card.primary_kind === 'step'">
-                            <button type="button" class="corex-btn-primary corex-btn-xs" data-qa="prospect-step" :data-step-url="card.step_url" :data-tracked="card.card ? card.tp : ''" :data-step-label="card.step_label + ' - ' + card.address"
-                                    @click="cardId = null; $dispatch('rts-step', $el.dataset)" x-text="card.step_label"></button>
+                            <button type="button" class="corex-btn-primary corex-btn-xs" data-qa="prospect-step" :data-step-url="card.step_url" :data-tracked="card.card ? card.tp : ''" :data-step-label="card.step_label + ' - ' + card.address" :data-claim-url="card.claim_url || ''"
+                                    @click="rtsClaimFirst($el, () => { cardId = null })" x-text="card.step_label"></button>
                         </template>
                         <template x-if="card.primary_kind === 'result'">
                             <button type="button" class="corex-btn-primary corex-btn-xs" data-qa="prospect-result" @click="openResult(card.id, card.address)">Record result</button>

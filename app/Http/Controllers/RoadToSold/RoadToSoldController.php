@@ -322,6 +322,11 @@ class RoadToSoldController extends Controller
             ? $own()->whereIn('rts_prospects.tracked_property_id', $intakeTrackedIds)->pluck('rts_prospects.id', 'rts_prospects.tracked_property_id')->map(fn ($v) => (int) $v)->all()
             : [];
 
+        // Belt v2: the stage of each intake row's record - the row's ONE button is always the record's own stage button, whichever list the row is on
+        $out['intakeStages'] = $block === 'intake' && $intakeTrackedIds !== []
+            ? $own()->whereIn('rts_prospects.tracked_property_id', $intakeTrackedIds)->pluck('rts_prospects.stage', 'rts_prospects.tracked_property_id')->map(fn ($v) => (string) $v)->all()
+            : [];
+
         // v4 (23.14): a row the agent has already started (its record is past Stock loaded) cannot be swapped, so it does not offer Swap at all
         $out['startedTracked'] = $block === 'intake' && $intakeTrackedIds !== []
             ? $own()->whereIn('rts_prospects.tracked_property_id', $intakeTrackedIds)->where('rts_prospects.stage', '!=', \App\Services\RoadToSold\ProspectStages::FOUND)

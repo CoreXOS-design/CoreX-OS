@@ -136,6 +136,72 @@ final class BeltV2RowButtonsTest extends TestCase
         $this->actingAs($this->agent)->postJson(route('road-to-sold.swap', $item->id), ['reason_key' => 'nonsense'])->assertStatus(422);
     }
 
+    public function test_a_row_on_todays_desk_that_is_already_past_loaded_shows_its_own_stage_button(): void
+    {
+        $expect = [S::CLAIMED => 'Find owner', S::OWNER_FOUND => 'Contact', S::CONTACTED => 'Book appointment', S::APPOINTMENT_SET => 'Prepare presentation', S::PRESENTATION_PREPARED => 'Appointment results', S::DRAFT => 'Make active'];
+        $n = 0;
+        foreach ($expect as $stage => $label) {
+            $tp = $this->tp(['street_name' => 'Desk Road ' . $stage, 'street_number' => (string) (++$n)]);
+            $p = app(ProspectService::class)->place($this->agent, (int) $tp->id, 'sales', ['stage' => $stage]);
+            RtsListItem::withoutGlobalScopes()->create([
+                'agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'user_id' => $this->agent->id, 'list_date' => '2026-10-14', 'track' => 'sales',
+                'tracked_property_id' => $tp->id, 'prospect_id' => $p->id, 'selection' => 'price_drops', 'origin' => 'auto', 'position' => $n, 'status' => 'open', 'reason' => 'x',
+            ]);
+        }
+        $html = $this->actingAs($this->agent)->get(route('road-to-sold.index'))->assertOk()->getContent();
+
+        foreach ($expect as $stage => $label) {
+            $this->assertMatchesRegularExpression('/data-qa="intake-step" data-action="' . preg_quote($label, '/') . '"[^>]*data-step-label="' . preg_quote($label, '/') . ' - /', $html, "$stage: $label");
+        }
+        $this->assertSame(0, substr_count($html, 'data-claim-url='), 'no past-Loaded row claims again');
+        $this->assertSame(0, substr_count($html, 'data-qa="swap-open"'), 'and none can be swapped');
+    }
+
+    public function test_find_owner_on_a_loaded_row_claims_first_and_a_refusal_is_shown_not_opened(): void
+    {
+        $tp = $this->tp(['street_name' => 'Claim Road', 'street_number' => '3']);
+        $listingId = $this->listing([], $tp);
+        $p = app(ProspectService::class)->place($this->agent, (int) $tp->id, 'sales', ['stage' => S::FOUND]);
+        $item = RtsListItem::withoutGlobalScopes()->create([
+            'agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'user_id' => $this->agent->id, 'list_date' => '2026-10-14', 'track' => 'sales',
+            'tracked_property_id' => $tp->id, 'prospect_id' => $p->id, 'prospecting_listing_id' => $listingId, 'selection' => 'price_drops', 'origin' => 'auto', 'position' => 1, 'status' => 'open', 'reason' => 'x',
+        ]);
+
+        // the row's Find owner carries the claim address and goes through rtsClaimFirst (claim, then the popup at Owner)
+        $html = $this->actingAs($this->agent)->get(route('road-to-sold.index'))->assertOk()->getContent();
+        $this->assertStringContainsString('data-claim-url="' . route('road-to-sold.claim-loaded', $item->id) . '"', $html);
+        $this->assertStringContainsString('rtsClaimFirst($el)', $html);
+        $this->assertStringContainsString("step: __sm ? (__sm[1] === 'find_owner' ? 'owner'", $html, 'the popup opens at Owner');
+
+        // the card's primary button at Loaded claims first too
+        $cards = $this->actingAs($this->agent)->get(route('road-to-sold.index', ['block' => 'prospects']))->assertOk()->getContent();
+        $this->assertStringContainsString('/list/' . $item->id . '/claim', str_replace(['\\u0022', '\\\\/', '\\/'], ['"', '/', '/'], html_entity_decode($cards)), 'the card carries the claim address');
+
+        $this->actingAs($this->agent)->postJson(route('road-to-sold.claim-loaded', $item->id))->assertOk()->assertJson(['ok' => true, 'already' => false, 'stage' => S::CLAIMED]);
+        $this->assertSame(S::CLAIMED, $p->fresh()->stage);
+        $this->assertDatabaseHas('prospecting_claims', ['prospecting_listing_id' => $listingId, 'user_id' => $this->agent->id, 'is_active' => 1]);   // the hold
+
+        // a Claimed row no longer carries the claim address: the button just opens the popup
+        $after = $this->actingAs($this->agent)->get(route('road-to-sold.index'))->assertOk()->getContent();
+        $this->assertStringNotContainsString('data-claim-url=', $after);
+        $this->actingAs($this->agent)->postJson(route('road-to-sold.claim-loaded', $item->id))->assertOk()->assertJson(['already' => true]);
+
+        // refusal: a colleague holds the file -> the message, no claim
+        $tp2 = $this->tp(['street_name' => 'Held Road', 'street_number' => '4']);
+        $p2 = app(ProspectService::class)->place($this->agent, (int) $tp2->id, 'sales', ['stage' => S::FOUND]);
+        $item2 = RtsListItem::withoutGlobalScopes()->create([
+            'agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'user_id' => $this->agent->id, 'list_date' => '2026-10-14', 'track' => 'sales',
+            'tracked_property_id' => $tp2->id, 'prospect_id' => $p2->id, 'selection' => 'price_drops', 'origin' => 'auto', 'position' => 2, 'status' => 'open', 'reason' => 'x',
+        ]);
+        // a colleague started on the file first (the service's own holder check says so)
+        $mate = $this->mate;
+        $this->mock(\App\Services\RoadToSold\ClaimBeltService::class, fn ($m) => $m->shouldReceive('holderOfFile')->andReturn((int) $mate->id));
+        $r = $this->actingAs($this->agent)->postJson(route('road-to-sold.claim-loaded', $item2->id))->assertStatus(422)->json();
+        $this->assertFalse($r['ok']);
+        $this->assertStringContainsString('Already held by', $r['message']);
+        $this->assertSame(S::FOUND, $p2->fresh()->stage);
+    }
+
     public function test_mic_says_claim_where_it_said_pitch_now(): void
     {
         $resolver = (string) file_get_contents(app_path('Services/Prospecting/SuggestedActionResolver.php'));
