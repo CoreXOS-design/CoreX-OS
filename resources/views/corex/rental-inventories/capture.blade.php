@@ -423,6 +423,14 @@
                 <p x-show="copyError" x-cloak class="text-xs" style="color:#ef4444;" x-text="copyError"></p>
                 @endif
 
+                {{-- .ai/specs/rental-inventory.md section 29 - every photo of this inventory at once: tick, select all, move to an inspection, delete, restore. --}}
+                @include('corex.partials.photo-bulk-manager', [
+                    'kind' => 'inventory', 'title' => 'All photos of this inventory',
+                    'listUrl' => route('corex.rental-inventories.photo-manager.index', $inventory),
+                    'targetsUrl' => route('corex.rental-inventories.photo-manager.targets', $inventory),
+                    'actUrl' => route('corex.rental-inventories.photo-manager.act', $inventory),
+                ])
+
                 {{-- §13.11 — every room stacked down the page, in the SAME
                      order the pill strip lists them. Each panel is
                      addressable by id (room-panel-N) for the pill strip's

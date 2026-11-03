@@ -4550,6 +4550,11 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.photos.untag');
         Route::delete('/{rentalInspection}/photos/{photo}', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'archivePhoto'])
             ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.photos.archive');
+        // .ai/specs/rental-inventory.md section 29 - the same bulk photo manager for an inspection: delete, restore, move to an inventory or another room.
+        Route::get('/{rentalInspection}/photo-manager', [\App\Http\Controllers\CoreX\RentalPhotoBulkController::class, 'inspectionIndex'])->name('corex.rental-inspections.photo-manager.index');
+        Route::get('/{rentalInspection}/photo-manager/targets', [\App\Http\Controllers\CoreX\RentalPhotoBulkController::class, 'inspectionTargets'])->name('corex.rental-inspections.photo-manager.targets');
+        Route::post('/{rentalInspection}/photo-manager/act', [\App\Http\Controllers\CoreX\RentalPhotoBulkController::class, 'inspectionAct'])
+            ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.photo-manager.act');
         // AT-433 Part C, .ai/specs/rental-inspections.md §25 — the photo-level
         // note (Defect/Wear and tear/Reference), full CRUD, own controller
         // (RentalInspectionPhotoNoteController), never the item/room-shaped
@@ -4704,6 +4709,11 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         // DELETE .../photos/{photo} exactly.
         Route::delete('/{rentalInventory}/photos/{photo}', [\App\Http\Controllers\CoreX\RentalInventoryCaptureController::class, 'archivePhoto'])
             ->middleware('permission:rental_inventories.create')->name('corex.rental-inventories.photos.destroy');
+        // .ai/specs/rental-inventory.md section 29 - the bulk photo manager: list a page, tick / select all N, delete, restore, move to an inspection.
+        Route::get('/{rentalInventory}/photo-manager', [\App\Http\Controllers\CoreX\RentalPhotoBulkController::class, 'inventoryIndex'])->name('corex.rental-inventories.photo-manager.index');
+        Route::get('/{rentalInventory}/photo-manager/targets', [\App\Http\Controllers\CoreX\RentalPhotoBulkController::class, 'inventoryTargets'])->name('corex.rental-inventories.photo-manager.targets');
+        Route::post('/{rentalInventory}/photo-manager/act', [\App\Http\Controllers\CoreX\RentalPhotoBulkController::class, 'inventoryAct'])
+            ->middleware('permission:rental_inventories.create')->name('corex.rental-inventories.photo-manager.act');
         // Audit 2026-10-19 B32 - one photo set per room: share the move-in inspection's photos of a room instead of photographing it again.
         Route::get('/{rentalInventory}/inspection-photos', [\App\Http\Controllers\CoreX\RentalInventoryCaptureController::class, 'inspectionPhotos'])
             ->middleware('permission:rental_inventories.create')->name('corex.rental-inventories.inspection-photos.index');
