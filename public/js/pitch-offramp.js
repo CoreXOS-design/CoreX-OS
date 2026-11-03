@@ -97,10 +97,13 @@
     window.CorexOffRamp = { mount: mount };
 
     // ---- the pitch popup: the control is added to the popup's own bar, the reasons unfold INSIDE the popup (never a floating panel) ------------------
+    // the popup's pills are keyed (owner, contact, evaluation, presentation, results, draft, active); the reasons are keyed by the nine-step numbers (Property = 1)
+    var STEP_OF_PILL = { property: 1, owner: 2, pitch: 3, contact: 4, evaluation: 5, presentation: 6, results: 7, draft: 8, active: 9 };
     function stepNow(back) {
-        var pills = [].slice.call(back.querySelectorAll('[data-qa="pitch-steps"] [data-step]'));
-        for (var i = 0; i < pills.length; i++) { if (pills[i].getAttribute('data-state') === 'current') return i + 1; }
-        return 1;
+        var cur = back.querySelector('[data-qa="pitch-steps"] [data-step][data-state="current"]');
+        if (cur && STEP_OF_PILL[cur.getAttribute('data-step')]) return STEP_OF_PILL[cur.getAttribute('data-step')];
+        var first = back.querySelector('[data-qa="pitch-steps"] [data-step]');
+        return first && STEP_OF_PILL[first.getAttribute('data-step')] ? STEP_OF_PILL[first.getAttribute('data-step')] : 1;
     }
     function identity() {
         var st = window.CorexPitch && window.CorexPitch._state ? window.CorexPitch._state() : null;
