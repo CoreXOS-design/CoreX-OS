@@ -3574,14 +3574,16 @@ function calendarPage() {
 
             this.$nextTick(() => {
                 const today = new Date().toISOString().slice(0, 10);
+                // road-to-sold.md 23.30: inside the pitch popup the server names the next working slot (never a time that has gone)
+                const slot = @js($pitchBookSlot ?? null);
                 this.form = {
                     // road-to-sold.md 23.23 drop 4: the pitch popup's Book evaluation step names the evaluation after the property
                     title: params.get('prefill_title') || '',
                     category: prefillClass || 'viewing',
-                    startDate: today,
-                    startTime: prefillClass === 'viewing' ? '14:00' : '09:00',
-                    endDate: today,
-                    endTime: prefillClass === 'viewing' ? '15:00' : '10:00',
+                    startDate: slot ? slot.start.date : today,
+                    startTime: slot ? slot.start.time : (prefillClass === 'viewing' ? '14:00' : '09:00'),
+                    endDate: slot ? slot.end.date : today,
+                    endTime: slot ? slot.end.time : (prefillClass === 'viewing' ? '15:00' : '10:00'),
                     description: '',
                     allDay: false,
                     sendReminder: true, reminderOffset: 60, reminderPopup: true, reminderEmail: false,

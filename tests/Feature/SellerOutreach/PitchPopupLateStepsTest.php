@@ -519,4 +519,90 @@ final class PitchPopupLateStepsTest extends TestCase
         $this->assertStringContainsString("'data-qa': 'pitch-deed'", $js);
         $this->assertStringContainsString("'Deed: '", $js);
     }
+
+    // ── road-to-sold.md 23.30: Prepared means a presentation exists; the booking form never opens on a time that has gone ──
+
+    public function test_prepared_is_written_when_the_presentation_exists_and_never_by_opening_or_abandoning_the_step(): void
+    {
+        $this->stage('appointment_set');
+        $events = fn () => DB::table('rts_prospect_events')->where('prospect_id', $this->prospect->id)->where('to_stage', 'presentation_prepared')->count();
+
+        // the step, the plan and the Generate window (the property page the step lands on) write nothing
+        $url = $this->plan('rts')['presentation'];
+        $to = $this->actingAs($this->agent)->get($url)->assertRedirect()->headers->get('Location');
+        $this->assertStringContainsString('generate_presentation=1', $to);
+        $this->assertSame('appointment_set', DB::table('rts_prospects')->where('id', $this->prospect->id)->value('stage'), 'opening the step is not preparing a presentation');
+
+        // a Generate that is turned away before a presentation exists (no property type) leaves the record where it was
+        DB::table('properties')->where('id', $this->propertyId)->update(['property_type' => '']);
+        $this->actingAs($this->agent)->postJson(route('corex.properties.generate-presentation', $this->propertyId), ['asking_price' => 1500000])->assertStatus(422);
+        $this->assertSame('appointment_set', DB::table('rts_prospects')->where('id', $this->prospect->id)->value('stage'));
+        $this->assertSame(0, $events());
+
+        // the presentation record is made: now, and only now, it is Prepared
+        $pres = \App\Models\Presentation::create(['agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'created_by_user_id' => $this->agent->id, 'property_id' => $this->propertyId,
+            'title' => 'P', 'property_address' => '25 Shepstone Avenue', 'status' => 'draft']);
+        event(new \App\Events\PresentationGenerated($pres, new \App\Models\PresentationVersion()));
+        $this->assertSame('presentation_prepared', DB::table('rts_prospects')->where('id', $this->prospect->id)->value('stage'));
+        $this->assertSame(1, $events());
+    }
+
+    /** @return array<string,array{0:string,1:string,2:string,3:?string}> now (agency time), expected date, expected time, hours "open-close" or null */
+    public static function slots(): array
+    {
+        return [
+            'mid-afternoon: the next whole hour' => ['2026-11-03 14:24', '2026-11-03', '15:00', null],
+            'on the hour: the hour after' => ['2026-11-03 10:00', '2026-11-03', '11:00', null],
+            'late afternoon, the hour would end after closing: tomorrow morning' => ['2026-11-03 16:30', '2026-11-04', '08:00', null],
+            'the last hour that still fits' => ['2026-11-03 15:05', '2026-11-03', '16:00', null],
+            'evening: the next working day' => ['2026-11-03 20:40', '2026-11-04', '08:00', null],
+            'before the day opens: the first slot of today' => ['2026-11-03 05:10', '2026-11-03', '08:00', null],
+            'Friday after hours: Monday' => ['2026-11-06 17:30', '2026-11-09', '08:00', null],
+            'Saturday: Monday' => ['2026-11-07 10:00', '2026-11-09', '08:00', null],
+            'the agent\'s own hours' => ['2026-11-03 07:30', '2026-11-03', '09:00', '09:00-18:00'],
+            'the agent\'s own hours, late' => ['2026-11-03 17:10', '2026-11-03', '18:00', '09:00-20:00'],
+        ];
+    }
+
+    /** @dataProvider slots */
+    public function test_the_next_working_slot_is_never_in_the_past(string $now, string $date, string $time, ?string $hours): void
+    {
+        if ($hours) {
+            [$a, $b] = explode('-', $hours);
+            DB::table('user_dashboard_settings')->updateOrInsert(['user_id' => $this->agent->id], ['working_hours_start' => $a . ':00', 'working_hours_end' => $b . ':00', 'created_at' => now(), 'updated_at' => now()]);
+        }
+        $tz = \App\Support\AppDate::agencyTimezone($this->agency);
+        $at = Carbon::parse($now, $tz);
+
+        $slot = app(\App\Services\CommandCenter\NextWorkingSlot::class)->for($this->agent, $at);
+
+        $this->assertSame($date . ' ' . $time, $slot['start']->format('Y-m-d H:i'));
+        $this->assertTrue($slot['start']->gt($at), 'never a time that has gone');
+        $this->assertSame(60, (int) $slot['start']->diffInMinutes($slot['end']));
+    }
+
+    public function test_a_public_holiday_is_not_a_working_day_for_the_slot(): void
+    {
+        DB::table('public_holidays')->insert(['country_code' => 'ZA', 'holiday_date' => '2026-11-10', 'name' => 'Test holiday', 'applies_to_year' => 2026, 'created_at' => now(), 'updated_at' => now()]);
+        $tz = \App\Support\AppDate::agencyTimezone($this->agency);
+
+        $slot = app(\App\Services\CommandCenter\NextWorkingSlot::class)->for($this->agent, Carbon::parse('2026-11-09 18:00', $tz));
+
+        $this->assertSame('2026-11-11 08:00', $slot['start']->format('Y-m-d H:i'));
+    }
+
+    public function test_the_booking_form_opens_on_that_slot_and_only_inside_the_popup(): void
+    {
+        $tz = \App\Support\AppDate::agencyTimezone($this->agency);
+        Carbon::setTestNow(Carbon::parse('2026-11-03 14:24', $tz));
+        $q = ['pitch_book' => 1, 'prefill_contact_id' => $this->owner->id, 'prefill_class' => 'property_evaluation'];
+
+        $popup = $this->actingAs($this->agent)->get(route('command-center.calendar', $q + ['embed' => 1]))->assertOk()->getContent();
+        $this->assertStringContainsString('startDate: slot ? slot.start.date', $popup);
+        $this->assertStringContainsString('\\u0022start\\u0022:{\\u0022date\\u0022:\\u00222026-11-03\\u0022,\\u0022time\\u0022:\\u002215:00\\u0022', $popup, 'the popup form opens on 15:00 today, not 09:00');
+        $this->assertStringNotContainsString('\\u0022time\\u0022:\\u002209:00\\u0022', $popup);
+
+        $plain = $this->actingAs($this->agent)->get(route('command-center.calendar', ['prefill_contact_id' => $this->owner->id, 'prefill_class' => 'property_evaluation']))->assertOk()->getContent();
+        $this->assertStringContainsString('const slot = null;', $plain, 'the calendar outside the popup is as it was');
+    }
 }

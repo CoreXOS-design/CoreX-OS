@@ -71,6 +71,10 @@ class CalendarController extends Controller
         // form fetches its own data, so none of the grid, deck or agenda is built or shown behind it
         $pitchBook = $pitchBook || ($request->filled('capture_feedback') && \App\Support\Embed::on());
         $request->attributes->set('pitch_book_slim', $pitchBook);
+        // road-to-sold.md 23.30: the Book evaluation form opens on the next working slot (the next whole hour inside working hours), never a time that has gone
+        $shared['pitchBookSlot'] = $request->boolean('pitch_book') && \App\Support\Embed::on()
+            ? array_map(fn ($t) => ['date' => $t->format('Y-m-d'), 'time' => $t->format('H:i')], app(\App\Services\CommandCenter\NextWorkingSlot::class)->for($user))
+            : null;
 
         // AT-164 Gate 4 — the Tile Deck (below the grid, all views).
         $shared['deck']        = $pitchBook ? [] : $this->tiles->buildDeck($user);
