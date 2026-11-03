@@ -148,13 +148,13 @@ final class TodaysWorkMechanicsTest extends TestCase
         Carbon::setTestNow(self::TUE . ' 00:05:00');
         $r = app(ListBuilderService::class)->closePastDays($this->agent, self::TUE);
 
-        $this->assertSame(2, $r['missed']);
+        $this->assertSame(1, $r['missed'], 'only the untouched row is missed');
         $this->assertSame(1, $r['released'], 'only the one that was never started');
         $this->assertSame(RtsListItem::STATUS_MISSED, $untouched->fresh()->status);
         $this->assertNotNull($pu->fresh()->released_at, 'back in the pool');
         $this->assertNull($pc->fresh()->released_at, 'a claimed property keeps its agent');
         $this->assertSame(1, $this->activeClaims($lc)->count());
-        $this->assertSame(RtsListItem::STATUS_MISSED, $claimedRow->fresh()->status, 'the row still closes as missed');
+        $this->assertSame(RtsListItem::STATUS_WORKED, $claimedRow->fresh()->status, 'Find owner was the work: the row is worked, never missed');
     }
 
     public function test_with_carry_over_on_an_untouched_row_moves_to_the_top_of_tomorrow_and_is_not_released(): void
@@ -212,5 +212,89 @@ final class TodaysWorkMechanicsTest extends TestCase
         $twice = DB::table('rts_prospects')->where('agency_id', $this->agency->id)->whereNull('released_at')->whereNull('closed_at')->whereNull('deleted_at')
             ->groupBy('tracked_property_id', 'track')->havingRaw('count(*) > 1')->pluck('tracked_property_id');
         $this->assertCount(0, $twice);
+    }
+
+    /** The addresses the agent's Today's work list shows (the home intake tab's read, every status). */
+    private function todaysWorkIds(?User $agent = null): array
+    {
+        $agent ??= $this->agent;
+        $page = app(\App\Services\RoadToSold\CallListService::class)->page($agent, (int) $agent->id, ['date' => self::MON, 'status' => 'all'], 'sales');
+
+        return collect($page['rows']->items())->pluck('list_item_id')->map(fn ($v) => (int) $v)->sort()->values()->all();
+    }
+
+    public function test_a_row_claimed_with_find_owner_leaves_todays_work_and_shows_in_claimed(): void
+    {
+        [$a] = $this->loaded($this->agent);
+        [$b] = $this->loaded($this->agent);
+        $this->assertSame([(int) $a->id, (int) $b->id], $this->todaysWorkIds(), 'both loaded rows are on the list');
+
+        app(LoadedRowClaimService::class)->claim($this->agent, (int) $a->id);
+
+        $this->assertSame([(int) $b->id], $this->todaysWorkIds(), 'the claimed row left Today\'s work; the untouched Loaded row stays');
+        $this->assertSame(RtsListItem::STATUS_WORKED, RtsListItem::query()->find($a->id)->status, 'Find owner is the first action, so the row is worked');
+        $claimed = app(\App\Services\RoadToSold\BeltService::class)->list($this->agent, 'claimed', ['date' => self::MON], 'sales');
+        $this->assertSame(1, $claimed['rows']->total(), 'it lives in the Claimed box');
+    }
+
+    public function test_a_row_moved_on_by_the_old_rule_or_a_logged_result_also_leaves_todays_work(): void
+    {
+        [$row, $p] = $this->loaded($this->agent);
+        $this->assertSame([(int) $row->id], $this->todaysWorkIds());
+        app(ProspectService::class)->advance($p, ProspectStages::CLAIMED, $this->agent, ['event_class' => 'Test', 'note' => 'old rule']);   // the row is still "open"
+
+        $this->assertSame([], $this->todaysWorkIds(), 'a property that is no longer at Loaded is not on Today\'s work');
+    }
+
+    public function test_a_swapped_row_leaves_todays_work(): void
+    {
+        [$a] = $this->loaded($this->agent);
+        [$b] = $this->loaded($this->agent);
+
+        app(ListBuilderService::class)->swap($this->agent, (int) $a->id, 'Not for me: wrong area', 'not_for_me_wrong_area', 'Wrong area');
+
+        $this->assertSame([(int) $b->id], $this->todaysWorkIds());
+    }
+
+    public function test_the_tile_keeps_the_day_score_n_to_do_and_k_of_n_worked(): void
+    {
+        $rows = collect(range(1, 5))->map(fn () => $this->loaded($this->agent)[0]);
+        $belt = app(\App\Services\RoadToSold\BeltService::class);
+        $day = Carbon::parse(self::MON);
+        $this->assertSame([5, 0, 5], $belt->loadedFigures($this->agent, $day, 'sales'), '5 to do, 0 of 5 worked');
+
+        app(LoadedRowClaimService::class)->claim($this->agent, (int) $rows[0]->id);
+
+        $this->assertSame([4, 1, 5], $belt->loadedFigures($this->agent, $day, 'sales'), '4 to do, 1 of 5 worked');
+        $tile = collect($belt->tiles($this->agent, $this->agent, 'sales', $day, []))->firstWhere('key', 'loaded');
+        $this->assertSame('4 to do', $tile['lines'][0]['text']);
+        $this->assertSame('1 of 5 worked', $tile['lines'][1]['text']);
+
+        // a swap with a reason is work done too: the row left the day, the figure still reads out of the same five
+        app(ListBuilderService::class)->swap($this->agent, (int) $rows[1]->id, 'Not for me: wrong area', 'not_for_me_wrong_area', 'Wrong area');
+        [$todo, $worked, $load] = $belt->loadedFigures($this->agent, $day, 'sales');
+        $this->assertSame(3, $todo);
+        $this->assertSame(2, $worked);
+        $this->assertSame(5, $load);
+    }
+
+    public function test_the_midnight_job_does_not_count_a_started_row_as_missed(): void
+    {
+        [$claimedRow, $p] = $this->loaded($this->agent);
+        app(LoadedRowClaimService::class)->claim($this->agent, (int) $claimedRow->id);
+        [$oldRule, $p2] = $this->loaded($this->agent);
+        app(ProspectService::class)->advance($p2, ProspectStages::CLAIMED, $this->agent, ['event_class' => 'Test', 'note' => 'old rule']);   // left open by the old rule
+        [$untouched, $p3] = $this->loaded($this->agent);
+
+        Carbon::setTestNow(self::TUE . ' 00:05:00');
+        $r = app(ListBuilderService::class)->closePastDays($this->agent, self::TUE);
+
+        $this->assertSame(1, $r['missed'], 'only the untouched row is missed');
+        $this->assertSame(RtsListItem::STATUS_WORKED, RtsListItem::query()->find($claimedRow->id)->status);
+        $this->assertSame(RtsListItem::STATUS_WORKED, RtsListItem::query()->find($oldRule->id)->status);
+        $this->assertSame(RtsListItem::STATUS_MISSED, RtsListItem::query()->find($untouched->id)->status);
+        $this->assertNull($p->fresh()->released_at);
+        $this->assertNull($p2->fresh()->released_at);
+        $this->assertNotNull($p3->fresh()->released_at);
     }
 }

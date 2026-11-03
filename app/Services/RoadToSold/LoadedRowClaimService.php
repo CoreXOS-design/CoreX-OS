@@ -37,7 +37,7 @@ class LoadedRowClaimService
         if (! $item || $agencyId <= 0) {
             throw new InvalidArgumentException('That property is not on your list.');
         }
-        if ($item->status !== RtsListItem::STATUS_OPEN) {
+        if (! in_array($item->status, [RtsListItem::STATUS_OPEN, RtsListItem::STATUS_WORKED], true)) {
             throw new InvalidArgumentException('That property has already been dealt with.');
         }
         $prospect = $item->prospect_id ? RtsProspect::query()->find($item->prospect_id) : null;
@@ -46,7 +46,12 @@ class LoadedRowClaimService
             throw new InvalidArgumentException('That property is not on your Road to Sold yet.');
         }
         if ($prospect->stage !== ProspectStages::FOUND) {
+            $this->markStarted($item);   // a row left open by the old rule: the property has moved on, so the row is worked
+
             return ['ok' => true, 'message' => 'Already claimed.', 'prospect' => $prospect, 'claim' => null, 'already' => true];
+        }
+        if ($item->status === RtsListItem::STATUS_WORKED) {
+            throw new InvalidArgumentException('That property has already been dealt with.');
         }
         if ($prospect->closed_at !== null || $prospect->released_at !== null) {
             throw new InvalidArgumentException('That property is no longer on your list.');
@@ -62,7 +67,9 @@ class LoadedRowClaimService
         $listingId = $this->listingFor($agencyId, $trackedId, $item->prospecting_listing_id ?: $prospect->prospecting_listing_id);
 
         $claim = null;
-        $moved = DB::transaction(function () use ($agent, $ownerId, $agencyId, $prospect, $listingId, &$claim) {
+        $moved = DB::transaction(function () use ($agent, $ownerId, $agencyId, $prospect, $listingId, $item, &$claim) {
+            // the first action on the row is the work: it counts as worked on the day's tile and the midnight job leaves it alone (23.30.3)
+            $this->markStarted($item);
             if ($listingId !== null) {
                 // same write as a hand-claim in Market Intelligence (MarketIntelligenceController::claim): the observer raises ClaimCreated, the listener puts it on the belt
                 $claim = ProspectingClaim::create([
@@ -83,6 +90,13 @@ class LoadedRowClaimService
         });
 
         return ['ok' => true, 'message' => 'Claimed - it is now yours to find the owner.', 'prospect' => $moved, 'claim' => $claim, 'already' => false];
+    }
+
+    private function markStarted(RtsListItem $item): void
+    {
+        if ($item->status === RtsListItem::STATUS_OPEN) {
+            $item->forceFill(['status' => RtsListItem::STATUS_WORKED, 'status_changed_at' => now()])->save();
+        }
     }
 
     /** The advert the claim sits on: the row's own, else the newest live advert of the property file. */

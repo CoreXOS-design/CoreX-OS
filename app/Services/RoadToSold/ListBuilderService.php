@@ -677,6 +677,12 @@ class ListBuilderService
 
         DB::transaction(function () use ($open, $user, $agencyId, $track, $settings, $target, &$result) {
             foreach ($open as $item) {
+                // a row whose property has already left Loaded (claimed by the old rule, or started some other way) was started: it is worked, never missed or released
+                $p = $item->prospect_id ? \App\Models\RoadToSold\RtsProspect::query()->find($item->prospect_id) : null;
+                if ($p && $p->stage !== ProspectStages::FOUND && $item->origin !== RtsListItem::ORIGIN_FOLLOW_UP) {
+                    $item->forceFill(['status' => RtsListItem::STATUS_WORKED, 'status_changed_at' => now()])->save();
+                    continue;
+                }
                 $rolls = $settings->rollsOver && $target !== null && $item->origin === RtsListItem::ORIGIN_AUTO;
                 if ($rolls) {
                     $candidate = new Candidate(

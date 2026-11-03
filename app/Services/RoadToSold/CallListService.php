@@ -89,6 +89,10 @@ class CallListService
             if ($status !== 'all') {
                 $q->where('rts_list_items.status', $status);
             }
+            // 23.30.3 (3 Nov, Johan): Today's work lists only what is still at Loaded. The moment Find owner or Swap is pressed the property lives in its own
+            // stage box and leaves this list (one record, one box). A follow-up is the promise of a call-back on a property that is already further along, so it stays.
+            $q->where(fn ($w) => $w->where('rts_list_items.origin', RtsListItem::ORIGIN_FOLLOW_UP)->orWhereNull('rts_list_items.prospect_id')
+                ->orWhereIn('rts_list_items.prospect_id', fn ($s) => $s->select('id')->from('rts_prospects')->where('stage', ProspectStages::FOUND)));
             if ($selection) {
                 $q->where('rts_list_items.selection', $selection);
             }

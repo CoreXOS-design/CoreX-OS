@@ -211,7 +211,7 @@ final class ConveyorTilesTest extends TestCase
         $t = $this->tiles();
         $this->assertSame(1, $t['loaded']['todo'], 'the claimed one is to do at Claimed, not twice');
         $this->assertSame(1, $t['claimed']['todo']);
-        $this->assertSame('0 of 2 worked', $t['loaded']['lines'][1]['text'], 'but it is part of the day\'s load');
+        $this->assertSame('1 of 2 worked', $t['loaded']['lines'][1]['text'], 'it is part of the day\'s load, and starting on it is work done');
     }
 
     // ── scoping ───────────────────────────────────────────────────────────

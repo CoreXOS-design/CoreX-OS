@@ -136,7 +136,7 @@ final class BeltV2RowButtonsTest extends TestCase
         $this->actingAs($this->agent)->postJson(route('road-to-sold.swap', $item->id), ['reason_key' => 'nonsense'])->assertStatus(422);
     }
 
-    public function test_a_row_on_todays_desk_that_is_already_past_loaded_shows_its_own_stage_button(): void
+    public function test_a_row_whose_property_is_already_past_loaded_is_not_on_todays_work(): void
     {
         $expect = [S::CLAIMED => 'Find owner', S::OWNER_FOUND => 'Contact', S::CONTACTED => 'Book appointment', S::APPOINTMENT_SET => 'Prepare presentation', S::PRESENTATION_PREPARED => 'Appointment results', S::DRAFT => 'Make active'];
         $n = 0;
@@ -150,11 +150,11 @@ final class BeltV2RowButtonsTest extends TestCase
         }
         $html = $this->actingAs($this->agent)->get(route('road-to-sold.index'))->assertOk()->getContent();
 
-        foreach ($expect as $stage => $label) {
-            $this->assertMatchesRegularExpression('/data-qa="intake-step" data-action="' . preg_quote($label, '/') . '"[^>]*data-step-label="' . preg_quote($label, '/') . ' - /', $html, "$stage: $label");
-        }
-        $this->assertSame(0, substr_count($html, 'data-claim-url='), 'no past-Loaded row claims again');
-        $this->assertSame(0, substr_count($html, 'data-qa="swap-open"'), 'and none can be swapped');
+        // 23.30.3 (Johan, 3 Nov 14:33): Today's work shows only what is still at Loaded; a property further along lives in its own stage box
+        $this->assertSame(0, substr_count($html, 'data-qa="intake-step"'), 'no past-Loaded row is on Today\'s work');
+        $this->assertStringNotContainsString('Desk Road', $html);
+        $this->assertSame(0, substr_count($html, 'data-claim-url='));
+        $this->assertSame(0, substr_count($html, 'data-qa="swap-open"'));
     }
 
     public function test_find_owner_on_a_loaded_row_claims_first_and_a_refusal_is_shown_not_opened(): void

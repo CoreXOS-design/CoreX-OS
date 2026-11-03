@@ -193,9 +193,10 @@ final class BeltService
     }
 
     /**
-     * Stock loaded, the conveyor way (23.24): what is still to do on the day's list, and how many of the day's load are worked. A loaded record that is already CLAIMED
-     * (the day feed puts the agent's claims first) is worked at its own station, so it is not counted twice as "to do" - it counts once, at Claimed - but it is part of the
-     * day's load, so it stays in "n of N worked", the same numbers as the header line.
+     * Stock loaded, the conveyor way (23.24, 23.30.3). "To do" = the day's properties still untouched at Loaded. "Worked" = the ones the agent has started on today: Find owner
+     * (the record has left Loaded - it now lives in its own stage box), a result logged, or a Swap with a reason (the row left the day). A property taken by another agent's claim is
+     * not the agent's doing, so it is in neither figure. The day's load is every property that was on the desk today: the rows still there plus the agent's own swapped-out rows,
+     * so "k of N worked" reads the same however the day went.
      *
      * @return array{0:int,1:int,2:int} to do, worked, the day's load
      */
@@ -205,12 +206,25 @@ final class BeltService
         $stages = $items->pluck('prospect_id')->filter()->isEmpty() ? collect()
             : DB::table('rts_prospects')->whereIn('id', $items->pluck('prospect_id')->filter()->all())->pluck('stage', 'id');
         $counting = $items->reject(fn ($i) => in_array($i->origin, [RtsListItem::ORIGIN_ADDED, RtsListItem::ORIGIN_FOLLOW_UP], true));
-        $todo = $items->filter(fn ($i) => $i->status === RtsListItem::STATUS_OPEN && $i->origin !== RtsListItem::ORIGIN_FOLLOW_UP
-            && ($i->prospect_id === null || ! isset($stages[$i->prospect_id]) || $stages[$i->prospect_id] === ProspectStages::FOUND))->count();
-        $worked = $counting->where('status', RtsListItem::STATUS_WORKED)->count();
-        $load = $counting->count() ?: $this->workdays->targetFor($agent, $day, $track);
+        $leftLoaded = fn ($i) => $i->prospect_id !== null && isset($stages[$i->prospect_id]) && $stages[$i->prospect_id] !== ProspectStages::FOUND;
+        $todo = $items->filter(fn ($i) => $i->status === RtsListItem::STATUS_OPEN && $i->origin !== RtsListItem::ORIGIN_FOLLOW_UP && ! $leftLoaded($i))->count();
+        $swapped = $this->ownSwapsToday($agent, $day, $track);
+        $worked = $counting->filter(fn ($i) => $i->status === RtsListItem::STATUS_WORKED || ($i->status === RtsListItem::STATUS_OPEN && $leftLoaded($i)))->count() + $swapped;
+        $load = ($counting->count() + $swapped) ?: $this->workdays->targetFor($agent, $day, $track);
 
         return [$todo, $worked, (int) $load];
+    }
+
+    /** The day's rows the agent swapped out with a reason (not the ones another agent's claim took away). */
+    private function ownSwapsToday(User $agent, Carbon $day, string $track): int
+    {
+        return RtsListItem::query()->withoutGlobalScopes()->where('rts_list_items.agency_id', (int) ($agent->effectiveAgencyId() ?: 0))
+            ->where('rts_list_items.user_id', $agent->id)->where('rts_list_items.track', $track)
+            ->whereDate('rts_list_items.list_date', $day->toDateString())->whereNull('rts_list_items.deleted_at')
+            ->where('rts_list_items.status', RtsListItem::STATUS_SWAPPED)
+            ->whereNotIn('rts_list_items.origin', [RtsListItem::ORIGIN_ADDED, RtsListItem::ORIGIN_FOLLOW_UP])
+            ->get(['rts_list_items.reason_facts'])
+            ->reject(fn ($i) => isset(($i->reason_facts ?? [])['claimed_by']))->count();
     }
 
     /**
