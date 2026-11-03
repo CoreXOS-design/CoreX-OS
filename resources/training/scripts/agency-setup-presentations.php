@@ -7,6 +7,8 @@
 return [
     'key' => 'agency-setup-presentations',
     'title' => 'Set up your evaluations',
+    // route: none on purpose - all the Setup Wizard steps share the route name corex.agency-setup.step, so a route match would pick the wrong step's video.
+    // The "Watch how" button finds this one by its url below (TrainingScriptRepository::forPath).
     'url' => '/corex/agency-setup/step/presentations',
     'specs' => ['.ai/specs/agency-onboarding-setup.md'],
     'audience' => [],
