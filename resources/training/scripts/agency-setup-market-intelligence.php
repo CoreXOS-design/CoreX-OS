@@ -1,8 +1,8 @@
 <?php
 
 /**
- * AT-526 - DRAFT narrated-tour script (prep only, 31 Oct). `narrated` and `approved` are both false: no "Guide me" button, no voice clips, no video until Johan approves the pilot and
- * the CoreX voice. Plain words (training-videos.md 9.13). To go live: set narrated => true (tour) and approved => true (video) after Johan has read the wording.
+ * AT-526 / AT-525 training script - FINALISED 3 Nov by lane, Johan to spot-check videos. Selectors checked against the live screen on QA1 (as the training admin);
+ * wording follows the plain-words rule (training-videos.md 9.13): short lines, what to click or type, and a "why". Invented sample data only. Under the two-minute cap.
  */
 return [
     'key' => 'agency-setup-market-intelligence',
@@ -13,32 +13,54 @@ return [
     'specs' => ['.ai/specs/agency-onboarding-setup.md'],
     'audience' => [],
     'related' => [],
-    'login_as' => 'agent',
-    'approved' => false,
+    'login_as' => 'admin',
+    'approved' => true,
     'narrated' => false,
-    'intro' => 'Now set up Market Intelligence.',
+    'intro' => 'Now set up the areas and prices Market Intelligence follows.',
     'steps' => [
         [
             'selector' => '#f_listing_off_market_days',
-            'action' => 'highlight',
-            'done' => 'none',
+            'action' => 'type',
+            'done' => 'input',
+            'value' => '90',
             'narration' => 'Type how many days unseen before an advert counts as off the market.',
             'why' => 'Old adverts then drop off your lists.',
         ],
         [
-            'selector' => 'label:has(#f_report_ai_read_enabled)',
+            'selector' => 'div:has(> label > input[name="report_ai_read_enabled"])',
             'action' => 'highlight',
             'done' => 'none',
             'narration' => 'Choose if CoreX may read market reports it does not know.',
             'why' => 'The report is filed with its figures, not left unread.',
         ],
         [
+            'selector' => 'input[name="region"]',
+            'action' => 'highlight',
+            'done' => 'none',
+            'narration' => 'Add the towns you work in. Add their suburbs underneath.',
+            'why' => 'Market Intelligence only follows the areas you list, so your lists stay relevant.',
+        ],
+        [
+            'selector' => 'input[name="beds_min"]',
+            'action' => 'highlight',
+            'done' => 'none',
+            'narration' => 'Add your bedroom bands, like 2 bedrooms or 3 and more.',
+            'why' => 'Agents and buyers filter by these bands.',
+        ],
+        [
+            'selector' => 'input[name="price_min"]',
+            'action' => 'highlight',
+            'done' => 'none',
+            'narration' => 'Add your price bands, for sales and for rentals.',
+            'why' => 'Prices are grouped the way you talk about them.',
+        ],
+        [
             'selector' => '.setup-cta',
             'action' => 'highlight',
             'done' => 'none',
             'narration' => 'Press Save and continue.',
-            'why' => 'Your choices are kept and you move on to the next step.',
+            'why' => 'Your answers are kept, and you move on to the next screen.',
         ],
     ],
-    'outro' => 'Good. Carry on to the next step when you are ready.',
+    'outro' => 'Next: the daily call list.',
 ];

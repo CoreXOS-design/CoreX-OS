@@ -1,8 +1,8 @@
 <?php
 
 /**
- * AT-526 - DRAFT narrated-tour script (prep only, 31 Oct). `narrated` and `approved` are both false: no "Guide me" button, no voice clips, no video until Johan approves the pilot and
- * the CoreX voice. Plain words (training-videos.md 9.13). To go live: set narrated => true (tour) and approved => true (video) after Johan has read the wording.
+ * AT-526 / AT-525 training script - FINALISED 3 Nov by lane, Johan to spot-check videos. Selectors checked against the live screen on QA1 (as the training admin);
+ * wording follows the plain-words rule (training-videos.md 9.13): short lines, what to click or type, and a "why". Invented sample data only. Under the two-minute cap.
  */
 return [
     'key' => 'agency-setup-roles',
@@ -13,25 +13,39 @@ return [
     'specs' => ['.ai/specs/agency-onboarding-setup.md'],
     'audience' => [],
     'related' => [],
-    'login_as' => 'agent',
-    'approved' => false,
+    'login_as' => 'admin',
+    'approved' => true,
     'narrated' => false,
     'intro' => 'This screen explains roles. There is nothing to fill in.',
     'steps' => [
         [
-            'selector' => 'main h3',
+            'selector' => '#wizard-step-form .space-y-6 > div:nth-child(1)',
             'action' => 'highlight',
             'done' => 'none',
             'narration' => 'These are the roles your agency starts with.',
             'why' => 'Each role decides what a person can see and do.',
         ],
         [
+            'selector' => '#wizard-step-form .space-y-6 > div:nth-child(2)',
+            'action' => 'highlight',
+            'done' => 'none',
+            'narration' => 'Here is an example. Add a new agent, and give them the Agent role.',
+            'why' => 'You set nothing else up, because the role already has the right access.',
+        ],
+        [
+            'selector' => '#wizard-step-form .space-y-6 > div:nth-child(3)',
+            'action' => 'highlight',
+            'done' => 'none',
+            'narration' => 'Roles say what a person may do. Offices say whose records they may see.',
+            'why' => 'The two together keep each agent to their own work.',
+        ],
+        [
             'selector' => '.setup-cta',
             'action' => 'highlight',
             'done' => 'none',
             'narration' => 'Press Save and continue.',
-            'why' => 'Your choices are kept and you move on to the next step.',
+            'why' => 'There is nothing to save here, so you simply move on.',
         ],
     ],
-    'outro' => 'Next, learn how to create a role in Role Manager.',
+    'outro' => 'Next: learn how to create a role in Role Manager.',
 ];

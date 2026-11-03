@@ -1,8 +1,8 @@
 <?php
 
 /**
- * AT-526 - DRAFT narrated-tour script (prep only, 31 Oct). `narrated` and `approved` are both false: no "Guide me" button, no voice clips, no video until Johan approves the pilot and
- * the CoreX voice. Plain words (training-videos.md 9.13). To go live: set narrated => true (tour) and approved => true (video) after Johan has read the wording.
+ * AT-526 / AT-525 training script - FINALISED 3 Nov by lane, Johan to spot-check videos. Selectors checked against the live screen on QA1 (as the training admin);
+ * wording follows the plain-words rule (training-videos.md 9.13): short lines, what to click or type, and a "why". Invented sample data only. Under the two-minute cap.
  */
 return [
     'key' => 'agency-setup-road-to-sold',
@@ -13,46 +13,65 @@ return [
     'specs' => ['.ai/specs/agency-onboarding-setup.md'],
     'audience' => [],
     'related' => [],
-    'login_as' => 'agent',
-    'approved' => false,
+    'login_as' => 'admin',
+    'approved' => true,
     'narrated' => false,
     'intro' => 'Now set up the daily list of properties to phone.',
     'steps' => [
         [
             'selector' => '#f_default_target_1',
-            'action' => 'highlight',
-            'done' => 'none',
+            'action' => 'type',
+            'done' => 'input',
+            'value' => '5',
             'narration' => 'Type how many properties an agent works on a Monday.',
             'why' => 'The daily list is measured against it.',
         ],
         [
             'selector' => '#f_default_target_6',
-            'action' => 'highlight',
-            'done' => 'none',
+            'action' => 'type',
+            'done' => 'input',
+            'value' => '0',
             'narration' => 'Type zero for a day nobody works.',
-            'why' => 'Then no list is made for that day.',
+            'why' => 'No list is made for that day.',
         ],
         [
             'selector' => '#f_default_monthly_points',
-            'action' => 'highlight',
-            'done' => 'none',
+            'action' => 'type',
+            'done' => 'input',
+            'value' => '100',
             'narration' => 'Type the monthly points target for an agent.',
             'why' => 'Managers can see who is on track.',
         ],
         [
             'selector' => '#f_default_monthly_deals',
-            'action' => 'highlight',
-            'done' => 'none',
+            'action' => 'type',
+            'done' => 'input',
+            'value' => '2',
             'narration' => 'Type the monthly deals target.',
             'why' => 'It shows what a good month looks like.',
+        ],
+        [
+            'selector' => 'div:has(> label > input[name="lock_agents_to_areas"])',
+            'action' => 'highlight',
+            'done' => 'none',
+            'narration' => 'Choose if agents stay inside their own areas.',
+            'why' => 'Two agents do not chase the same owner.',
+        ],
+        [
+            'selector' => '#f_hold_days',
+            'action' => 'type',
+            'done' => 'input',
+            'value' => '30',
+            'narration' => 'Type how many days an agent keeps a property after a call.',
+            'why' => 'It gives the agent time to follow up before a colleague can step in.',
         ],
         [
             'selector' => '.setup-cta',
             'action' => 'highlight',
             'done' => 'none',
             'narration' => 'Press Save and continue.',
-            'why' => 'Your choices are kept and you move on to the next step.',
+            'why' => 'Your answers are kept, and you move on to the next screen.',
         ],
     ],
-    'outro' => 'Good. Carry on to the next step when you are ready.',
+    'outro' => 'Next: your contacts.',
 ];

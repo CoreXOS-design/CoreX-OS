@@ -1,8 +1,8 @@
 <?php
 
 /**
- * AT-526 - DRAFT narrated-tour script (prep only, 31 Oct). `narrated` and `approved` are both false: no "Guide me" button, no voice clips, no video until Johan approves the pilot and
- * the CoreX voice. Plain words (training-videos.md 9.13). To go live: set narrated => true (tour) and approved => true (video) after Johan has read the wording.
+ * AT-526 / AT-525 training script - FINALISED 3 Nov by lane, Johan to spot-check videos. Selectors checked against the live screen on QA1 (as the training admin);
+ * wording follows the plain-words rule (training-videos.md 9.13): short lines, what to click or type, and a "why". Invented sample data only. Under the two-minute cap.
  */
 return [
     'key' => 'agency-setup-properties',
@@ -13,11 +13,19 @@ return [
     'specs' => ['.ai/specs/agency-onboarding-setup.md'],
     'audience' => [],
     'related' => [],
-    'login_as' => 'agent',
-    'approved' => false,
+    'login_as' => 'admin',
+    'approved' => true,
     'narrated' => false,
     'intro' => 'Now set up how your property list behaves.',
     'steps' => [
+        [
+            'selector' => '#f_properties_per_page',
+            'action' => 'type',
+            'done' => 'input',
+            'value' => '20',
+            'narration' => 'Type how many properties load on a page.',
+            'why' => 'A smaller number loads faster on a phone.',
+        ],
         [
             'selector' => '#f_mandate_expiry_warn_days',
             'action' => 'type',
@@ -27,33 +35,41 @@ return [
             'why' => 'They can renew it before you lose the listing.',
         ],
         [
-            'selector' => 'label:has(input[type="checkbox"][name="mandate_expiry_lock_enabled"])',
+            'selector' => 'div:has(> label > input[name="mandate_expiry_lock_enabled"])',
             'action' => 'highlight',
             'done' => 'none',
             'narration' => 'Switch on the expiry lock.',
             'why' => 'Nobody can quietly change an expiry date. An extension needs the signed form.',
         ],
         [
-            'selector' => 'label:has(input[type="checkbox"][name="flag_property_under_offer_on_deal"])',
+            'selector' => 'div:has(> label > input[name="flag_property_under_offer_on_deal"])',
             'action' => 'highlight',
             'done' => 'none',
             'narration' => 'Choose if a new deal marks the property Under Offer.',
             'why' => 'Your team and the portals see it straight away.',
         ],
         [
-            'selector' => '#f_properties_per_page',
+            'selector' => 'div:has(> label > input[name="revert_property_on_deal_declined"])',
             'action' => 'highlight',
             'done' => 'none',
-            'narration' => 'Type how many properties load at a time.',
-            'why' => 'A smaller number loads faster on a phone.',
+            'narration' => 'Choose if the property goes back on the market when a deal falls through.',
+            'why' => 'A lapsed deal does not leave a house stuck as Under Offer.',
+        ],
+        [
+            'selector' => 'input[name="name"]',
+            'action' => 'type',
+            'done' => 'input',
+            'value' => 'Strong room',
+            'narration' => 'Type a place where title deeds are kept, then press Add.',
+            'why' => 'Anyone can find where the paper deed is, so nobody hunts for it.',
         ],
         [
             'selector' => '.setup-cta',
             'action' => 'highlight',
             'done' => 'none',
             'narration' => 'Press Save and continue.',
-            'why' => 'Your choices are kept and you move on to the next step.',
+            'why' => 'Your answers are kept, and you move on to the next screen.',
         ],
     ],
-    'outro' => 'Good. Carry on to the next step when you are ready.',
+    'outro' => 'Next: seller presentations.',
 ];

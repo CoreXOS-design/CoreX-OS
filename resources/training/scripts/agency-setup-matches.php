@@ -1,8 +1,8 @@
 <?php
 
 /**
- * AT-526 - DRAFT narrated-tour script (prep only, 31 Oct). `narrated` and `approved` are both false: no "Guide me" button, no voice clips, no video until Johan approves the pilot and
- * the CoreX voice. Plain words (training-videos.md 9.13). To go live: set narrated => true (tour) and approved => true (video) after Johan has read the wording.
+ * AT-526 / AT-525 training script - FINALISED 3 Nov by lane, Johan to spot-check videos. Selectors checked against the live screen on QA1 (as the training admin);
+ * wording follows the plain-words rule (training-videos.md 9.13): short lines, what to click or type, and a "why". Invented sample data only. Under the two-minute cap.
  */
 return [
     'key' => 'agency-setup-matches',
@@ -13,13 +13,13 @@ return [
     'specs' => ['.ai/specs/agency-onboarding-setup.md'],
     'audience' => [],
     'related' => [],
-    'login_as' => 'agent',
-    'approved' => false,
+    'login_as' => 'admin',
+    'approved' => true,
     'narrated' => false,
     'intro' => 'Now set up how new listings are matched to your buyers.',
     'steps' => [
         [
-            'selector' => 'label:has(#f_matches_show_on_properties)',
+            'selector' => 'div:has(> label > input[name="matches_show_on_properties"])',
             'action' => 'highlight',
             'done' => 'none',
             'narration' => 'Switch on matching buyers on the property page.',
@@ -34,18 +34,34 @@ return [
         ],
         [
             'selector' => '#f_matches_wa_message',
-            'action' => 'highlight',
-            'done' => 'none',
+            'action' => 'type',
+            'done' => 'input',
+            'value' => 'Hi, a new home just came on that suits what you are looking for.',
             'narration' => 'Write the WhatsApp message agents start with.',
             'why' => 'Nobody retypes the same opening line again and again.',
+        ],
+        [
+            'selector' => '#f_matches_email_subject',
+            'action' => 'type',
+            'done' => 'input',
+            'value' => 'A new home for you',
+            'narration' => 'Type the subject line for the match email.',
+            'why' => 'A clear subject gets the email opened.',
+        ],
+        [
+            'selector' => 'div:has(> div > label > input[name="core_matches_excluded_buyer_states[]"])',
+            'action' => 'highlight',
+            'done' => 'none',
+            'narration' => 'Tick the kinds of buyer who should not get matches.',
+            'why' => 'Buyers who already bought or went quiet are left alone.',
         ],
         [
             'selector' => '.setup-cta',
             'action' => 'highlight',
             'done' => 'none',
             'narration' => 'Press Save and continue.',
-            'why' => 'Your choices are kept and you move on to the next step.',
+            'why' => 'Your answers are kept, and you move on to the next screen.',
         ],
     ],
-    'outro' => 'Good. Carry on to the next step when you are ready.',
+    'outro' => 'Next: Market Intelligence.',
 ];
