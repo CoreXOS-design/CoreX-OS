@@ -77,11 +77,15 @@
                             <span class="aitp-lbl">Reference image (optional)</span>
                             <input type="file" accept="image/jpeg,image/png" :disabled="loading" @change="pickFile($event)" class="aitp-field" style="padding:6px 8px; font-size:12px;">
                             <span class="aitp-hint">JPG or PNG, up to 5 MB. The design is matched to the picture as closely as possible; the picture is deleted after 7 days.</span>
-                            <span class="aitp-note" style="display:block; margin-top:8px;" x-show="file" data-aitp="reference-note">
-                                Matching your picture: the ad size (<strong x-text="canvas().w + ' × ' + canvas().h"></strong>, taken from the picture's shape), the style and the design extras all come from the picture, so those choices are hidden. Its words, names and photos are never copied — your own listing details are used.
-                            </span>
                             <span class="aitp-hint" style="display:block; color:var(--ds-crimson,#c41e3a);" x-show="fileError" x-text="fileError"></span>
                         </label>
+
+                        {{-- Standalone full-width block (not inside the label): explicit line height so the words never run together. --}}
+                        <div class="aitp-full aitp-note" x-show="file" data-aitp="reference-note"
+                             style="display:block; width:100%; box-sizing:border-box; padding:14px 16px; font-size:13px; line-height:1.55; white-space:normal; overflow-wrap:anywhere; min-height:64px;">
+                            <strong style="display:block; margin-bottom:4px;">Matching your picture</strong>
+                            The ad size (<strong x-text="canvas().w + ' × ' + canvas().h"></strong>, taken from the picture's shape), the style and the design extras all come from the picture, so those choices are hidden. Its words, names and photos are never copied — your own listing details are used.
+                        </div>
 
                         {{-- Property types: the agency's OWN list (never a built-in one). --}}
                         <fieldset class="aitp-full" style="border:0; padding:0; margin:0; min-width:0;" data-aitp="types">
