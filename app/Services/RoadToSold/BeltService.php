@@ -42,6 +42,7 @@ final class BeltService
         private readonly RecipeProgressService $recipe,
         private readonly ConveyorService $conveyor,
         private readonly CallListService $rows,
+        private readonly TargetsService $targets,
     ) {
     }
 
@@ -132,10 +133,11 @@ final class BeltService
             // "done today / target" wherever the agency set a target for the station; the count otherwise (the Stock loaded tile keeps its weekday target)
             $period = $target !== null ? 'today' : null;
             $done = $target !== null ? $count : null;
-            if ($s['key'] !== 'loaded' && ($rt = $this->recipeTarget($s, (array) ($progress['tasks'] ?? []))) !== null) {
-                $target = $rt['target'];
-                $done = $rt['done'];
-                $period = $rt['period'];
+            $tg = $s['key'] !== 'advertised' ? $this->targets->stationTarget($agent, 'me', $s['key'], $day, $track) : null;
+            if ($s['key'] !== 'loaded' && $tg !== null && $tg['month'] > 0) {
+                $target = (int) ceil($tg['month']);
+                $done = (int) (($figs[$s['key']]['month'] ?? 0));
+                $period = 'this month';
             }
             $subs = array_values(array_filter([$period !== null && $period !== 'today' ? $period : null, $note]));
             $link = fn (array $extra) => array_filter($routeBase + $extra, fn ($v) => $v !== null && $v !== '');
@@ -146,6 +148,7 @@ final class BeltService
                 'count' => $count, 'target' => $target, 'done' => $done, 'period' => $period, 'alert' => $alert, 'note' => $subs === [] ? null : implode(' · ', $subs),
                 'url' => array_filter($routeBase + $url, fn ($v) => $v !== null && $v !== ''),
                 'stage' => $stageKey !== '' && $source === 'stage' ? $stageKey : null,
+                'tgt' => $tg, 'tgt_line' => self::targetLine($s['key'], $tg),
             ] + $conv;
         }
 
@@ -261,19 +264,40 @@ final class BeltService
                 [$q] = $this->queryFor($s['key'] === 'held' ? 'owed' : $s['source'], $agencyId, $ids, '');
                 $row['now'] = (int) DB::query()->fromSub($q, 't')->count();
             }
-            if ($s['key'] !== 'loaded' && (array) ($s['tasks'] ?? []) !== []) {   // the recipe is read per agent: only for a station that has a recipe target
-                $t = 0; $d = 0; $per = null;
-                foreach ($users as $u) {
-                    if (count($ids) > 60 && $key === 'agency') { break; }   // keep the agency figure cheap on a very large agency: the recipe read is per agent
-                    $rt = $this->recipeTarget($s, (array) ($this->recipe->forAgent($u, $track, $day->isToday() ? now() : $day->copy()->endOfDay())['tasks'] ?? []));
-                    if ($rt !== null) { $t += $rt['target']; $d += $rt['done']; $per ??= $rt['period']; }
+            if ($s['key'] !== 'advertised') {   // 23.29: the derived-or-overridden target of the SAME scope (me / my branch / the agency); one source
+                $tg = $this->targets->stationTarget($agent, $key, $s['key'], $day, $track);
+                if ($tg !== null) {
+                    $row['rate_next'] = $tg['rate_next'];
+                    $row['estimate'] = $tg['estimate'] || $tg['rate_estimate'];
+                    $row['derived'] = $s['key'] === 'loaded' ? $tg['derived_day'] : $tg['derived_month'];
+                    $row['source'] = $tg['source'];
+                    if ($s['key'] !== 'loaded' && $tg['month'] > 0) {
+                        $row['target'] = (int) ceil($tg['month']);
+                        $row['done'] = (int) ($row['reached'] ?? 0);
+                        $row['period'] = 'this month';
+                    }
                 }
-                if ($t > 0) { $row['target'] = $t; $row['done'] = $d; $row['period'] = $per; }
             }
             $out[] = $row;
         }
 
         return ['station' => $s['key'], 'label' => (string) $s['label'], 'period' => 'this month', 'scopes' => $out];
+    }
+
+    /** The short target line under a tile: what it should be (derived or set), the conversion to the next station, "est." when the figure rests on default rates. */
+    public static function targetLine(string $key, ?array $tg): ?string
+    {
+        if ($tg === null) {
+            return null;
+        }
+        $f = fn ($v) => rtrim(rtrim(number_format((float) $v, 1, '.', ''), '0'), '.');
+        if ($key === 'loaded') {
+            return 'set ' . $f($tg['day']) . '/day · need ' . $f($tg['derived_day']) . ($tg['estimate'] ? ' est.' : '');
+        }
+        $word = $tg['source'] === 'override' ? 'set ' : 'should be ';
+        $conv = $tg['rate_next'] !== null ? ' · ' . $f($tg['rate_next']) . '% on' . ($tg['rate_estimate'] ? ' est.' : '') : '';
+
+        return $word . $f($tg['month']) . '/mo' . ($tg['estimate'] ? ' est.' : '') . $conv;
     }
 
     /** The filters of a station list (23.24): the first seven stations read to do / moved on / late / all; the last four read at the station / today / this month / all. */

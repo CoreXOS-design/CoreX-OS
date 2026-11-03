@@ -181,6 +181,8 @@ class RoadToSoldController extends Controller
         return view('road-to-sold.index', $data + $blocks + [
             'belt'           => $belt,
             // 23.24 header: distinct records that moved on today (a record counts once however many stations it passed)
+            // 23.29: "To list 1 property: you need X from MIC" - walked back from Active through the belt's conversion rates (me / branch / agency)
+            'perListing'     => $belt !== [] && $agentUser ? app(\App\Services\RoadToSold\TargetsService::class)->perListingLine($agentUser, $date, $track) : null,
             'movedAlong'     => $belt !== [] && $agentUser ? app(\App\Services\RoadToSold\ConveyorService::class)->movedAlong($agentUser, $track, $date) : 0,
             'activation'     => $activation,
             'roster'         => $roster,

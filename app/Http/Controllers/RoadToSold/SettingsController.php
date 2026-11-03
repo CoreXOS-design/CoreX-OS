@@ -288,6 +288,19 @@ class SettingsController extends Controller
             $rules['due_held_days']         = ['sometimes', 'integer', 'min:1', 'max:60'];
             $rules['fill_from_claims_first'] = ['sometimes', 'boolean'];
         }
+        if (RtsSetting::hasTargetColumns()) {
+            $rules['target_listings_per_month'] = ['sometimes', 'integer', 'min:0', 'max:1000'];
+            $rules['target_window_days']        = ['sometimes', 'integer', 'min:14', 'max:730'];
+            $rules['target_min_sample']         = ['sometimes', 'integer', 'min:1', 'max:5000'];
+            $rules['target_rates']              = ['sometimes', 'array'];
+            $rules['target_overrides']          = ['sometimes', 'array'];
+            foreach (array_keys(\App\Services\RoadToSold\TargetsService::DEFAULT_RATES) as $st) {
+                $rules["target_rates.{$st}"] = ['nullable', 'numeric', 'min:0.1', 'max:100'];
+            }
+            foreach (\App\Services\RoadToSold\TargetsService::CHAIN as $st) {
+                $rules["target_overrides.{$st}"] = ['nullable', 'numeric', 'min:0', 'max:100000'];
+            }
+        }
         // The four tick-lists: at least one choice, only known choices. A posted blank (the hidden marker
         // that lets "everything unticked" reach the server) is dropped before the check.
         foreach (RtsSetting::listChoices() as $field => $choices) {
@@ -373,6 +386,28 @@ class SettingsController extends Controller
             }
             $changes['default_monthly_targets'] = $merged;
         }
+        if (array_key_exists('target_rates', $data)) {
+            // a blank step = the standard rate for that step (23.29); only known steps are kept
+            $rates = [];
+            foreach (array_keys(\App\Services\RoadToSold\TargetsService::DEFAULT_RATES) as $st) {
+                $v = $data['target_rates'][$st] ?? null;
+                if ($v !== null && $v !== '' && (float) $v != \App\Services\RoadToSold\TargetsService::DEFAULT_RATES[$st]) {
+                    $rates[$st] = round((float) $v, 1);
+                }
+            }
+            $changes['target_rates'] = $rates === [] ? null : $rates;
+        }
+        if (array_key_exists('target_overrides', $data)) {
+            // a blank station = derived (23.29)
+            $over = [];
+            foreach (\App\Services\RoadToSold\TargetsService::CHAIN as $st) {
+                $v = $data['target_overrides'][$st] ?? null;
+                if ($st !== 'loaded' && $v !== null && $v !== '') {
+                    $over[$st] = round((float) $v, 1);
+                }
+            }
+            $changes['target_overrides'] = $over === [] ? null : $over;
+        }
         if (array_key_exists('summary_steps', $data)) {
             $changes['summary_steps'] = RtsSetting::normaliseOrderedToggles($data['summary_steps'], RtsSetting::summaryStepCatalogue($this->track()));
         }
@@ -442,7 +477,7 @@ class SettingsController extends Controller
                 foreach (RtsSetting::scalarDefaultsAvailable() as $field => $default) {
                     $row->{$field} = $default;
                 }
-                foreach ([...array_keys(RtsSetting::LIST_DEFAULTS), 'selections', 'summary_steps', 'default_weekday_targets', 'default_monthly_targets'] as $field) {
+                foreach ([...array_keys(RtsSetting::LIST_DEFAULTS), 'selections', 'summary_steps', 'default_weekday_targets', 'default_monthly_targets', 'target_rates', 'target_overrides'] as $field) {
                     $row->{$field} = null; // NULL = the code default
                 }
             }
@@ -484,7 +519,7 @@ class SettingsController extends Controller
     {
         return RtsSetting::SCALAR_DEFAULTS
             + RtsSetting::LIST_DEFAULTS
-            + ['selections' => null, 'summary_steps' => null, 'default_weekday_targets' => null, 'default_monthly_targets' => null];
+            + ['selections' => null, 'summary_steps' => null, 'default_weekday_targets' => null, 'default_monthly_targets' => null, 'target_rates' => null, 'target_overrides' => null];
     }
 
     /** @return array<string,string> code => display name for every country the holidays table holds */
@@ -610,6 +645,9 @@ class SettingsController extends Controller
         'capture_back_date_working_days' => 'Working days a captured task may be back-dated',
         'expired_competitor_lookback_days' => 'Days back a competitor\'s withdrawn advert is still offered',
         'prospect_stall_days'     => 'Days a prospect may sit without moving before it is flagged',
+        'target_listings_per_month' => 'Listings (Active) per agent per month when no target is set',
+        'target_window_days'      => 'Days of belt history the conversion rates are read over',
+        'target_min_sample'       => 'Records through a step before its own rate is trusted',
         'capture_needs_review'    => 'Captured tasks wait for a manager\'s approval',
         'agent_start_required'    => 'Agents press Start my Road to Sold before lists load',
         'source_for_colleagues'   => 'Whose buyers feed an agent\'s stock after their own',

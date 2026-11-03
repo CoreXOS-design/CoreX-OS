@@ -419,6 +419,54 @@ class SettingsService
         return max(1, (int) $this->scalar('due_held_days'));
     }
 
+    // ── Belt targets (23.29) ──────────────────────────────────────────────
+
+    /** Listings (Active) per agent per month when nobody set a monthly target. */
+    public function targetListingsPerMonth(): int
+    {
+        return max(0, (int) $this->scalar('target_listings_per_month'));
+    }
+
+    /** Days the step-to-step conversion rates are read over (rolling). */
+    public function targetWindowDays(): int
+    {
+        return max(7, (int) $this->scalar('target_window_days'));
+    }
+
+    /** Records that must have gone through a step before its real rate is trusted. */
+    public function targetMinSample(): int
+    {
+        return max(1, (int) $this->scalar('target_min_sample'));
+    }
+
+    /** Default conversion % from a station to the next, one per step: the agency's own where set, the standard otherwise. @return array<string,float> */
+    public function stepRates(): array
+    {
+        $own = $this->row->target_rates ?? null;
+        $out = TargetsService::DEFAULT_RATES;
+        foreach (is_array($own) ? $own : [] as $k => $v) {
+            if (isset($out[$k]) && is_numeric($v) && (float) $v > 0 && (float) $v <= 100) {
+                $out[$k] = (float) $v;
+            }
+        }
+
+        return $out;
+    }
+
+    /** The per-step overrides: station => monthly target per agent. A missing / blank station is derived. @return array<string,float> */
+    public function stepOverrides(): array
+    {
+        $own = $this->row->target_overrides ?? null;
+        $out = [];
+        foreach (is_array($own) ? $own : [] as $k => $v) {
+            if (in_array($k, TargetsService::CHAIN, true) && $k !== 'loaded' && $v !== null && $v !== '' && is_numeric($v) && (float) $v >= 0) {
+                $out[$k] = (float) $v;
+            }
+        }
+
+        return $out;
+    }
+
     /** Fill the agent's day from their own claims before any other source? On by default. */
     public function fillFromClaimsFirst(): bool
     {

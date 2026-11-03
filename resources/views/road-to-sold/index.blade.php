@@ -134,6 +134,9 @@
     {{-- v4 belt (spec 23.13): the tile row (or the Start card) - the team view is about everyone, so not there. --}}
     @unless($isTeam)
         @include('road-to-sold._belt-tiles')
+        @if(! empty($perListing))
+            <div class="text-xs mb-2" style="color: var(--text-secondary);" data-qa="rts-per-listing">{{ $perListing['text'] }}</div>
+        @endif
     @endunless
 
     {{-- What to do next and where the month stands stay in view on every block (the team view is about everyone, so not there). --}}
