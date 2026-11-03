@@ -77,10 +77,16 @@ class BeltLinks
                 $prospectId = $this->openProspect((int) $event->agency_id, (int) $event->user_id, $tracked)?->id;
             }
             if ($tracked || $prospectId) {
-                DB::table('calendar_events')->where('id', $event->id)->update(array_filter([
+                // Only keys the appointment does not already carry are written. A booking made from Road to Sold arrives with both, so the
+                // patch is empty: an empty UPDATE is a SQL syntax error, which used to send this method to its catch and hand the
+                // EvaluationBooked event [null, null] - the keys the booking already had.
+                $patch = array_filter([
                     'tracked_property_id' => $event->tracked_property_id ? null : $tracked,
                     'rts_prospect_id'     => $event->rts_prospect_id ? null : $prospectId,
-                ], fn ($v) => $v !== null));
+                ], fn ($v) => $v !== null);
+                if ($patch !== []) {
+                    DB::table('calendar_events')->where('id', $event->id)->update($patch);
+                }
                 $event->forceFill(['tracked_property_id' => $tracked, 'rts_prospect_id' => $prospectId])->syncOriginal();
             }
 

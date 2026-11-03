@@ -38,7 +38,7 @@ use Tests\TestCase;
  */
 final class TemplateCreationDefaultsTest extends TestCase
 {
-    use RefreshDatabase;
+    use RefreshDatabase, \Tests\Concerns\CleansGeneratedTemplateViews;
 
     /** @return array{agency: Agency, branch: Branch, manager: User} */
     private function seedAgencyWithManager(string $label): array

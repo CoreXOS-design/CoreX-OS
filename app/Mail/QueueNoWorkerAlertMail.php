@@ -13,7 +13,8 @@ class QueueNoWorkerAlertMail extends Mailable
     use Queueable, SerializesModels;
 
     public function __construct(
-        public string $queue,
+        // not `$queue`: Queueable (used below) already declares a public $queue, and redeclaring it with a type is a fatal error at class load
+        public string $queueName,
         public int $waiting,
         public int $oldestAgeSeconds,
         public string $host,
@@ -22,13 +23,13 @@ class QueueNoWorkerAlertMail extends Mailable
 
     public function envelope(): Envelope
     {
-        return new Envelope(subject: sprintf('[CoreX][%s] No worker for queue %s — %d job(s) waiting', strtoupper((string) config('app.env')), $this->queue, $this->waiting));
+        return new Envelope(subject: sprintf('[CoreX][%s] No worker for queue %s — %d job(s) waiting', strtoupper((string) config('app.env')), $this->queueName, $this->waiting));
     }
 
     public function content(): Content
     {
         return new Content(markdown: 'emails.queue-no-worker-alert', with: [
-            'queue' => $this->queue, 'waiting' => $this->waiting, 'oldestAgeSeconds' => $this->oldestAgeSeconds,
+            'queueName' => $this->queueName, 'waiting' => $this->waiting, 'oldestAgeSeconds' => $this->oldestAgeSeconds,
             'host' => $this->host, 'checkedAt' => $this->checkedAt,
         ]);
     }

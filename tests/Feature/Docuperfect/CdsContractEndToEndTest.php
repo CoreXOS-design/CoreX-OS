@@ -34,7 +34,7 @@ use Tests\TestCase;
  */
 final class CdsContractEndToEndTest extends TestCase
 {
-    use RefreshDatabase;
+    use RefreshDatabase, \Tests\Concerns\CleansGeneratedTemplateViews;
 
     private const LEGACY_LINE = 'rendering unnormalised template via legacy clustering';
 

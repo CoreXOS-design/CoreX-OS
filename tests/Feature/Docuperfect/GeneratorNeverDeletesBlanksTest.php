@@ -27,7 +27,7 @@ use Tests\TestCase;
  */
 final class GeneratorNeverDeletesBlanksTest extends TestCase
 {
-    use RefreshDatabase;
+    use RefreshDatabase, \Tests\Concerns\CleansGeneratedTemplateViews;
 
     private function process(string $html, array $tags, array $mappings): string
     {
