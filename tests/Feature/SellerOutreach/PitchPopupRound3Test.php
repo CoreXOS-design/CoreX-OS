@@ -169,7 +169,7 @@ final class PitchPopupRound3Test extends TestCase
         $this->assertStringContainsString('[data-qa="pitch-card"] [data-qa="line-buttons"] { display: none', $h, 'the card\'s own action buttons are the popup\'s job');
 
         $h = $get(route('command-center.calendar', ['embed' => 1, 'pitch_book' => 1, 'prefill_contact_id' => $owner->id, 'prefill_class' => 'property_evaluation']));
-        $this->assertStringContainsString("'Evaluation'", $h);
+        $this->assertStringContainsString("'Appointment'", $h);
         $this->assertStringNotContainsString("'New Event'</h2>", $h);
     }
 

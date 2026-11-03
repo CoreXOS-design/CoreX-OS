@@ -248,7 +248,7 @@ if (WALK) {
     ok(/ZZ Popup Test/.test(form.chips) && /Salmon Drive/.test(form.chips), 'the property and the owner (as the seller) are on the form');
     ok(!form.cancel, 'no Cancel / close into an empty calendar');
     const evHeading = await cur.evaluate(() => (document.querySelector('aside[data-tour="cal-event-form"] [data-qa="step-heading"]') || {}).innerText || null);
-    ok(evHeading === 'Evaluation', 'the form is headed "Evaluation": "' + evHeading + '"');
+    ok(evHeading === 'Appointment', 'the form is headed "Appointment": "' + evHeading + '"');
     ok(await cur.evaluate(() => !document.querySelector('[data-tour="cal-layers"]') || getComputedStyle(document.querySelector('aside[data-tour="cal-event-form"]')).position === 'fixed'), 'only the form is shown (no calendar grid, layers or deck in view)');
     await page.screenshot({ path: path.join(SHOTS, 'r-book-form.png') });
     const evDate = await cur.evaluate(() => { const root = document.querySelector('[x-data*="calendarPage"]'); const d = Alpine.$data(root); const dt = new Date(Date.now() + 10 * 864e5); const iso = dt.toISOString().slice(0, 10); d.form.startDate = iso; d.form.endDate = iso; d.form.startTime = '10:00'; d.form.endTime = '11:00'; return iso; });
@@ -273,7 +273,7 @@ if (WALK) {
     await wait(1500);
     const toast = await page.evaluate(() => (document.querySelector('[data-qa="pitch-toast"]') || {}).innerText || null);
     console.log('  notice:', toast);
-    ok(!!toast && /^Evaluation booked \u00B7 \d+ \w+ \d\d:\d\d \u00B7 .*Salmon/.test(toast), 'Done shows a notice: "' + toast + '"');
+    ok(!!toast && /^Appointment booked \u00B7 \d+ \w+ \d\d:\d\d \u00B7 .*Salmon/.test(toast), 'Done shows a notice: "' + toast + '"');
     await page.screenshot({ path: path.join(SHOTS, 'q-done-notice.png') });
     await wait(4000);
     ok(!(await retry(() => page.$('[data-qa="pitch-popup"]'))), 'the popup is closed and the agent is on the list');

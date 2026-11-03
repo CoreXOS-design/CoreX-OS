@@ -38,7 +38,7 @@
         <div class="text-base font-semibold" style="color: var(--text-primary);">✓ Call logged</div>
         <div class="text-sm mt-1" style="color: var(--text-secondary);" x-text="doneMessage"></div>
         <div class="flex items-center gap-2 mt-3 flex-wrap">
-            <button type="button" x-show="canBook" x-cloak data-qa="phone-book-next" class="px-4 py-2 text-sm font-semibold rounded-md" style="background: var(--brand-button, #0ea5e9); color:#fff;" @click="goBook(false)">Book evaluation →</button>
+            <button type="button" x-show="canBook" x-cloak data-qa="phone-book-next" class="px-4 py-2 text-sm font-semibold rounded-md" style="background: var(--brand-button, #0ea5e9); color:#fff;" @click="goBook(false)">Book appointment →</button>
             <button type="button" class="corex-btn-outline text-sm" @click="again()">Log another call</button>
         </div>
     </div>
@@ -88,7 +88,7 @@
             <input type="checkbox" x-model="valuation"> Evaluation booked
         </label>
         <div x-show="deferBooking" x-cloak data-qa="phone-book-hint" class="rounded-md p-4 text-sm" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-secondary);">
-            You pick the date and time of the evaluation next, in the calendar. The call is logged once it is booked.
+            You pick the date and time of the appointment next, in the calendar. The call is logged once it is booked.
         </div>
         <div x-show="!bookUrl && current && (current.needs_appointment || valuation)" class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
             <label class="block text-xs font-semibold mb-1" style="color: var(--text-secondary);" for="pc-appt">Evaluation date and time <span style="color: var(--ds-crimson, #dc2626);" title="Required">*</span></label>
@@ -109,7 +109,7 @@
             <button type="button" data-qa="phone-save" @click="save()" :disabled="saving || !chosen"
                     class="px-6 py-2.5 text-sm font-semibold rounded-md"
                     :style="chosen ? 'background: var(--brand-button, #0ea5e9); color:#fff;' : 'background: var(--surface-2); color: var(--text-muted); cursor:not-allowed;'">
-                <span x-show="!saving" x-text="deferBooking ? 'Next: book the evaluation →' : 'Log this call'"></span><span x-show="saving" x-cloak>Saving…</span>
+                <span x-show="!saving" x-text="deferBooking ? 'Next: book the appointment →' : 'Log this call'"></span><span x-show="saving" x-cloak>Saving…</span>
             </button>
         </div>
     </div>

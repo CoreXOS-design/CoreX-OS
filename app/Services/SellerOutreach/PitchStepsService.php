@@ -10,6 +10,8 @@ use App\Models\ProspectingListing;
 use App\Models\Prospecting\TrackedProperty;
 use App\Models\RoadToSold\RtsProspect;
 use App\Models\User;
+use App\Services\RoadToSold\ProspectStages;
+use Illuminate\Support\Facades\DB;
 
 /**
  * road-to-sold.md 23.23 drop 5: the screen behind each pill of the pitch popup, for THIS record.
@@ -20,23 +22,27 @@ use App\Models\User;
  *   owner       the compose screen with the live deed picker (the advert's capture, or the tracked property's when the advert has already been pitched)
  *   pitch       "pitch to sellers" - only when the advert has its CoreX property
  *   contact     the outreach screen on the owner and the property
- *   evaluation  the calendar's own form (PitchBookService)
+ *   evaluation  the calendar's own form (PitchBookService); the agent reads it as "Appointment" (road-to-sold.md 23.25), the key is a stored name and stays
+ *   reached     step => bool: has the record's STATION been reached (23.25.3). The popup draws its ticks from this and from nothing else; a screen merely opened is not a tick.
  * Nothing is created here (no property, no claim, no lock): it only names screens that already exist.
  */
 final class PitchStepsService
 {
+    /** The five steps the popup draws today, in order. */
+    private const STEPS = ['property', 'owner', 'pitch', 'contact', 'evaluation'];
+
     public function __construct(private readonly PitchBeltResolver $belt, private readonly PitchBookService $book)
     {
     }
 
     /**
      * @param array<string,string> $carry the popup parameters to keep (embed, rts_prospect, rts_stage)
-     * @return array<string,?string> property|owner|pitch|contact|evaluation => address or null, and `address` (the property's, for the title)
+     * @return array<string,mixed> property|owner|pitch|contact|evaluation => screen address or null, `address` (the property's, for the title) and `reached` (step => bool, the ticks)
      */
     public function plan(User $actor, ?int $listingId, ?int $prospectId, ?int $trackedId, array $carry = []): array
     {
         $agencyId = (int) ($actor->effectiveAgencyId() ?: 0);
-        $out = ['property' => null, 'owner' => null, 'pitch' => null, 'contact' => null, 'evaluation' => null, 'address' => null];
+        $out = ['property' => null, 'owner' => null, 'pitch' => null, 'contact' => null, 'evaluation' => null, 'address' => null, 'reached' => array_fill_keys(self::STEPS, false)];
         if ($agencyId <= 0) {
             return $out;
         }
@@ -91,6 +97,35 @@ final class PitchStepsService
             $out['evaluation'] = route('road-to-sold.prospects.step', ['prospect' => $prospect->id, 'step' => 'evaluation'] + $carry);
         }
 
+        $out['reached'] = $this->reached($actor, $agencyId, $prospect, $propertyId ? (int) $propertyId : null);
+
         return $out;
+    }
+
+    /**
+     * road-to-sold.md 23.25.3: a step is ticked when its station is reached, read from the agent's own record (`rts_prospects.stage`, the same order the funnel's
+     * "reached" rule counts with: a record placed at a later stage counts the stations before it; a parked record keeps its stage and so its ticks). No record = a
+     * MIC advert not yet claimed = nothing reached. Opening a screen ticks nothing.
+     *
+     * @return array<string,bool>
+     */
+    private function reached(User $actor, int $agencyId, ?RtsProspect $prospect, ?int $propertyId): array
+    {
+        $none = array_fill_keys(self::STEPS, false);
+        if (! $prospect || ! ProspectStages::has((string) $prospect->stage)) {
+            return $none;
+        }
+        $at = ProspectStages::order((string) $prospect->stage);
+        $atLeast = fn (string $stage): bool => $at >= ProspectStages::order($stage);
+        $pitched = $atLeast(ProspectStages::CONTACTED) || ($propertyId && DB::table('seller_outreach_sends')->where('agency_id', $agencyId)->where('property_id', $propertyId)
+            ->whereIn('agent_id', array_unique([(int) $actor->id, (int) $actor->ownershipUserId()]))->whereNull('deleted_at')->exists());
+
+        return [
+            'property' => $atLeast(ProspectStages::FOUND),
+            'owner' => $atLeast(ProspectStages::OWNER_FOUND),
+            'pitch' => (bool) $pitched,
+            'contact' => $atLeast(ProspectStages::CONTACTED),
+            'evaluation' => $atLeast(ProspectStages::APPOINTMENT_SET),
+        ];
     }
 }
