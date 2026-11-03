@@ -1,7 +1,7 @@
-@props(['inline' => false])
-{{-- AT-525 (spec .ai/specs/training-videos.md section 9) - the "Watch how (1:24)" button. <x-watch-how /> floats bottom-right; <x-watch-how inline /> sits in a page header (white on navy, like the MIC header buttons) and then the floating one is not drawn on that page. Appears on any screen that has a generated how-to video: found by the route name in the
-     scripts (resources/training/scripts), shown only when the video exists and the user holds training_videos.view. A small pill above the help button; the player opens in a
-     dialog right there (the same authenticated file routes as the Training library). Nothing here for a screen without a video. --}}
+{{-- AT-525 (spec .ai/specs/training-videos.md section 9.25) - the "Watch how (1:24)" button, in ONE place: a slim bar at the top of the main area, drawn by the layouts
+     (layouts/partials/watch-how.blade.php). It appears on any screen that has a ready how-to video: the screen is found by the current route name against the scripts'
+     `route` (resources/training/scripts), and it shows only when the user holds training_videos.view and Guided Tours is on. The player opens in a dialog right there
+     (the same authenticated file routes as the Training library). A screen without a video draws nothing - not even the bar. Do NOT add this to a page header. --}}
 @auth
 @php
     $__whScript = null; $__whVideo = null;
@@ -18,14 +18,11 @@
 @endphp
 @if($__whVideo)
 @include('corex.training-library._captions-js')
-@php request()->attributes->set('watch_how_rendered', true); @endphp
-<div @if($inline) style="display:inline-block;" @endif x-data="{ open: false }" x-on:keydown.escape.window="open = false; $refs.v && $refs.v.pause()" data-watch-how="{{ $__whScript->key() }}">
+<div x-data="{ open: false }" x-on:keydown.escape.window="open = false; $refs.v && $refs.v.pause()" data-watch-how="{{ $__whScript->key() }}" data-watch-how-bar
+     class="flex items-center justify-end gap-3 px-4 lg:px-6 py-1.5" style="flex:0 0 auto; background:var(--surface, #fff); border-bottom:1px solid var(--border, rgba(0,0,0,0.07));">
+    <span class="hidden sm:inline text-xs truncate" style="color:var(--text-secondary, #4b5563);">How-to video for this screen</span>
     <button type="button" x-on:click="open = true; $nextTick(() => $refs.v && $refs.v.play())" data-watch-how-button
-            @if($inline)
-            class="corex-btn-outline text-sm" style="display:inline-flex; align-items:center; gap:6px; color:#fff; border-color:rgba(255,255,255,0.25); background:rgba(255,255,255,0.08);"
-            @else
-            class="fixed z-40 flex items-center gap-2 text-xs font-semibold rounded-full shadow-lg px-4 py-2" style="right: 16px; bottom: 72px; background: var(--brand-icon, #0ea5e9); color: #fff;"
-            @endif>
+            class="flex items-center gap-2 text-xs font-semibold rounded-full px-4 py-1.5" style="background: var(--brand-icon, #0ea5e9); color: #fff; flex-shrink:0;">
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="width:14px;height:14px;"><path d="M8 5v14l11-7z"/></svg>
         Watch how ({{ $__whVideo->durationLabel() }})
     </button>

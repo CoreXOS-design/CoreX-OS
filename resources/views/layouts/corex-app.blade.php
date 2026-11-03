@@ -142,6 +142,9 @@
                 </div>
 @endunless
 
+                {{-- AT-525 - "Watch how (m:ss)": the one place the how-to video button lives. Nothing is drawn for a screen without a ready video. --}}
+                @unless($__embed ?? false)@include('layouts.partials.watch-how')@endunless
+
                 {{-- Content --}}
                 <main id="appScroll" class="flex-1 overflow-y-auto p-4 lg:p-6" style="background:var(--bg, #f4f6fb)">
                     {{-- Branch-isolation: unassigned-user banner (Phase 2, spec §8) --}}
@@ -191,7 +194,6 @@
         @include('layouts.partials.tour-engine')
 
         {{-- AT-525 - the "Watch how" button of a screen's auto-generated how-to video (renders nothing when the screen has none). --}}
-        @include('layouts.partials.watch-how')
         @include('layouts.partials.guide-me')
 
         {{-- AT-478 — gradual feature rollout pop-ups (admin access review / "New in CoreX").
