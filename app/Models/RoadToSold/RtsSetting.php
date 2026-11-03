@@ -363,8 +363,8 @@ class RtsSetting extends Model
         return [
             'calls_made'        => 'Calls made',
             'conversations'     => 'Conversations',
-            'evaluations_booked' => 'Evaluations booked',
-            'evaluations_done'   => 'Evaluations done',
+            'evaluations_booked' => 'Appointments booked',
+            'evaluations_done'   => 'Appointments held',
             'mandates_signed'   => 'Mandates signed',
             'listings_live'     => 'Listings live',
         ];

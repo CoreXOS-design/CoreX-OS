@@ -48,9 +48,9 @@ class FunnelService
      */
     public const RATIOS = [
         'calls_to_conversations'          => ['Calls to conversations',          'contact_outcome',   'conversations',       'calls_made',          'getting owners talking'],
-        'conversations_to_evaluations'    => ['Conversations to evaluations',    'evaluation_booked', 'evaluations_booked',  'conversations',       'the evaluation pitch'],
-        'evaluations_booked_to_done'      => ['Evaluations booked to done',      'evaluation_booked', 'evaluations_done',    'evaluations_booked',  'keeping evaluation appointments'],
-        'evaluations_to_presentations'    => ['Appointments to presentations',    'presentation',      'presentations_given', 'evaluations_done',    'presenting after an evaluation'],
+        'conversations_to_evaluations'    => ['Conversations to appointments',   'evaluation_booked', 'evaluations_booked',  'conversations',       'the appointment pitch'],
+        'evaluations_booked_to_done'      => ['Appointments booked to held',    'evaluation_booked', 'evaluations_done',    'evaluations_booked',  'keeping appointments'],
+        'evaluations_to_presentations'    => ['Appointments to presentations',    'presentation',      'presentations_given', 'evaluations_done',    'presenting after an appointment'],
         'presentations_to_mandates'       => ['Presentations to mandates',       'mandate',           'mandates_signed',     'presentations_given', 'winning the mandate'],
         'mandates_to_listings'            => ['Mandates to listings live',       'listing_live',      'listings_live',       'mandates_signed',     'getting the listing live'],
         'listings_to_viewings'            => ['Listings live to viewings',       'viewings',          'viewings_held',       'listings_live',       'getting viewings on listings'],
@@ -67,7 +67,7 @@ class FunnelService
         'offramp_claimed'   => ['Loses properties after claiming',        'find',              null, null, 'working a claim through to the owner'],
         'offramp_owner'     => ['Loses properties at Owner found',        'find_owner',        null, null, 'finding and linking the owner'],
         'offramp_contacted' => ['Loses properties at Contacted',          'contact_outcome',   null, null, 'turning a first contact into an appointment'],
-        'offramp_booked'    => ['Loses properties at Evaluation booked',  'evaluation_booked', null, null, 'keeping evaluation appointments'],
+        'offramp_booked'    => ['Loses properties at Evaluation booked',  'evaluation_booked', null, null, 'keeping appointments'],
         'offramp_held'      => ['Loses properties after the appointment',  'presentation',      null, null, 'winning the seller after the appointment'],
     ];
 

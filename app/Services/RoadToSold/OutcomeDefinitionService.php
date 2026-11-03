@@ -187,6 +187,8 @@ class OutcomeDefinitionService
         // Belt v2 wording (3 Nov): the belt says "appointment"; a row still carrying the old seeded wording is reworded once (an agency's own wording is never touched; the key is unchanged)
         Def::withTrashed()->where('agency_id', $agencyId)->where('track', $track)->where('key', 'spoke_evaluation_booked')->where('label', 'Spoke - evaluation booked')
             ->update(['label' => 'Spoke - appointment booked']);
+        Def::withTrashed()->where('agency_id', $agencyId)->where('track', $track)->where('key', 'eval_undecided')->where('label', 'Evaluation done - seller undecided')
+            ->update(['label' => 'Appointment held - seller undecided']);
         self::$seeded[$memo] = true;
     }
 
