@@ -220,7 +220,7 @@ final class TargetsService
             $out[$st] = [
                 'month' => round($month, 1), 'day' => round($month / $wd, 1), 'derived_month' => round($derived[$st], 1), 'derived_day' => round($derived[$st] / $wd, 1),
                 'source' => $source, 'estimate' => $source === 'derived' ? (bool) $estimate[$st] : false,
-                'rate_next' => $next !== null ? round($rates[$st]['rate'] * 100, 1) : null, 'rate_estimate' => $next !== null ? (bool) $rates[$st]['estimate'] : false,
+                'rate_next' => $next !== null ? (int) round($rates[$st]['rate'] * 100) : null, 'rate_estimate' => $next !== null ? (bool) $rates[$st]['estimate'] : false,
                 'reached' => $next !== null ? (int) $rates[$st]['sample'] : (int) $rates['draft']['reached_next'],
             ];
         }
@@ -231,8 +231,19 @@ final class TargetsService
         ];
     }
 
-    /** Screen labels of the belt stations in the targets table (the stored keys never change). */
-    public const PANEL_LABELS = ['booked' => 'Appointment booked', 'held' => 'Appointment held'];
+    /** The one station without a tile (Belt v2): its row is the step from the signed result to Draft, named for what it is. */
+    public const NO_TILE_LABELS = ['won' => 'Won → Draft'];
+
+    /** The station's name on the Targets screen: the TILE name (the belt config's short name), so the two can never drift; a station without a tile gets its step name. */
+    public static function stationName(string $station): string
+    {
+        $s = BeltService::station($station);
+        if ($s !== null && empty($s['no_tile'])) {
+            return (string) $s['short'];
+        }
+
+        return self::NO_TILE_LABELS[$station] ?? (string) ($s['label'] ?? BeltFunnelService::STATIONS[$station][0]);
+    }
 
     /**
      * The panel beside the targets (23.29.4): ONE dense row per belt station for a scope. Every figure is a whole number (properties are counted: derived figures round UP), and there
@@ -260,7 +271,7 @@ final class TargetsService
             $f = $fig['stations'][$st];
             $should = $st === 'loaded' ? $f['derived_month'] : $f['month'];
             $rows[] = [
-                'station' => $st, 'label' => self::PANEL_LABELS[$st] ?? BeltFunnelService::STATIONS[$st][0], 'now' => $now, 'reached' => (int) $f['reached'],
+                'station' => $st, 'label' => self::stationName($st), 'now' => $now, 'reached' => (int) $f['reached'],
                 'rate_next' => $f['rate_next'], 'rate_estimate' => (bool) $f['rate_estimate'],
                 'should_month' => (int) ceil($should - 1e-9), 'should_day' => (int) ceil($should / $wd - 1e-9),
                 'source' => $f['source'], 'override' => $overrides[$st] ?? null,

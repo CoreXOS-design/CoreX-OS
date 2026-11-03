@@ -337,7 +337,7 @@
                         @endforeach
                     </div>
                     @php
-                        $stepLabels = ['loaded' => 'Stock loaded', 'claimed' => 'Claimed', 'owner' => 'Owner found', 'contacted' => 'Contacted', 'booked' => 'Appointment booked', 'prepared' => 'Presentation prepared', 'held' => 'Appointment held', 'won' => 'Result: won', 'draft' => 'Draft', 'active' => 'Active'];
+                        $stepLabels = collect(\App\Services\RoadToSold\TargetsService::CHAIN)->mapWithKeys(fn ($k) => [$k => \App\Services\RoadToSold\TargetsService::stationName($k)])->all();
                         $stdRates = \App\Services\RoadToSold\TargetsService::DEFAULT_RATES;
                         $myRates = $settings->stepRates();
                         $myOver = $settings->stepOverrides();

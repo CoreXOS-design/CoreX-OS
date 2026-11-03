@@ -221,9 +221,16 @@ final class BeltTargetsTest extends TestCase
             $this->assertIsInt($r['should_month']);
             $this->assertIsInt($r['should_day']);
         }
-        $this->assertSame('Appointment booked', $by['booked']['label'], 'screen label only');
-        $this->assertSame('Appointment held', $by['held']['label']);
-        $this->assertSame('Stock loaded', $by['loaded']['label']);
+        foreach (['loaded', 'booked', 'held', 'draft', 'active'] as $k) {
+            $this->assertSame(\App\Services\RoadToSold\BeltService::station($k)['short'], $by[$k]['label'], 'the row carries the TILE name, read from the belt config');
+        }
+        $this->assertSame("Today's work", $by['loaded']['label']);
+        $this->assertSame('Booked', $by['booked']['label']);
+        $this->assertSame('Held', $by['held']['label']);
+        $this->assertSame('Won → Draft', $by['won']['label'], 'the one station without a tile is named for its step');
+        foreach ($p['rows'] as $r) {
+            $this->assertTrue($r['rate_next'] === null || is_int($r['rate_next']), 'whole percent');
+        }
         $this->assertSame(201, $by['loaded']['should_month'], 'ONE figure for Stock loaded: what the walk back needs, the same arithmetic as the one line');
         $this->assertSame(5, $by['loaded']['set_day'], 'the hand-set intake stays the weekday target, shown beside it');
         $this->assertTrue($by['claimed']['rate_estimate'], 'no history: the seed rate, labelled est. at this station');

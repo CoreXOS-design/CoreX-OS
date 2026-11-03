@@ -83,7 +83,7 @@
                                 <td class="px-2 py-1" style="color: var(--text-primary);">{{ $br['label'] }}</td>
                                 <td class="px-2 py-1 text-right tabular-nums">{{ $br['now'] }}</td>
                                 <td class="px-2 py-1 text-right tabular-nums">{{ $br['reached'] }}</td>
-                                <td class="px-2 py-1 text-right tabular-nums">@if($br['rate_next'] !== null){{ rtrim(rtrim(number_format($br['rate_next'], 1, '.', ''), '0'), '.') }}%@if($br['rate_estimate']) <span style="color: var(--text-muted);">est.</span>@endif @else - @endif</td>
+                                <td class="px-2 py-1 text-right tabular-nums">@if($br['rate_next'] !== null){{ $br['rate_next'] }}%@if($br['rate_estimate']) <span style="color: var(--text-muted);">est.</span>@endif @else - @endif</td>
                                 <td class="px-2 py-1 text-right tabular-nums font-semibold" style="color: var(--text-primary);">{{ $br['should_month'] }}</td>
                                 <td class="px-2 py-1 text-right tabular-nums">{{ $br['should_day'] }}</td>
                                 <td class="px-2 py-1 text-right">
