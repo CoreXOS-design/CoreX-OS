@@ -182,7 +182,7 @@ final class AuditFixesTest extends TestCase
 
         $r = $this->builder(['settings' => ['rollsOver' => true]])->closePastDays($this->agent, self::WED);
 
-        $this->assertSame(['missed' => 1, 'rolled' => 0], $r);
+        $this->assertSame(['missed' => 1, 'rolled' => 0], \Illuminate\Support\Arr::only($r, ['missed', 'rolled']));
         $this->assertSame('missed', $item->fresh()->status);
         $this->assertSame(0, RtsListItem::query()->where('origin', 'rollover')->count());
     }

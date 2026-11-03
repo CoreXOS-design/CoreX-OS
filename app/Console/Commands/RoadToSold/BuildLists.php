@@ -71,6 +71,15 @@ class BuildLists extends Command
             }
         }
 
+        // 1b. 23.30.3: the close runs for EVERY agent with open rows from earlier days - paused, not started, no longer eligible - not only for those who build today,
+        //     so a paused agent's untouched properties still go back to the pool. The eligible ones were closed just above, so this finds nothing more for them.
+        if (! $this->option('no-close')) {
+            $this->callSilently('rts:close-day', array_filter([
+                '--date' => $day->toDateString(), '--track' => $track,
+                '--agency' => $this->option('agency') ?: null, '--user' => $this->option('user') ?: null,
+            ]));
+        }
+
         // 2. build in ROUNDS (road-to-sold.md 22.6): in each round every agent of an agency takes the best unowned property for their next
         //    place, so the stock is dealt out like cards instead of the first agent taking the best five. The rotation start moves with the day.
         $byAgency = $agents->groupBy('agency_id');

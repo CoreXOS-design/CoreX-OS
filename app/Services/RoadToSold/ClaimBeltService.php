@@ -90,6 +90,10 @@ class ClaimBeltService
             if ($existing && $existing->closed_at !== null) {
                 return null;   // that story is over (do not contact, registered...); a late claim does not restart it
             }
+            // Loaded on ANOTHER agent's day but not started: their desk does not hold it (23.30.3), so this claim takes it and their loaded row leaves their day.
+            if ($existing && $existing->released_at === null && (int) $existing->user_id !== (int) $c->user_id && $existing->stage === ProspectStages::FOUND) {
+                $this->prospects->takeLoadedFrom($existing, 'Claimed by another agent in Market Intelligence', (int) $c->user_id);
+            }
 
             // the record sits at Claimed since the day the claim was TAKEN (an older claim brought onto the belt now is not "0 days")
             $enteredAt = $stage === ProspectStages::CLAIMED && $c->claimed_at ? Carbon::instance($c->claimed_at) : null;
@@ -160,7 +164,10 @@ class ClaimBeltService
     {
         $this->releaseEndedOnFile($agencyId, $trackedPropertyId, $exceptUserIds);
 
-        $owner = $this->prospects->ownerOf($agencyId, $trackedPropertyId, 'sales');
+        // A property that is only LOADED on an agent's day (stage found) is not held: it stays in the pool for everybody until the agent starts on it
+        // (Find owner = the claim, 3 Nov 2026 ruling, road-to-sold.md 23.30.3). From claimed onwards the belt record holds the file.
+        $p = $this->prospects->find($agencyId, $trackedPropertyId, 'sales');
+        $owner = $p && $p->closed_at === null && $p->released_at === null && $p->stage !== ProspectStages::FOUND ? (int) $p->user_id : null;
         if ($owner !== null && ! in_array($owner, $exceptUserIds, true)) {
             return $owner;
         }

@@ -186,7 +186,9 @@ class ListBuilderService
     private function fillTopDown(User $user, int $agencyId, Carbon $day, string $track, BuilderSettings $settings, int $remaining, callable $take): void
     {
         // 23.24: the agent's own claims come first (switchable: "Fill my day from my claims first"), then the agency's selections in their order
-        $keys = $settings->fillFromClaimsFirst ? array_merge([MyClaimsSelection::KEY], $settings->enabledSelectionKeys) : $settings->enabledSelectionKeys;
+        // 23.30.3 / 23.30.3 (3 Nov 2026): the day is NOT filled from the agent's claims any more - a claimed property lives in Claimed, never also in Today's work (one stage at a
+        // time). MyClaimsSelection and the stored fill_from_claims_first value stay in code, unused here.
+        $keys = $settings->enabledSelectionKeys;
         foreach ($keys as $key) {
             if ($remaining <= 0) {
                 break;
@@ -636,7 +638,12 @@ class ListBuilderService
      * they are still due, extras the agent asked for are not carried, and an item that was already
      * rolled once and still wasn't called is marked missed rather than carried forever.
      *
-     * @return array{missed:int,rolled:int}
+     * Road to Sold 23.30.3 (3 Nov 2026): a row that was LOADED and never started (the property is still at Loaded - not claimed, no outcome, not swapped) is not
+     * just marked missed: the property is released back to the Market Intelligence pool, because a loaded row held nothing. With the carry-over setting on
+     * (missed_items_mode = roll_over) it is carried to the top of the next working day instead, where it counts toward that day's N, so tomorrow's new intake
+     * is reduced by it. A row the agent DID start (claimed or later) keeps its property; only the row is closed.
+     *
+     * @return array{missed:int,rolled:int,released:int}
      */
     public function closePastDays(User $user, CarbonInterface|string $today, string $track = RtsListItem::TRACK_SALES): array
     {
@@ -644,7 +651,7 @@ class ListBuilderService
         $user = $this->listOwner($user);
         $agencyId = (int) ($user->effectiveAgencyId() ?: 0);
         $today = Carbon::parse($today)->startOfDay();
-        $result = ['missed' => 0, 'rolled' => 0];
+        $result = ['missed' => 0, 'rolled' => 0, 'released' => 0];
         if ($agencyId <= 0) {
             return $result;
         }
@@ -690,6 +697,7 @@ class ListBuilderService
                     if ($placed === null && ! $this->onDay($user, $target, $track, $candidate)) {
                         $item->forceFill(['status' => RtsListItem::STATUS_MISSED, 'status_changed_at' => now()])->save();
                         $result['missed']++;
+                        $result['released'] += $this->releaseIfUntouched($item) ? 1 : 0;
                         continue;
                     }
                     // Rolled: placed, or already on that day's list (a follow-up, say) where it is covered.
@@ -699,10 +707,32 @@ class ListBuilderService
                 }
                 $item->forceFill(['status' => RtsListItem::STATUS_MISSED, 'status_changed_at' => now()])->save();
                 $result['missed']++;
+                $result['released'] += $this->releaseIfUntouched($item) ? 1 : 0;
             }
         });
 
         return $result;
+    }
+
+    /**
+     * Give a loaded-and-never-started property back to the pool (23.30.3). Only when the belt record is still at Loaded with nothing done on it (no outcome, not
+     * parked, not claimed) and no other open row of the agent's still carries it. Returns true when it was released.
+     */
+    private function releaseIfUntouched(RtsListItem $item): bool
+    {
+        if (! $item->prospect_id) {
+            return false;
+        }
+        $p = \App\Models\RoadToSold\RtsProspect::query()->find($item->prospect_id);
+        if (! $p || $p->stage !== ProspectStages::FOUND || $p->last_outcome_id !== null || $p->parked_at !== null || $p->released_at !== null || $p->closed_at !== null) {
+            return false;
+        }
+        if (RtsListItem::query()->where('prospect_id', $p->id)->where('status', RtsListItem::STATUS_OPEN)->where('id', '<>', $item->id)->exists()) {
+            return false;
+        }
+        app(ProspectService::class)->release($p, null, 'Loaded but not started by the end of the day', false);
+
+        return true;
     }
 
     // ── called by the outcome capture ───────────────────────────────────

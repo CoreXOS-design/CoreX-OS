@@ -371,6 +371,22 @@ class ProspectService
     }
 
     /**
+     * Another agent took a property that was only LOADED on this agent's day (never started): it is released, and the agent's open rows for it leave the
+     * day as swapped (not missed - it was not theirs to lose), so the next build tops the day up. Nothing in Market Intelligence is touched (they held nothing).
+     */
+    public function takeLoadedFrom(RtsProspect $p, string $note, ?int $byUserId = null): void
+    {
+        $this->release($p, null, $note, false);
+        $by = $byUserId ? \App\Models\User::withoutGlobalScopes()->whereKey($byUserId)->value('name') : null;
+        \App\Models\RoadToSold\RtsListItem::withoutGlobalScopes()->where('agency_id', $p->agency_id)->where('track', $p->track)->where('user_id', $p->user_id)
+            ->where('tracked_property_id', $p->tracked_property_id)->where('status', \App\Models\RoadToSold\RtsListItem::STATUS_OPEN)->get()
+            ->each(fn ($row) => $row->forceFill([
+                'status' => \App\Models\RoadToSold\RtsListItem::STATUS_SWAPPED, 'status_changed_at' => now(),
+                'reason_facts' => array_merge($row->reason_facts ?? [], ['claimed_by' => array_filter(['user_id' => $byUserId, 'name' => $by, 'at' => now()->toDateTimeString()])]),
+            ])->save());
+    }
+
+    /**
      * Giving a property back also hands back what the agent holds on it in Market Intelligence - their active claim on any of its adverts and
      * their pitch lock on it - or the property would stay blocked for everyone else. Through the claim service's own release methods; a failure
      * here is logged and never stops the release itself.

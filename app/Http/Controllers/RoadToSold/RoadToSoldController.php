@@ -630,6 +630,28 @@ class RoadToSoldController extends Controller
     }
 
     /** "Swap" on a loaded property (23.14): it leaves the list with the reason, the property is released, and the next candidate takes its place. Own list only. */
+    /**
+     * "Find owner" on a loaded row (23.30.3): the first action on the row is the claim - out of the Market Intelligence pool, hold clock started, record moved
+     * Loaded -> Claimed in one transaction. The button is built on the screen (cc4); this is the action behind it.
+     */
+    public function claimLoaded(Request $request, int $item)
+    {
+        $row = RtsListItem::query()->visibleTo($request->user())->findOrFail($item);
+
+        try {
+            $r = app(\App\Services\RoadToSold\LoadedRowClaimService::class)->claim($request->user(), (int) $row->id);
+        } catch (\InvalidArgumentException $e) {
+            return $request->expectsJson() ? response()->json(['ok' => false, 'message' => $e->getMessage()], 422) : back()->with('rts_error', $e->getMessage());
+        } catch (Throwable $e) {
+            report($e);
+            $msg = 'We could not claim that just now. Try again.';
+
+            return $request->expectsJson() ? response()->json(['ok' => false, 'message' => $msg], 500) : back()->with('rts_error', $msg);
+        }
+
+        return $request->expectsJson() ? response()->json(['ok' => true, 'message' => $r['message'], 'already' => $r['already'], 'stage' => $r['prospect']?->stage]) : back()->with('rts_ok', $r['message']);
+    }
+
     public function swap(Request $request, int $item): RedirectResponse
     {
         // v4 (road-to-sold.md 23.11): a swap is the Stock loaded off-ramp - the agency's own reason for that station (wrong area, no address, I already know it, other),

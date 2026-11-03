@@ -174,11 +174,11 @@
                         <div class="text-xs font-semibold mb-2" style="color:var(--text-muted);">Properties not worked by the end of the day</div>
                         <label class="flex items-start gap-3 text-sm mb-2" style="color:var(--text-primary);">
                             <input type="radio" name="missed_items_mode" value="show_missed" class="mt-1" @checked(old('missed_items_mode', $settings->missedItemsMode()) === 'show_missed')>
-                            <span><span class="font-semibold">Show as missed</span> (standard) - they stay on that day.</span>
+                            <span><span class="font-semibold">Show as missed</span> (standard) - they stay on that day as missed, and a property that was loaded but never started goes back to the pool for every agent.</span>
                         </label>
                         <label class="flex items-start gap-3 text-sm" style="color:var(--text-primary);">
                             <input type="radio" name="missed_items_mode" value="roll_over" class="mt-1" @checked(old('missed_items_mode', $settings->missedItemsMode()) === 'roll_over')>
-                            <span><span class="font-semibold">Roll over</span> - they move to the next working day.</span>
+                            <span><span class="font-semibold">Roll over</span> - properties loaded but not started move to the top of the next working day and count toward that day's number, so the day is always the same size.</span>
                         </label>
                     </div>
                 </div>

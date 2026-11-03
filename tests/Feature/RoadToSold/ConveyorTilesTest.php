@@ -363,45 +363,38 @@ final class ConveyorTilesTest extends TestCase
         return $p->fresh();
     }
 
-    public function test_the_days_five_start_with_the_agents_own_claims_late_first_then_nearest_hold_end(): void
+    // 23.30.3 (3 Nov 2026) retires the claims-first feed of 23.24 E: a claimed property lives in Claimed and is never also in Today's work (one stage at a time).
+    // MyClaimsSelection and the stored fill_from_claims_first value stay in code, unused by the builder.
+
+    public function test_the_day_is_no_longer_filled_from_the_agents_claims(): void
     {
-        $nearHold = $this->claimed('Near Hold Road', '2026-10-13', '2026-10-16');
-        $farHold = $this->claimed('Far Hold Road', '2026-10-13', '2026-11-20');
-        $late = $this->claimed('Late Claim Road', '2026-10-01', '2026-11-30');   // late by the window, but a long hold left
+        $this->claimed('Near Hold Road', '2026-10-13', '2026-10-16');
+        $this->claimed('Late Claim Road', '2026-10-01', '2026-11-30');
         $buyerListing = $this->listing(['address' => '1 Buyer Rd', 'first_seen_at' => '2026-03-01 08:00:00']);
         $mine = $this->buyer($this->agent->id);
         $this->buyerMatch($buyerListing, $mine->id);
 
         $items = $this->builder(['enabledSelectionKeys' => ['my_buyers_sourcing']])->buildFor($this->agent, self::WED);
-        $this->assertSame([$late->tracked_property_id, $nearHold->tracked_property_id, $farHold->tracked_property_id], $items->take(3)->pluck('tracked_property_id')->all(), 'late first, then the nearest end of the hold');
-        $this->assertSame(['my_claims', 'my_claims', 'my_claims', 'my_buyers_sourcing'], $items->pluck('selection')->all(), 'then the buyers\' stock');
 
-        $why = app(\App\Services\RoadToSold\CallListService::class)->page($this->agent, $this->agent->id, ['date' => self::WED], 'sales')['rows']->first()['why'];
-        $this->assertMatchesRegularExpression('/^Your claim · \d+ days? left on hold$/', $why);
+        $this->assertSame(['my_buyers_sourcing'], $items->pluck('selection')->all(), 'only the buyers\' stock; the claimed properties stay in Claimed');
     }
 
-    public function test_the_claims_first_switch_and_the_preview_source(): void
+    public function test_the_claims_first_switch_is_ignored_and_the_preview_has_no_claims_source(): void
     {
         $this->claimed('Switch Road', '2026-10-13', '2026-11-20');
         $on = $this->builder(['enabledSelectionKeys' => []])->preview($this->agent, self::WED);
-        $this->assertSame(1, $on['by_source'][AllocationSource::MY_CLAIM] ?? 0, 'the preview shows the new source');
-        $this->assertSame('Your claims', AllocationSource::LABELS[AllocationSource::MY_CLAIM]);
-
-        $off = $this->builder(['enabledSelectionKeys' => [], 'fillFromClaimsFirst' => false])->preview($this->agent, self::WED);
-        $this->assertArrayNotHasKey(AllocationSource::MY_CLAIM, $off['by_source'], 'switched off: claims are not put on the day');
-        $this->assertTrue(SettingsService::forUser($this->agent)->fillFromClaimsFirst(), 'on by default');
+        $this->assertArrayNotHasKey(AllocationSource::MY_CLAIM, $on['by_source'], 'claims are not put on the day, switch on or off');
+        $this->assertTrue(SettingsService::forUser($this->agent)->fillFromClaimsFirst(), 'the stored value is left alone, unused');
     }
 
-    public function test_a_claim_already_on_the_day_is_not_added_twice_and_another_agents_claim_is_never_offered(): void
+    public function test_a_claimed_property_is_never_put_on_the_day_and_another_agents_claim_is_never_offered(): void
     {
-        $mine = $this->claimed('Once Road', '2026-10-13', '2026-11-20');
+        $this->claimed('Once Road', '2026-10-13', '2026-11-20');
         $mates = $this->at(S::CLAIMED, 'Mates Road', '2026-10-01', null, $this->mate);
         $b = $this->builder(['enabledSelectionKeys' => []]);
         $first = $b->buildFor($this->agent, self::WED);
-        $again = $b->buildFor($this->agent, self::WED);
-        $this->assertSame(1, $first->count());
-        $this->assertSame(1, $again->count(), 'built twice, on the list once');
+        $this->assertSame(0, $first->count());
         $this->assertNotContains($mates->tracked_property_id, $first->pluck('tracked_property_id')->all());
-        $this->assertSame(1, RtsListItem::query()->withoutGlobalScopes()->where('user_id', $this->agent->id)->count());
+        $this->assertSame(0, RtsListItem::query()->withoutGlobalScopes()->where('user_id', $this->agent->id)->count());
     }
 }

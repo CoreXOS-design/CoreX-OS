@@ -90,7 +90,7 @@ final class RolloverGuardTest extends TestCase
 
         $r = $b->closePastDays($this->agent, self::THU);
 
-        $this->assertSame(['missed' => 4, 'rolled' => 1], $r);
+        $this->assertSame(['missed' => 4, 'rolled' => 1], \Illuminate\Support\Arr::only($r, ['missed', 'rolled']));
         $this->assertSame('rolled', $this->item($fine->id)->status);
         foreach ([$heldByMate, $dnc, $parked, $mateStock] as $blocked) {
             $this->assertSame('missed', $this->item($blocked->id)->status, "tp {$blocked->id}");
@@ -116,7 +116,7 @@ final class RolloverGuardTest extends TestCase
 
         $r = $b->closePastDays($this->agent, self::THU);
 
-        $this->assertSame(['missed' => 0, 'rolled' => 1], $r, 'the list day is passed to the guard: due that day is not parked');
+        $this->assertSame(['missed' => 0, 'rolled' => 1], \Illuminate\Support\Arr::only($r, ['missed', 'rolled']), 'the list day is passed to the guard: due that day is not parked');
         $thu = RtsListItem::query()->forDay($this->agent, self::THU)->where('tracked_property_id', $due->id)->get();
         $this->assertCount(1, $thu, 'on the next list exactly once (as a rollover or the follow-up)');
     }

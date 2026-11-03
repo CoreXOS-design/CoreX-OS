@@ -450,7 +450,7 @@ final class ListBuilderTest extends TestCase
 
         $r = $this->builder()->closePastDays($this->agent, self::WED);
 
-        $this->assertSame(['missed' => 1, 'rolled' => 0], $r);
+        $this->assertSame(['missed' => 1, 'rolled' => 0], \Illuminate\Support\Arr::only($r, ['missed', 'rolled']));
         $this->assertSame('missed', $old->fresh()->status);
         $this->assertNotNull($old->fresh()->status_changed_at);
         $this->assertSame('worked', $worked->fresh()->status);
@@ -467,7 +467,7 @@ final class ListBuilderTest extends TestCase
 
         $r = $b->closePastDays($this->agent, self::WED);
 
-        $this->assertSame(['missed' => 2, 'rolled' => 1], $r);
+        $this->assertSame(['missed' => 2, 'rolled' => 1], \Illuminate\Support\Arr::only($r, ['missed', 'rolled']));
         $this->assertSame('rolled', $auto->fresh()->status);
         $this->assertSame('missed', $fu->fresh()->status, 'follow-ups come back by themselves while still due');
         $this->assertSame('missed', $added->fresh()->status, 'extras are not carried');
@@ -482,10 +482,10 @@ final class ListBuilderTest extends TestCase
         $this->assertStringContainsString('Carried over from 12 Oct', $copy->reason);
 
         // a second sweep changes nothing
-        $this->assertSame(['missed' => 0, 'rolled' => 0], $b->closePastDays($this->agent, self::WED));
+        $this->assertSame(['missed' => 0, 'rolled' => 0], \Illuminate\Support\Arr::only($b->closePastDays($this->agent, self::WED), ['missed', 'rolled']));
 
         // and when THIS one is also missed tomorrow it is marked missed, not carried forever
-        $this->assertSame(['missed' => 1, 'rolled' => 0], $b->closePastDays($this->agent, '2026-10-15'));
+        $this->assertSame(['missed' => 1, 'rolled' => 0], \Illuminate\Support\Arr::only($b->closePastDays($this->agent, '2026-10-15'), ['missed', 'rolled']));
         $this->assertSame('missed', $copy->fresh()->status);
     }
 
@@ -505,7 +505,7 @@ final class ListBuilderTest extends TestCase
         $item = $this->openItem($this->agent, '2026-10-12');
         $b = $this->builder(['target' => 0, 'settings' => ['rollsOver' => true]]);
 
-        $this->assertSame(['missed' => 1, 'rolled' => 0], $b->closePastDays($this->agent, self::WED));
+        $this->assertSame(['missed' => 1, 'rolled' => 0], \Illuminate\Support\Arr::only($b->closePastDays($this->agent, self::WED), ['missed', 'rolled']));
         $this->assertSame('missed', $item->fresh()->status);
     }
 

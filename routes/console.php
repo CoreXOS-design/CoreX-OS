@@ -487,6 +487,8 @@ Schedule::command('prospecting:flag-stale-listings')->dailyAt('03:50')->onOneSer
 Schedule::command('prospecting:recompute-matches')->dailyAt('04:00')->onOneServer()->withoutOverlapping();
 // AT-454 Road to Sold — close earlier days, then build each agent's list for today. After the
 // buyer-match recompute above (04:00) so "stock for my buyers" reads fresh matches.
+// 23.30.3: the midnight job - rows loaded and never started go back to the pool (or carry over, per the agency setting) before the 04:30 build deals the new day.
+Schedule::command('rts:close-day')->dailyAt('00:05')->onOneServer()->withoutOverlapping();
 Schedule::command('rts:build-lists')->dailyAt('04:30')->onOneServer()->withoutOverlapping();
 // AT-454 v2 phase 4 - put agents who have met their level for the required weeks forward for sign-off. After the build above; idempotent.
 Schedule::command('rts:check-levels')->dailyAt('05:00')->onOneServer()->withoutOverlapping();
