@@ -3032,3 +3032,14 @@ First reference-picture poster that got through (generation #7, template #5) was
 4. **Brush stroke band told to the AI**: the stroke paints only the middle ~30-70% of its box height with ragged ends; the prompt now says to size the box ~2.5x the words and keep words inside the band (no hard checker rule: that would have added refusals).
 - Proof: generation #7's saved answer, replayed through the fixed checker and rendered, shows the gold brush stroke with the script "For Sale". Tests: `AiTemplatePremiumLookTest`; `tests/js/ad-building-blocks.mjs` (junk strip labels).
 - Not changed (data, not design): an empty "note for this ad" leaves its dark panel empty; a listing without an agent photo / agency without a tagline or website leaves those spots blank.
+
+### 22.13 Making a reference-picture run more accurate (2026-11-03)
+
+Generation #10 (the best so far) still differed from the picture in three visible ways: navy where the picture is black and gold, the suburb on the photo below the brush stroke, and an icon strip with three widely spaced cells and a generic tick. Causes and fixes:
+1. **The brand colours overrode the picture.** `brandBlock()` told the model to "build the palette around" the agency's brand colours even when a picture was attached. With a reference picture (`pictureLeads`) it now says the PICTURE decides the colours and the brand colours are only a fallback for things the picture does not show.
+2. **No worked example.** `AdPosterExemplar` (Poster size only) is one tested, rendered gold-and-black poster built only from the allowed blocks, shown to the model as a finished answer by `referenceExample()` with a note that it teaches TECHNIQUE (brush-stroke box about 2.5x the words on it; `status_badge` on the stroke with `bgOpacity` 0; a suburb can be 38 characters so give it two lines; which way `cut_panel_left` leans; gradient fill is `shapeGradient`) and that every position, colour, font and count must come from the picture. It contains no agency's words (fields only) and is kept valid by `AdPosterExemplarTest`.
+3. **Panel direction was ambiguous** in the prompt; it now says `cut_panel_left` hugs the left with its right edge leaning inward at the bottom, `cut_panel_right` is its mirror.
+4. **Strip icons.** Lounge / living -> a sofa, blinds / curtains -> slats (kept in `STRIP_ONLY_ICONS`, not the public ICONS list the AI picks from, so no drift); "room" no longer swallows them. The picture's eight amenities now each get their own icon.
+5. `PROMPT_VERSION` -> `at456b10-v6-poster` (the column holds 18 characters: a longer label failed every generation in the tests).
+- The 38-character suburb worst case was kept: real listings reach it ("PORT SHEPSTONE CENTRAL, PORT SHEPSTONE").
+- Not proved: the effect on the AI's own answers needs a real run on Staging.

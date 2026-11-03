@@ -1229,8 +1229,14 @@
         [/fireplace|fire place/i, 'fireplace'], [/air.?con/i, 'air_con'], [/solar/i, 'solar'], [/borehole|jojo|water tank/i, 'borehole'],
         [/backup|generator|inverter|ups\b/i, 'backup_power'], [/lift|elevator/i, 'lift'], [/gym/i, 'gym'], [/study|office/i, 'study'],
         [/laundry|scullery/i, 'laundry'], [/sea|ocean/i, 'sea_view'], [/mountain/i, 'mountain_view'], [/pet/i, 'pet_friendly'],
-        [/wifi|fibre|fiber|internet/i, 'wifi'], [/lounge|living|room|house|home/i, 'house'], [/size|floor|m²|m2|erf/i, 'ruler']
+        [/wifi|fibre|fiber|internet/i, 'wifi'], [/lounge|living|sofa|couch/i, 'sofa'], [/blind|curtain|shutter/i, 'blinds'],
+        [/room|house|home/i, 'house'], [/size|floor|m²|m2|erf/i, 'ruler']
     ];
+    /** Icons only the feature strip uses (named by its wording, never chosen by the AI), so they stay out of the public ICONS list. */
+    var STRIP_ONLY_ICONS = {
+        sofa: '<svg viewBox="0 0 24 24" width="100%" height="100%" fill="currentColor"><path d="M5 9a3 3 0 0 1 3-3h8a3 3 0 0 1 3 3v2h-2V9a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v2H5V9Z"/><path d="M3 12a2 2 0 0 1 2-2 2 2 0 0 1 2 2v2h10v-2a2 2 0 0 1 2-2 2 2 0 0 1 2 2v5h-2v2h-2v-2H7v2H5v-2H3v-5Z"/></svg>',
+        blinds: '<svg viewBox="0 0 24 24" width="100%" height="100%" fill="currentColor"><path d="M4 3h16v2H4zM4 6h16v2H4zM4 9h16v2H4zM4 12h16v2H4zM4 15h16v2H4z"/><path d="M11 17h2v3h-2z"/><circle cx="12" cy="21" r="1.3"/></svg>'
+    };
     function stripIconFor(label) {
         for (var i = 0; i < STRIP_ICON_RULES.length; i++) if (STRIP_ICON_RULES[i][0].test(label)) return STRIP_ICON_RULES[i][1];
         return 'check';
@@ -1267,7 +1273,7 @@
         var rcol = safeColor(el.iconRingColor, '#d4af37'), icol = safeColor(el.iconColor, '#d4af37'), dcol = safeColor(el.dividerColor, '#d4af37');
         var html = '<div style="position:relative;width:100%;height:100%;">';
         cells.forEach(function (label, i) {
-            var ic = ICONS[stripIconFor(label)] || ICONS.check || '';
+            var ik = stripIconFor(label), ic = ICONS[ik] || STRIP_ONLY_ICONS[ik] || ICONS.check || '';
             var inner = Math.round(ring * 0.5);
             html += '<div style="position:absolute;left:' + Math.round(i * cw) + 'px;top:0;width:' + Math.round(cw) + 'px;height:' + h + 'px;'
                   + 'display:flex;flex-direction:column;align-items:center;justify-content:center;padding:' + pad + 'px 4px;box-sizing:border-box;">'

@@ -64,7 +64,7 @@ final class AiTemplateBuilderService
     /** … each cut to this many elements and to roughly this many characters of compact JSON, so the prompt stays bounded. */
     public const EXAMPLE_MAX_ELEMENTS   = 24;
     public const EXAMPLE_MAX_CHARS      = 3500;
-    private const PROMPT_VERSION        = 'at456b10-v5-poster';
+    private const PROMPT_VERSION        = 'at456b10-v6-poster';
     private const CALL_TIMEOUT_SECS = 100;
     private const RETRY_BUDGET_SECS = 120;
     /**
@@ -905,6 +905,10 @@ final class AiTemplateBuilderService
                 . "The picture only shows ONE example listing. Never copy its words, names, prices, phone numbers, logos or people: use the listing's own fields instead (price, suburb, status badge, agent name / phone / photo, agency logo / name, tagline, features). A line particular to that listing (for instance a nearby landmark) becomes a listing_note. Use only the element types listed.\n";
         }
 
+        if ($image !== null) {
+            $user .= $this->referenceExample($generation->ad_size);
+        }
+
         if ($attempt > 1 && $previousErrors !== []) {
             $user .= "\nYour previous answer was rejected for these reasons — fix every one of them:\n- "
                 . implode("\n- ", array_slice($previousErrors, 0, 12)) . "\n";
@@ -961,7 +965,7 @@ final class AiTemplateBuilderService
             . ($on('feature_pills') ? "- feature_pills: pillCount (1 to 4) of the listing's own features as pills, pillDirection row or column, pillGap; you cannot choose which features show.\n" : '')
             // §22 - always allowed (not one of the ticked extras): the poster building blocks.
             . "- feature_strip: a row of stripCount (3 to 8) round icons, each with a short label under it - the listing's bedrooms, bathrooms, garages and own features, the icon is chosen for you; iconColor, iconRingColor, dividerColor; box at least 90 px tall and 90 px wide per cell; fewer details = fewer cells (it re-centres). Great for the foot of a full poster.\n"
-            . "- shape shapeType brush_stroke_1 / brush_stroke_2 (a painted stroke - good under a headline or the status badge; it only paints the MIDDLE band of its box, from about 30% to 70% of the box height, with ragged ends - so make the box about 2.5 times as tall as the words that sit on it and keep every word inside that band, never half on the stroke and half on the photo; to put a status_badge on it set its bgOpacity to 0) and cut_panel_left / cut_panel_right (a dark panel with one slanted edge - good for a logo or header); set shapeGradient true with gradFrom + gradTo + gradAngle for a metallic gradient fill instead of a flat colour.\n"
+            . "- shape shapeType brush_stroke_1 / brush_stroke_2 (a painted stroke - good under a headline or the status badge; it only paints the MIDDLE band of its box, from about 30% to 70% of the box height, with ragged ends - so make the box about 2.5 times as tall as the words that sit on it and keep every word inside that band, never half on the stroke and half on the photo; to put a status_badge on it set its bgOpacity to 0) and cut_panel_left / cut_panel_right (a dark panel with one slanted edge - good for a logo or header; cut_panel_left hugs the left of the canvas with its RIGHT edge leaning inward towards the bottom, cut_panel_right is its mirror); set shapeGradient true with gradFrom + gradTo + gradAngle for a metallic gradient fill instead of a flat colour.\n"
             . "- collagePreset 6_mosaic, 7_mosaic or 8_mosaic show 6 to 8 of the listing's photos (collageFirst 1); on a listing with fewer photos a smaller layout is drawn automatically.\n"
             . "- tagline: the agency's own tagline (left off when it has none); listing_note: one short line the agent types for each ad, e.g. a nearby landmark (left off when blank). Never write either yourself in custom_text.\n";
         $extraNotes = rtrim($extraNotes, "\n");
@@ -1025,7 +1029,7 @@ DESIGN RULES
 
 {$limits}
 {$this->ppraBlock($w, $h)}
-{$this->brandBlock($agencyId, $logoRequired)}
+{$this->brandBlock($agencyId, $logoRequired, $this->hasReference($generation))}
 {$style}{$examples}
 PROMPT;
     }
@@ -1144,10 +1148,31 @@ PROMPT;
     }
 
     /**
+     * One worked example for a reference-picture run on the Poster size (AdPosterExemplar): how each kind of element is written and
+     * sized for a premium gold-on-black poster. It teaches TECHNIQUE - the geometry, colours and fonts must still come from the picture.
+     * Empty for any other size, where there is no tested example.
+     */
+    public function referenceExample(string $sizeKey): string
+    {
+        if ($sizeKey !== AdPosterExemplar::SIZE) {
+            return '';
+        }
+        $json = json_encode(['options' => [AdPosterExemplar::option()]], JSON_UNESCAPED_SLASHES);
+
+        return "\nWORKED EXAMPLE - one finished answer for this size, to show how each kind of element is written and how big it has to be. "
+            . "Copy the TECHNIQUE, never the look: take every position, proportion, colour, font and the number of photos and icons from YOUR picture, and use this only to see how to express them. The points it demonstrates:\n"
+            . "- A brush stroke only paints the middle of its box, so its box is about 2.5 times the height of the words on it; the status_badge and the suburb sit inside that band, and the badge has bgOpacity 0 so its default red pill does not cover the stroke. A suburb can be up to 38 characters (with its town), so give it room for two lines.\n"
+            . "- cut_panel_left hugs the LEFT of the canvas and its right edge leans inward towards the bottom; cut_panel_right is the mirror (use the one that matches the picture).\n"
+            . "- A gold or metallic look is shapeGradient true with gradFrom / gradTo / gradAngle; text stays a flat colour.\n"
+            . "- Words that sit on a panel or block are inside it, the round agent photo, the mosaic and the icon strip never overlap another element, and nothing runs past the canvas.\n"
+            . "```json\n" . $json . "\n```\n";
+    }
+
+    /**
      * The requesting agency's own brand — never anyone else's. Colours come from the agency
      * record; with none set the model is told to pick a neutral palette. (Also used for company ads.)
      */
-    public function brandBlock(int $agencyId, bool $logoRequired = false): string
+    public function brandBlock(int $agencyId, bool $logoRequired = false, bool $pictureLeads = false): string
     {
         $agency = Agency::query()->find($agencyId);
         if ($agency === null) {
@@ -1163,9 +1188,17 @@ PROMPT;
         }
 
         $out = "BRAND (this agency's own - use it so the template looks like it belongs to them):\n";
-        $out .= $colours !== []
-            ? '- Brand colours: ' . implode(', ', $colours) . ". Build the palette around these.\n"
-            : "- No brand colours are on file: choose a tasteful, neutral palette and one accent colour.\n";
+        if ($pictureLeads) {
+            // A reference picture is attached: its colours win. Following the brand here is what turned a gold-and-black poster navy.
+            $out = "BRAND (this agency's own - but a reference picture is attached, so the PICTURE decides the look):\n";
+            $out .= '- Take the colour scheme from the picture: use its colours (its backgrounds, accents, metallics and text colours), not the agency\'s'
+                . ($colours !== [] ? ' brand colours (' . implode(', ', $colours) . ')' : ' brand colours')
+                . ". Use a brand colour only for something the picture does not show.\n";
+        } else {
+            $out .= $colours !== []
+                ? '- Brand colours: ' . implode(', ', $colours) . ". Build the palette around these.\n"
+                : "- No brand colours are on file: choose a tasteful, neutral palette and one accent colour.\n";
+        }
         if ($agency->logo_path) {
             $out .= "- The agency has a logo: you may place it with the 'logo' or 'agency_logo' element.\n";
         } elseif ($logoRequired) {
