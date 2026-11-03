@@ -240,4 +240,48 @@ final class AutoVideoPipelineTest extends TestCase
         $this->artisan('training-videos:check-outdated')->expectsOutputToContain('no video yet')->assertExitCode(0);
         File::deleteDirectory($dir);
     }
+
+    public function test_the_recorder_gives_chromium_its_own_writable_profile_so_it_starts_for_the_read_only_home_of_www_data(): void
+    {
+        // 3 Nov: the queue worker (www-data, read-only home /var/www) could not start Chromium - "chrome_crashpad_handler: --database is required". Every run gets its own profile + home.
+        $src = file_get_contents(base_path('scripts/training-video-record.mjs'));
+        $this->assertStringContainsString("fs.mkdtempSync(path.join(os.tmpdir(), 'tv-chromium-'))", $src);
+        $this->assertStringContainsString('userDataDir:', $src);
+        foreach (['HOME: chromiumHome', 'XDG_CONFIG_HOME', 'XDG_CACHE_HOME'] as $env) {
+            $this->assertStringContainsString($env, $src);
+        }
+        $this->assertStringContainsString('fs.rmSync(chromiumHome', $src, 'the throw-away profile is removed again');
+    }
+
+    public function test_a_failed_recording_keeps_the_start_of_the_error_not_the_stack_trace_tail(): void
+    {
+        $m = new \ReflectionMethod(TrainingVideoGenerator::class, 'recorderErrorSummary');
+        $m->setAccessible(true);
+        $out = "Error: Failed to launch the browser process: Code: null\n\nstderr:\nchrome_crashpad_handler: --database is required\n\nTROUBLESHOOTING: https://pptr.dev/troubleshooting\n\n    at ChildProcess.onClose (file:///x/launch.js:339:24)\n    at ChildProcess.emit (node:events:521:24)";
+        $why = $m->invoke(app(TrainingVideoGenerator::class), $out);
+        $this->assertStringContainsString('Failed to launch the browser process', $why);
+        $this->assertStringContainsString('--database is required', $why);
+        $this->assertStringNotContainsString('ChildProcess', $why);
+        $this->assertStringNotContainsString('TROUBLESHOOTING', $why);
+        $this->assertLessThanOrEqual(200, mb_strlen($why));
+    }
+
+    public function test_every_session_the_recorder_is_given_really_exists_even_when_one_worker_makes_several_videos_in_a_row(): void
+    {
+        // 3 Nov: a long-lived queue worker reuses one database session handler, which remembers "my row exists" - the SECOND video's session was written as an UPDATE of
+        // a row that was never inserted, so the recorder was sent to the login page ("the training user could not sign in").
+        config(['session.driver' => 'database']);
+        app('session')->forgetDrivers();
+        $r = app(TrainingAgencySeeder::class)->seed();
+        $sessions = app(TrainingSessionService::class);
+
+        $first = $sessions->issue($r['users']['agent']);
+        $this->assertTrue(DB::table('sessions')->where('id', $first['session_id'])->exists());
+        $sessions->revoke($first['session_id']);
+
+        $second = $sessions->issue($r['users']['agent']);
+        $this->assertTrue(DB::table('sessions')->where('id', $second['session_id'])->exists(), 'the second session in the same process is inserted too');
+        $third = $sessions->issue($r['users']['manager']);
+        $this->assertTrue(DB::table('sessions')->where('id', $third['session_id'])->exists());
+    }
 }

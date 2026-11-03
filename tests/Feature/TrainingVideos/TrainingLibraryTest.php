@@ -195,7 +195,7 @@ final class TrainingLibraryTest extends TestCase
         $this->assertStringNotContainsString('data-watch-how', view($partial)->render());
     }
 
-    public function test_the_button_can_sit_in_a_page_header_and_then_the_floating_one_is_not_drawn_twice(): void
+    public function test_the_button_is_a_slim_bar_at_the_top_not_a_floating_pill_and_not_drawn_without_a_video(): void
     {
         $this->video();
         $this->actingAs($this->agent);
@@ -203,11 +203,45 @@ final class TrainingLibraryTest extends TestCase
         $route->name('command-center.calendar');
         request()->setRouteResolver(fn () => $route);
 
-        $inline = \Illuminate\Support\Facades\Blade::render('<x-watch-how inline />');
-        $this->assertStringContainsString('data-watch-how="book-a-viewing"', $inline);
-        $this->assertStringNotContainsString('fixed z-40', $inline, 'the header version is not the floating pill');
-        $this->assertStringContainsString('Watch how (1:24)', $inline);
-        $this->assertSame('', trim(view('layouts.partials.watch-how')->render()), 'the layout adds no second button once the header drew its own');
+        $html = view('layouts.partials.watch-how')->render();
+        $this->assertStringContainsString('data-watch-how-bar', $html);
+        $this->assertStringContainsString('Watch how (1:24)', $html);
+        $this->assertStringNotContainsString('fixed z-40', $html, 'no floating pill any more');
+        $this->assertSame(1, substr_count($html, 'data-watch-how-button'));
+
+        $other = new \Illuminate\Routing\Route('GET', '/corex/somewhere-else', []);
+        $other->name('corex.somewhere-else');
+        request()->setRouteResolver(fn () => $other);
+        $this->assertSame('', trim(view('layouts.partials.watch-how')->render()), 'a screen without a video draws nothing - not even the empty bar');
+    }
+
+    public function test_the_button_lives_in_the_two_layouts_only_once_each_above_the_content_and_no_screen_draws_its_own(): void
+    {
+        foreach (['corex-app', 'corex'] as $layout) {
+            $src = file_get_contents(resource_path("views/layouts/{$layout}.blade.php"));
+            $this->assertSame(1, substr_count($src, "@include('layouts.partials.watch-how')"), "{$layout}: exactly one include");
+            $this->assertLessThan(strpos($src, '<main id="appScroll"'), strpos($src, "@include('layouts.partials.watch-how')"), "{$layout}: in the header position, above the content");
+        }
+        $drawn = [];
+        foreach (new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator(resource_path('views'), \FilesystemIterator::SKIP_DOTS)) as $f) {
+            if (str_ends_with($f->getFilename(), '.blade.php') && str_contains(file_get_contents($f->getPathname()), '<x-watch-how')) {
+                $drawn[] = str_replace(resource_path('views') . '/', '', $f->getPathname());
+            }
+        }
+        $this->assertSame(['layouts/partials/watch-how.blade.php'], $drawn, 'the button is drawn by the layout partial and nowhere else');
+    }
+
+    public function test_no_two_scripts_share_a_route_name(): void
+    {
+        $seen = [];
+        foreach (glob(resource_path('training/scripts/*.php')) as $file) {
+            $route = (require $file)['route'] ?? null;
+            if ($route) {
+                $this->assertArrayNotHasKey($route, $seen, "route {$route} is claimed by both " . ($seen[$route] ?? '') . ' and ' . basename($file) . ' - give the second one no route (it is found by its url)');
+                $seen[$route] = basename($file);
+            }
+        }
+        $this->assertSame('agency-settings-essentials.php', $seen['corex.settings'] ?? null, 'the routes the scripts do carry are read, not skipped');
     }
 
     public function test_a_screen_reached_by_an_unnamed_alias_route_still_finds_its_video_by_path(): void
@@ -221,10 +255,11 @@ final class TrainingLibraryTest extends TestCase
         $this->assertNull(app(\App\Services\TrainingVideos\Auto\TrainingScriptRepository::class)->forPath('/corex/elsewhere'));
     }
 
-    public function test_the_mic_work_header_carries_the_watch_how_button(): void
+    public function test_the_mic_work_header_no_longer_carries_its_own_button_and_the_script_keeps_its_route(): void
     {
-        $this->assertStringContainsString('<x-watch-how inline />', file_get_contents(resource_path('views/corex/market-intelligence/partials/_header-actions.blade.php')));
+        $this->assertStringNotContainsString('x-watch-how', file_get_contents(resource_path('views/corex/market-intelligence/partials/_header-actions.blade.php')));
         $this->assertSame('market-intelligence.work', (require resource_path('training/scripts/mic-work.php'))['route']);
+        $this->assertSame('command-center.calendar', (require resource_path('training/scripts/book-a-viewing.php'))['route']);
     }
 
     public function test_every_voice_in_the_catalogue_names_a_model_and_old_stored_names_still_get_a_label(): void
