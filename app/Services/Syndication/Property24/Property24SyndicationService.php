@@ -802,9 +802,73 @@ class Property24SyndicationService
             return ['success' => false, 'message' => $result['message'] ?? 'Reactivation failed'];
         }
 
+        // Property #3317 (2026-11-05) — HTTP 200 on BackOnMarket is NOT "back on the
+        // portal". Property24 accepts the status call even for a listing it has
+        // permanently blocked, and this used to write 'submitted' + wipe
+        // p24_last_error, so the agent saw a clean "submitted" and never learnt that
+        // Property24 had refused the listing. Read the portal back (same rule as
+        // deactivateListing's confirmOffPortal) and say what is actually true.
+        $onPortal = $this->client->isOnPortal($property->id, (int) $property->p24_ref)['on_portal'] ?? null;
+
+        if ($onPortal === true) {
+            $property->update([
+                'p24_syndication_status' => 'active',
+                'p24_activated_at'       => $property->p24_activated_at ?? now(),
+                'p24_last_error'         => null,
+                'p24_agent_conflict'     => null,
+            ]);
+            $this->log('info', "Listing reactivated for property #{$property->id} (confirmed on portal)");
+            return ['success' => true, 'message' => 'Listing reactivated on Property24'];
+        }
+
+        if ($onPortal === false) {
+            // Stays 'submitted' so syncAllActivations() keeps checking it and flips
+            // it to 'active' by itself if Property24 does put it up; only the
+            // message changes, so a slow-but-fine listing is never mislabelled.
+            $refusal = $this->lastPortalRefusal($property);
+            $message = $refusal !== null
+                ? "Property24 accepted the reactivation but did not put the listing back on the portal. Property24's last answer for this listing: {$refusal} Contact Property24 support about listing {$property->p24_ref}."
+                : "Property24 accepted the reactivation but the listing is not showing on the portal yet. CoreX keeps checking; if it does not appear within the hour, contact Property24 support about listing {$property->p24_ref}.";
+            $property->update(['p24_syndication_status' => 'submitted', 'p24_last_error' => $message, 'p24_agent_conflict' => null]);
+            $this->log('warning', "Reactivation for property #{$property->id} accepted by P24 but listing NOT on portal", ['refusal' => $refusal]);
+            return ['success' => $refusal === null, 'not_on_portal' => true, 'message' => $message];
+        }
+
+        // No usable read-back — unchanged behaviour; the activation sync settles it.
         $property->update(['p24_syndication_status' => 'submitted', 'p24_last_error' => null, 'p24_agent_conflict' => null]);
         $this->log('info', "Listing reactivated for property #{$property->id}");
         return ['success' => true, 'message' => 'Listing reactivated on Property24'];
+    }
+
+    /**
+     * The reason Property24 gave the last time it refused to publish this listing
+     * (HTTP 200 with isOnPortal:false — see performSubmit's LAYER 3 block), or null
+     * when the most recent full send was not a refusal. Read from the syndication
+     * log because p24_last_error is overwritten by later status flips (a
+     * deactivate clears it), while Property24's refusal still stands.
+     */
+    private function lastPortalRefusal(Property $property): ?string
+    {
+        $row = \Illuminate\Support\Facades\DB::table('p24_syndication_logs')
+            ->where('property_id', $property->id)
+            ->where('action', 'submit')
+            ->orderByDesc('id')
+            ->first(['response_payload']);
+
+        $data = $row ? json_decode((string) $row->response_payload, true) : null;
+        if (! is_array($data)) {
+            return null;
+        }
+
+        $isOn = $data['isOnPortal'] ?? $data['IsOnPortal'] ?? null;
+        if (! ($isOn === false || $isOn === 'false' || $isOn === 'False')) {
+            return null;
+        }
+
+        $reasons = $data['reasons'] ?? $data['Reasons'] ?? [];
+        $reason  = trim(is_array($reasons) ? implode(' ', array_map('strval', $reasons)) : (string) $reasons);
+
+        return $reason !== '' ? $reason : 'Property24 did not publish the listing.';
     }
 
     /**

@@ -588,3 +588,34 @@ pair under this agency. Opted-out agents (`exclude_from_p24`) are still never at
 red on QA2 before this; its fixture now also mirrors a real saved listing (coordinates, split street name/number, agent
 re-read from the DB) so it measures P24 calls only. All three tests green.
 
+
+---
+
+# Reactivate reads the portal back (2026-11-05, property #3317)
+
+**What went wrong.** Property24 answered a full send for #3317 with HTTP 200 +
+`isOnPortal:false` — "This listing has been permanently blocked." CoreX recorded that
+correctly as `rejected`. A later toggle off (→ `deactivated`, error cleared) and Reactivate
+(BackOnMarket → HTTP 200) then wrote `submitted` with `p24_last_error = null`. The panel
+showed a clean "submitted" for a listing Property24 had refused, so nobody knew to contact
+Property24.
+
+**The rule.** HTTP 200 on BackOnMarket is not "back on the portal" (same principle as
+LAYER 3 on submit and AT-68 on deactivate). `reactivateListing()` now reads is-on-portal
+straight after the status call:
+
+| Read-back | Result |
+|---|---|
+| on portal | `active`, `p24_activated_at` stamped if empty, error cleared, success |
+| off portal + the latest full send was a Property24 refusal | `submitted`, error = Property24's refusal reason + listing number + "contact Property24 support", **failure** returned |
+| off portal, no known refusal | `submitted`, error = "not showing on the portal yet … CoreX keeps checking", success |
+| no usable answer | unchanged behaviour (`submitted`, error cleared) |
+
+Status stays `submitted` when off portal so `syncAllActivations()` keeps checking and flips
+it to `active` by itself if Property24 does publish it — a slow-but-fine listing is never
+mislabelled. The refusal reason is read from the latest `submit` row in
+`p24_syndication_logs` because `p24_last_error` is cleared by later status flips while
+Property24's refusal still stands. The reactivate JSON response now carries
+`p24_last_error` and the panel shows it.
+
+Test: `tests/Feature/Syndication/Property24ReactivateReadBackTest.php`.

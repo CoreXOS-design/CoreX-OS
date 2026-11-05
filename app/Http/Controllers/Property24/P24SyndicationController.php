@@ -189,6 +189,7 @@ class P24SyndicationController extends Controller
             'success'                => $result['success'],
             'message'                => $result['message'],
             'p24_syndication_status' => $property->fresh()->p24_syndication_status,
+            'p24_last_error'         => $property->fresh()->p24_last_error,
             'agent_conflict'         => $result['agent_conflict'] ?? null,
         ], $result['success'] ? 200 : (isset($result['agent_conflict']) ? 409 : 422));
     }

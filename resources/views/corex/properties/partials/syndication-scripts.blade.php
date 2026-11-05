@@ -759,7 +759,9 @@ function p24Syndication(config) {
                     this._pollP24SyncState('Listing back on P24 under the listing agent');
                     return;
                 }
-                if (data.success) { this.agentConflict = null; this.status = data.p24_syndication_status || 'submitted'; this.showMessage('Listing reactivated on P24'); }
+                if (data.p24_syndication_status) this.status = data.p24_syndication_status;
+                this.lastError = data.p24_last_error || '';
+                if (data.success) { this.agentConflict = null; this.status = data.p24_syndication_status || 'submitted'; this.showMessage(data.p24_last_error || 'Listing reactivated on P24'); }
                 else { this.debugErrors = [data.message || 'Reactivation failed']; this.showDebug = true; }
             } catch (e) { this.showMessage('Network error', 'error'); } finally { if (!polling) this.loading = false; }
         },
