@@ -39,16 +39,31 @@ final class ComposerController extends Controller
         private readonly MapProspectStatusService $prospectStatus = new MapProspectStatusService(),
     ) {}
 
-    /** The owner gate (road-to-sold.md 23.6) for a pitch about this property; null = may send. A property off the belt is not gated here. */
-    private function ownerGate(Request $request, ?Property $property): ?string
+    /**
+     * The owner gate (road-to-sold.md 23.6) for a pitch that is a Road to Sold step; null = may send. It fires ONLY when the pitch was opened from the agent's
+     * own Road to Sold record (the popup names it as `rts_prospect`). Opened from the property page, a contact, MIC, a CMA import or by hand, nothing is gated -
+     * "Road to Sold can only block Road to Sold processes, not the rest" (Johan, 5 Nov 2026). When it does fire it carries the link to the Find owner spot.
+     *
+     * @return array{message:string,url:string}|null
+     */
+    private function ownerGate(Request $request, ?Property $property): ?array
     {
-        // the same file the Road to Sold row judges (23.23 drop 5): the agent's own record first, not whatever the property row points at
-        $tpId = app(\App\Services\SellerOutreach\PitchBeltResolver::class)->trackedFor($request->user(), $property, (int) $request->input('rts_prospect') ?: null);
-        if (! $tpId) {
+        $user = $request->user();
+        $prospect = app(\App\Services\SellerOutreach\PitchBeltResolver::class)->recordOpenedFrom($user, $property, (int) $request->input('rts_prospect') ?: null);
+        if (! $prospect) {
             return null;
         }
+        $gate = app(\App\Services\RoadToSold\OwnerStationService::class);
+        $message = $gate->refusal($user, (int) $prospect->tracked_property_id);
+        if ($message === null) {
+            return null;
+        }
+        $missing = $gate->missing((int) $prospect->agency_id, (int) $prospect->tracked_property_id);
 
-        return app(\App\Services\RoadToSold\OwnerStationService::class)->refusal($request->user(), (int) $tpId);
+        return [
+            'message' => $message . ($missing !== [] ? ' Still needed: ' . implode(' and ', $missing) . '.' : ''),
+            'url'     => app(\App\Services\RoadToSold\PitchPathService::class)->next($prospect, $user, app(\App\Services\RoadToSold\PitchPathService::class)->carry($request))['url'],
+        ];
     }
 
     public function show(Request $request, Contact $contact)
@@ -233,7 +248,9 @@ final class ComposerController extends Controller
 
         // v4 gate (road-to-sold.md 23.6): no send for a belt property whose owner is not found yet.
         if ($gate = $this->ownerGate($request, $property)) {
-            return $request->wantsJson() ? response()->json(['message' => $gate, 'find_owner' => true], 422) : back()->with('error', $gate);
+            return $request->wantsJson()
+                ? response()->json(['message' => $gate['message'], 'find_owner' => true, 'find_owner_url' => $gate['url']], 422)
+                : back()->with('error', $gate['message'])->with('find_owner_url', $gate['url']);
         }
 
         // Laravel's `nullable|integer` validates but does NOT cast — the value
@@ -408,7 +425,7 @@ final class ComposerController extends Controller
         }
 
         if ($gate = $this->ownerGate($request, $property)) {
-            return $this->queueError($request, $gate);
+            return $this->queueError($request, $gate['message'], ['find_owner' => true, 'find_owner_url' => $gate['url']]);
         }
 
         $templateId = !empty($validated['template_id']) ? (int) $validated['template_id'] : null;

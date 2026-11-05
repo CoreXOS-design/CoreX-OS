@@ -31,7 +31,6 @@ final class TemplatePackageImporter
     public const CHOICE_NEW_VERSION = 'new_version';
     public const CHOICE_NEW_COPY = 'new_copy';
 
-    private const SOURCE_TYPES = ['property', 'contact', 'agent', 'deal', 'static', 'computed', 'manual'];
     private const CONTENT_COLUMNS = [
         'signing_parties', 'cds_json', 'editor_state', 'fields_json',
         'field_mappings', 'wizard_config', 'sections', 'insertable_blocks',
@@ -515,7 +514,7 @@ final class TemplatePackageImporter
         // Definitions
         foreach ((array) ($data['named_fields'] ?? []) as $token => $def) {
             if (! preg_match('/^nf\d{1,5}$/', (string) $token) || ! is_array($def) || ! is_string($def['name'] ?? null) || trim($def['name']) === '' || mb_strlen($def['name']) > 255
-                || ! in_array($def['source_type'] ?? null, self::SOURCE_TYPES, true) || ! is_string($def['field_type'] ?? null)) {
+                || ! in_array($def['source_type'] ?? null, NamedField::SOURCE_TYPES, true) || ! is_string($def['field_type'] ?? null)) {
                 $e[] = 'A field definition in the package is damaged.';
                 break;
             }

@@ -53,6 +53,17 @@
             {{ session('error') }}
         </div>
     @endif
+    {{-- Road to Sold gate (road-to-sold.md 23.6): only a pitch opened as a Road to Sold step can be stopped, and the stop links to the spot that fixes it --}}
+    @if(session('find_owner_url'))
+        <div class="rounded-md px-4 py-2 text-sm" style="border:1px solid var(--border); color: var(--text-primary);" data-qa="find-owner-link">
+            <a href="{{ session('find_owner_url') }}" class="corex-btn-outline text-xs no-underline">Find the owner</a>
+        </div>
+    @endif
+    <div x-show="gate" x-cloak class="rounded-md px-4 py-3 text-sm font-medium" data-qa="rts-gate"
+         style="background: color-mix(in srgb, var(--ds-crimson) 10%, transparent); border:1px solid color-mix(in srgb, var(--ds-crimson) 30%, transparent); color: var(--text-primary);">
+        <span x-text="gate ? gate.message : ''"></span>
+        <a :href="gate ? gate.url : '#'" class="corex-btn-outline text-xs no-underline" style="margin-left:8px;" data-qa="find-owner">Find the owner</a>
+    </div>
     @if(session('status'))
         <div class="rounded-md px-4 py-3 text-sm font-medium"
              style="background: color-mix(in srgb, var(--ds-green) 10%, transparent); border:1px solid color-mix(in srgb, var(--ds-green) 30%, transparent); color: var(--text-primary);">
@@ -147,6 +158,7 @@ function composerState(init) {
     return {
         ...init,
         sending: false,
+        gate: null,
         // AT-117 — add-to-queue (no due-time; ready immediately).
         queuing: false,
         // BUG-1 fix — read-only preview only. The per-send links (opt-out / opt-in /
@@ -182,6 +194,18 @@ function composerState(init) {
             url.searchParams.delete('subject');
             window.location.href = url.toString();
         },
+        // the Road to Sold pop-up context (the record this pitch is a step of) goes with the POST, so the owner gate only ever fires for a Road to Sold step
+        rtsFields() {
+            const here = new URLSearchParams(window.location.search);
+            const out = {};
+            ['embed', 'rts_prospect', 'rts_stage'].forEach(k => { if (here.get(k)) out[k] = here.get(k); });
+            return out;
+        },
+        // a refused send: the Road to Sold owner gate links to the spot that fixes it; anything else stays a plain message
+        refused(data, fallback) {
+            if (data && data.find_owner_url) { this.gate = { message: data.message, url: data.find_owner_url }; return; }
+            alert((data && data.message) || fallback);
+        },
         async submit() {
             if (this.sending) return;
             // AT-117 §4a — send-window lock. Client prevent (immediate message);
@@ -190,6 +214,7 @@ function composerState(init) {
                 alert(this.windowMessage || 'Outreach sending is closed right now.');
                 return;
             }
+            this.gate = null;
             this.sending = true;
 
             // WA-OPEN FIX — open the WhatsApp tab NOW, synchronously inside the
@@ -223,12 +248,13 @@ function composerState(init) {
                         template_id: this.templateId || '',
                         subject: this.subject || '',
                         body: this.body || '',
+                        ...this.rtsFields(),
                     }),
                 });
                 const data = await res.json();
                 if (!res.ok) {
                     if (waTab) waTab.close(); // don't strand a blank tab on failure
-                    alert(data.message || 'Send failed.');
+                    this.refused(data, 'Send failed.');
                     return;
                 }
                 // Navigate the pre-opened tab to the per-send WhatsApp URL (the body
@@ -274,10 +300,11 @@ function composerState(init) {
                         template_id: this.templateId || '',
                         subject: this.subject || '',
                         body: this.body || '',
+                        ...this.rtsFields(),
                     }),
                 });
                 const data = await res.json();
-                if (!res.ok) { alert(data.message || 'Could not queue.'); return; }
+                if (!res.ok) { this.refused(data, 'Could not queue.'); return; }
                 alert(data.message || 'Added to your outreach queue.');
                 window.location.href = this.contactUrl;
             } catch (e) {
