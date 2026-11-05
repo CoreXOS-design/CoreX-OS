@@ -89,6 +89,11 @@ class ProfileController extends Controller
                 $relativePath = substr($file->getRealPath(), strlen($sourceDir) + 1);
                 // Normalise to forward slashes for zip compatibility
                 $relativePath = str_replace('\\', '/', $relativePath);
+                // Dev-only test fixtures (saved portal pages with remote <script> tags)
+                // must never ship — Chrome Web Store flags them as remotely hosted code.
+                if (str_starts_with($relativePath, 'tests/') || preg_match('/\.test\.(cjs|js)$/', $relativePath)) {
+                    continue;
+                }
                 $zip->addFile($file->getRealPath(), $relativePath);
             }
         }
