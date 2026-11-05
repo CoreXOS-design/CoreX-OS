@@ -117,7 +117,7 @@
 
         <div class="flex justify-end gap-2 pt-4" style="border-top: 1px solid var(--border);">
             <a href="{{ route('corex.rental-applications.index') }}" class="corex-btn-outline text-sm">Cancel</a>
-            <button type="submit" class="corex-btn-primary text-sm" :disabled="!selectedContactId || (selectedCoApplicantId && selectedCoApplicantId === selectedContactId)" data-tour="rops-ac-create">Create</button>
+            <button type="submit" class="corex-btn-primary text-sm" :disabled="!selectedContactId || !!(selectedCoApplicantId && selectedCoApplicantId === selectedContactId)" data-tour="rops-ac-create">Create</button>
         </div>
     </form>
 
