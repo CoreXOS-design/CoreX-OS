@@ -57,6 +57,9 @@ final class TemplatePackageExporter
 
                 return $nfTokens[$id] = null;
             }
+            if (! in_array($row->source_type, NamedField::SOURCE_TYPES, true)) {
+                throw new TemplateTransferException('This template cannot be exported: the field "' . $row->name . '" has a data source this system does not recognise. Open it in the template builder and choose its data source again.');
+            }
             $token = 'nf' . (count($nfDefs) + 1);
             $nfDefs[$token] = [
                 'name'                => $row->name,
