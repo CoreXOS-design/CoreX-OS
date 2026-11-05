@@ -58,6 +58,8 @@ class TrainingAgencySeeder
         $this->seedDemoData($agency, $branch, $users['agent']);
         app(TrainingMicSeeder::class)->seed($agency->fresh(), $users['agent']);   // the Market Intelligence Work tab (9.11); does nothing when already there
         $this->seedFicaRequests($agency, $branch, $users['agent']);
+        $this->giveContactsToAgent($agency, $users['agent']);
+        $this->seedPastViewing($agency, $branch, $users['agent']);
 
         return ['agency' => $agency, 'users' => $users, 'created' => $created];
     }
@@ -89,6 +91,7 @@ class TrainingAgencySeeder
             $contacts[] = Contact::withoutGlobalScope(AgencyScope::class)->create([
                 'agency_id' => $agency->id, 'branch_id' => $branch?->id, 'first_name' => $first, 'last_name' => $last,
                 'email' => strtolower($first) . '.' . strtolower($last) . '@' . TrainingSessionService::EMAIL_DOMAIN, 'phone' => '082 555 01' . str_pad((string) $i, 2, '0', STR_PAD_LEFT),
+                'agent_id' => $agent->id, 'created_by_user_id' => $agent->id,
             ]);
         }
         $suburbs = ['Uvongo', 'Margate', 'Ramsgate', 'Shelly Beach', 'Southbroom', 'Port Edward'];
@@ -134,5 +137,30 @@ class TrainingAgencySeeder
                 'entity_type' => 'natural', 'intake_type' => 'online', 'status' => $status, 'form_data' => $form,
             ]);
         }
+    }
+
+    /** A contact list is own-scoped for an agent, so the invented people must belong to the training agent or the Contacts how-tos would film "No contacts yet". Idempotent. */
+    private function giveContactsToAgent(Agency $agency, User $agent): void
+    {
+        Contact::withoutGlobalScope(AgencyScope::class)->where('agency_id', $agency->id)->whereNull('agent_id')
+            ->where('email', 'like', '%@' . TrainingSessionService::EMAIL_DOMAIN)
+            ->whereIn('first_name', ['Bianca', 'Sipho', 'Priya', 'Johan'])
+            ->update(['agent_id' => $agent->id, 'created_by_user_id' => $agent->id]);
+    }
+
+    /** A viewing that already happened (yesterday), so the Diary how-to can show where the buyer's feedback is captured. Idempotent by title. */
+    private function seedPastViewing(Agency $agency, ?Branch $branch, User $agent): void
+    {
+        $title = 'Viewing (done) - Bluegum Road home';
+        $property = Property::withoutGlobalScope(AgencyScope::class)->where('agency_id', $agency->id)->orderBy('id')->skip(1)->first();
+        $contact = Contact::withoutGlobalScope(AgencyScope::class)->where('agency_id', $agency->id)->where('first_name', 'Priya')->first();
+        if (! $property || DB::table('calendar_events')->where('agency_id', $agency->id)->where('title', $title)->exists()) {
+            return;
+        }
+        DB::table('calendar_events')->insert([
+            'user_id' => $agent->id, 'created_by_id' => $agent->id, 'agency_id' => $agency->id, 'branch_id' => $branch?->id, 'event_type' => 'viewing',
+            'title' => $title, 'event_date' => now()->subDay()->setTime(14, 0), 'end_date' => now()->subDay()->setTime(14, 45),
+            'property_id' => $property->id, 'contact_id' => $contact?->id, 'status' => 'scheduled', 'created_at' => now(), 'updated_at' => now(),
+        ]);
     }
 }
