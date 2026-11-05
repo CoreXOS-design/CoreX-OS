@@ -32,6 +32,23 @@ final class PitchBeltResolver
             ->whereNull('closed_at')->whereNull('released_at')->whereNull('deleted_at')->orderByDesc('id')->first();
     }
 
+    /**
+     * The Road to Sold record this pitch was OPENED FROM, or null (Johan, 5 Nov 2026: "Road to Sold can only block Road to Sold processes, not the rest").
+     * Only the record the popup names counts - the agent's own, open, and about this property. A property that merely has an open record somewhere
+     * (claimed in MIC, pitched from its property page or the contact) is not a Road to Sold step, so it is never gated.
+     */
+    public function recordOpenedFrom(User $actor, ?Property $property, ?int $rtsProspectId): ?RtsProspect
+    {
+        if (! $property || ! $rtsProspectId) {
+            return null;
+        }
+        $p = RtsProspect::withoutGlobalScopes()->where('agency_id', (int) ($actor->effectiveAgencyId() ?: 0))->where('track', 'sales')
+            ->where('user_id', (int) $actor->ownershipUserId())->whereNull('closed_at')->whereNull('released_at')->whereNull('deleted_at')
+            ->whereKey($rtsProspectId)->first();
+
+        return $p && (int) $p->property_id === (int) $property->id ? $p : null;
+    }
+
     public function trackedFor(User $actor, ?Property $property, ?int $rtsProspectId = null): ?int
     {
         if (! $property) {
