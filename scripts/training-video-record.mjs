@@ -168,6 +168,8 @@ for (const [i, s] of job.steps.entries()) {
       }
     }
     if (rec1.found) {
+      // a link that opens in a new tab (the property list's View button) would leave the recording on the list: open it in this tab instead
+      if (s.action === 'click') await page.evaluate((sel) => { const a = document.querySelector(sel)?.closest('a[target="_blank"]'); if (a) a.removeAttribute('target'); }, s.selector).catch(() => {});
       if (s.action === 'click' && pt) { if (!job.ad) { await page.evaluate(() => window.__tvClickFx()); await sleep(250); } await page.click(s.selector).catch(async () => { await page.evaluate((sel) => document.querySelector(sel)?.click(), s.selector); }); }
       else if (s.action === 'type' && pt) { await page.click(s.selector).catch(() => {}); await page.type(s.selector, s.value || '', { delay: 70 }); }
       else if (s.action === 'select' && pt) { await page.select(s.selector, s.value); }
