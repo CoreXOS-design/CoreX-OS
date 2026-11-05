@@ -719,3 +719,45 @@ Johan's ruling 3 Nov: the 21 draft scripts (the 19 Setup Wizard steps, `agency-s
 | agency-setup-roles | See who can do what | 4 | 104 | 39s | ready |
 | agency-setup-welcome | Start your agency setup | 3 | 88 | 32s | ready |
 | role-manager-create-role | Create a role and give it to a person | 11 | 196 | 75s | ready |
+
+## 9.26 Main-screen scripts: FICA, Properties, Contacts, Calendar (5 Nov 2026, Johan approved)
+14 approved scripts for the screens agents use most, written to the 9.13 plain-words rule (a "why" on every step, invented Bluegum-style sample data, no agency wording, "evaluation" never "valuation"), each walked step by step on QA1 in Chromium as the training agent (every selector present and visible at its turn, nothing a 16-pixel switch, nothing saved or sent). All are `approved => true`, `narrated => false`, `login_as => agent` (agents can open every one of these screens, so no admin needed); 43-76 seconds each by the validator. Registered by being in `resources/training/scripts/`: `training-videos:generate --outdated` picks them up (check-outdated lists them as "no video yet").
+
+| key | title | steps | route (Watch how) | start url |
+|---|---|---|---|---|
+| fica-send-request | Ask a client for their FICA | 4 | compliance.fica.create | /corex/compliance/fica/create |
+| fica-agent-review | Check a FICA and approve it | 7 | compliance.fica.index | /corex/compliance/fica |
+| fica-client-form | What your client sees: the FICA form | 7 | fica.form | /fica/bluegum-training-fica-link |
+| properties-load | Load a new property | 7 | corex.properties.wizard | /corex/properties/wizard |
+| properties-edit | Edit a property | 6 | corex.properties.show | /corex/properties?flow=edit |
+| properties-photos | Add photos to a property | 5 | none | /corex/properties?flow=photos |
+| properties-status | Change a property's status | 6 | none | /corex/properties?flow=status |
+| contacts-find | Find a contact | 4 | corex.contacts.index | /corex/contacts |
+| contacts-create | Add a new contact | 7 | none | /corex/contacts?flow=create |
+| contacts-page-tabs | Everything on a contact's page | 6 | corex.contacts.show | /corex/contacts?flow=page-tabs |
+| contacts-link-property | Link a contact to a property | 4 | none | /corex/contacts?flow=link-property |
+| calendar-view-diary | Read your diary | 6 | none | /corex/command-center/calendar?flow=view |
+| calendar-book-appointment | Book an appointment in the diary | 8 | none | /corex/command-center/calendar?flow=book |
+| calendar-viewing-feedback | Add feedback after a viewing | 6 | none | /corex/command-center/calendar?flow=feedback |
+
+**One route, one video.** Where several flows share one screen only the main flow owns the route name (so the Watch how button on that screen is never a guess): the Diary's route stays with the approved `book-a-viewing` (cc1's), the property page's with `properties-edit`, the contact list with `contacts-find`. The other flows have **no route** and a `?flow=` start url (the page ignores it; it only keeps their urls apart, so `forPath` never matches them) - they play from the Training library, not from a button. `MainScreenTrainingScriptsTest` fails if two scripts ever share a route or a start url.
+
+**What was added to make them recordable (all training-agency / recorder only, nothing in the product screens).**
+- `TrainingAgencySeeder`: (1) two invented FICA requests - Priya's, still waiting for her, with the FIXED never-expiring token `bluegum-training-fica-link` (the client video opens `/fica/<token>`; the public form needs no sign-in), and Bianca's, submitted and waiting for agent review (the review video); (2) the four invented contacts now belong to the training agent - the contact list is own-scoped for an agent and used to film "No contacts yet"; (3) the two diary events are real diary events (`event_type manual`, `category viewing`, linked to their house and buyer through `calendar_event_links`) - the first version had no class, so the diary answered "Could not load event" - plus a viewing that already happened, so the feedback video has something to open. All idempotent (`training:seed-agency` fixes an existing agency in place; `--reset` also clears the FICA rows and event links).
+- `scripts/training-video-record.mjs`: a click on a link that opens in a new tab (the property list's View button is `target="_blank"`) removes the `target` first, so the recording follows it. Nothing else changes.
+- Tests: `MainScreenTrainingScriptsTest` (new: validator, agent login, agency-neutral wording, no shared route/url, the client link is the seeder's token); `AutoVideoPipelineTest` seeder test and `NarratedTourDraftScriptsTest` (the 14 are excluded from the Setup-Wizard drafts) updated for the new seed and script set.
+
+**Never saved, never sent.** The recordings point at Send FICA Request, Approve, Save, Create Event and Save Feedback but never press them; Cancel is pressed where a box was opened (new contact, feedback). The property wizard keeps a draft, so the load video only points at its fields. The FICA client form saves an upload the moment a file is picked, so the video only points at the upload boxes.
+
+**Traps for the next person.** (1) Typing into the FICA search box opens a suggestion list that covers the tabs, so the review script highlights the box instead of typing. (2) The Properties page auto-starts a guided tour for a user who has not finished it; the recorder closes it, but a hand-made walker must too. (3) Contact tabs have no stable id: they are found by `#tab-bar button[\@click="activeTab = '...'"]` (the backslash escapes the @ in the CSS selector). (4) `data-tour="prop-gallery-upload-btn"` is hidden until files are chosen, so it is not used. (5) The training diary events are dated at seed time; run `php artisan training:seed-agency --reset` before regenerating in a new month (9.25).
+
+**Proof videos (5 Nov, QA1, through the real `training-videos` worker, system voice `kokoro:af_heart`): 4 of 4 ready, none failed.** One frame of each checked: the spotlight sits on the intended block and nothing is saved. The other 10 are NOT generated - Andre runs `training-videos:generate --outdated` after the push.
+
+| key | group | duration | ready? |
+|---|---|---|---|
+| fica-send-request | FICA agent | 35s | ready |
+| properties-load | Properties load | 60s | ready |
+| contacts-create | Contacts create | 49s | ready |
+| calendar-book-appointment | Calendar book | 55s | ready |
+
+Note for the batch: `agency-setup-welcome` already showed OUT OF DATE in `check-outdated` before this work (not touched here), so `--outdated` will also re-make it.
