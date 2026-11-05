@@ -62,6 +62,7 @@ class TrainingAgencySeeder
         $this->seedPastViewing($agency, $branch, $users['agent']);
         // events the first version of this seeder wrote had no category, so the diary could not open them ("Could not load event"); a real diary event is a 'manual' event with a class
         DB::table('calendar_events')->where('agency_id', $agency->id)->whereNull('category')->where('event_type', 'viewing')->update(['event_type' => 'manual', 'category' => 'viewing', 'all_day' => 0]);
+        $this->linkEvents($agency, $users['agent']);
 
         return ['agency' => $agency, 'users' => $users, 'created' => $created];
     }
@@ -164,5 +165,18 @@ class TrainingAgencySeeder
             'title' => $title, 'event_date' => now()->subDay()->setTime(14, 0), 'end_date' => now()->subDay()->setTime(14, 45),
             'property_id' => $property->id, 'contact_id' => $contact?->id, 'status' => 'scheduled', 'created_at' => now(), 'updated_at' => now(),
         ]);
+    }
+
+    /** The diary shows an event's house and buyer from calendar_event_links (not from the event's own columns), so a seeded viewing needs them or the feedback box says "No properties linked". Idempotent. */
+    private function linkEvents(Agency $agency, User $agent): void
+    {
+        foreach (DB::table('calendar_events')->where('agency_id', $agency->id)->whereNull('deleted_at')->get(['id', 'property_id', 'contact_id']) as $e) {
+            foreach ([['App\\Models\\Property', $e->property_id, 'subject_property'], ['App\\Models\\Contact', $e->contact_id, 'buyer_contact']] as [$type, $id, $role]) {
+                if (! $id || DB::table('calendar_event_links')->where('calendar_event_id', $e->id)->where('linkable_type', $type)->where('linkable_id', $id)->exists()) {
+                    continue;
+                }
+                DB::table('calendar_event_links')->insert(['calendar_event_id' => $e->id, 'agency_id' => $agency->id, 'linkable_type' => $type, 'linkable_id' => $id, 'role' => $role, 'created_by_user_id' => $agent->id, 'created_at' => now(), 'updated_at' => now()]);
+            }
+        }
     }
 }
