@@ -57,6 +57,7 @@ class TrainingAgencySeeder
 
         $this->seedDemoData($agency, $branch, $users['agent']);
         app(TrainingMicSeeder::class)->seed($agency->fresh(), $users['agent']);   // the Market Intelligence Work tab (9.11); does nothing when already there
+        $this->seedFicaRequests($agency, $branch, $users['agent']);
 
         return ['agency' => $agency, 'users' => $users, 'created' => $created];
     }
@@ -67,6 +68,8 @@ class TrainingAgencySeeder
         $agency = Agency::withoutGlobalScopes()->where('slug', self::SLUG)->where('is_training', true)->first();
         if ($agency) {
             DB::table('calendar_events')->where('agency_id', $agency->id)->delete();
+            DB::table('fica_documents')->whereIn('fica_submission_id', DB::table('fica_submissions')->where('agency_id', $agency->id)->pluck('id'))->delete();
+            DB::table('fica_submissions')->where('agency_id', $agency->id)->delete();
             app(TrainingMicSeeder::class)->clear($agency);
             Property::withoutGlobalScope(AgencyScope::class)->where('agency_id', $agency->id)->forceDelete();
             Contact::withoutGlobalScope(AgencyScope::class)->where('agency_id', $agency->id)->forceDelete();
@@ -103,5 +106,33 @@ class TrainingAgencySeeder
             'title' => 'Viewing - ' . $properties[0]->title, 'event_date' => now()->addDay()->setTime(10, 0), 'end_date' => now()->addDay()->setTime(10, 45),
             'property_id' => $properties[0]->id, 'contact_id' => $contacts[0]->id, 'status' => 'scheduled', 'created_at' => now(), 'updated_at' => now(),
         ]);
+    }
+
+    /** The token of the client's FICA link in the training agency - fixed, so the client-side how-to can open it; it never expires and is on an invented person. */
+    public const FICA_LINK_TOKEN = 'bluegum-training-fica-link';
+
+    /**
+     * Two invented FICA requests, so the FICA how-tos have something real to point at (9.26): Priya's is still waiting for her (the link the client video opens),
+     * Bianca's has been sent back and is waiting for the agent to review. Idempotent by token.
+     */
+    private function seedFicaRequests(Agency $agency, ?Branch $branch, User $agent): void
+    {
+        $contacts = Contact::withoutGlobalScope(AgencyScope::class)->where('agency_id', $agency->id)->get()->keyBy('first_name');
+        $rows = [
+            [self::FICA_LINK_TOKEN, 'Priya', 'draft', null],
+            ['bluegum-training-fica-review', 'Bianca', 'submitted', [
+                'personal' => ['full_name' => 'Bianca Buyer', 'id_number' => '9001015800087', 'sa_citizen' => 'yes', 'residential_address' => '12 Bluegum Road, Margate', 'phone' => '082 555 0100', 'email' => 'bianca.buyer@' . TrainingSessionService::EMAIL_DOMAIN],
+            ]],
+        ];
+        foreach ($rows as [$token, $first, $status, $form]) {
+            $contact = $contacts->get($first);
+            if (! $contact || \App\Models\FicaSubmission::withoutGlobalScopes()->where('token', $token)->exists()) {
+                continue;
+            }
+            \App\Models\FicaSubmission::withoutGlobalScopes()->create([
+                'contact_id' => $contact->id, 'agency_id' => $agency->id, 'branch_id' => $branch?->id, 'requested_by' => $agent->id, 'token' => $token, 'token_expires_at' => null,
+                'entity_type' => 'natural', 'intake_type' => 'online', 'status' => $status, 'form_data' => $form,
+            ]);
+        }
     }
 }
