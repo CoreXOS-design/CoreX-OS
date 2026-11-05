@@ -72,6 +72,7 @@ class TrainingAgencySeeder
     {
         $agency = Agency::withoutGlobalScopes()->where('slug', self::SLUG)->where('is_training', true)->first();
         if ($agency) {
+            DB::table('calendar_event_links')->where('agency_id', $agency->id)->delete();
             DB::table('calendar_events')->where('agency_id', $agency->id)->delete();
             DB::table('fica_documents')->whereIn('fica_submission_id', DB::table('fica_submissions')->where('agency_id', $agency->id)->pluck('id'))->delete();
             DB::table('fica_submissions')->where('agency_id', $agency->id)->delete();
