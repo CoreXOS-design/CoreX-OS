@@ -63,6 +63,7 @@ class TrainingAgencySeeder
         // events the first version of this seeder wrote had no category, so the diary could not open them ("Could not load event"); a real diary event is a 'manual' event with a class
         DB::table('calendar_events')->where('agency_id', $agency->id)->whereNull('category')->where('event_type', 'viewing')->update(['event_type' => 'manual', 'category' => 'viewing', 'all_day' => 0]);
         $this->linkEvents($agency, $users['agent']);
+        $this->seedDealWithPipeline($agency, $branch, $users['agent']);
 
         return ['agency' => $agency, 'users' => $users, 'created' => $created];
     }
@@ -72,6 +73,7 @@ class TrainingAgencySeeder
     {
         $agency = Agency::withoutGlobalScopes()->where('slug', self::SLUG)->where('is_training', true)->first();
         if ($agency) {
+            $this->clearDeals($agency);
             DB::table('calendar_event_links')->where('agency_id', $agency->id)->delete();
             DB::table('calendar_events')->where('agency_id', $agency->id)->delete();
             DB::table('fica_documents')->whereIn('fica_submission_id', DB::table('fica_submissions')->where('agency_id', $agency->id)->pluck('id'))->delete();
@@ -117,6 +119,7 @@ class TrainingAgencySeeder
 
     /** The token of the client's FICA link in the training agency - fixed, so the client-side how-to can open it; it never expires and is on an invented person. */
     public const FICA_LINK_TOKEN = 'bluegum-training-fica-link';
+    public const DEAL_NO = 'TRN-0001';   // not numeric, so the register's next-number maths ignores it
 
     /**
      * Two invented FICA requests, so the FICA how-tos have something real to point at (9.26): Priya's is still waiting for her (the link the client video opens),
@@ -179,5 +182,49 @@ class TrainingAgencySeeder
                 DB::table('calendar_event_links')->insert(['calendar_event_id' => $e->id, 'agency_id' => $agency->id, 'linkable_type' => $type, 'linkable_id' => $id, 'role' => $role, 'created_by_user_id' => $agent->id, 'created_at' => now(), 'updated_at' => now()]);
             }
         }
+    }
+    /**
+     * One invented deal with a running pipeline, so the Deal Register and pipeline how-tos (9.27) have a real deal to open. The agent gets the permission that shows the
+     * Supplier Work Orders tab (deals_v2.distribute_documents) and create_deals, which the videos need. Idempotent by deal number; pipeline templates are the agency's own defaults.
+     */
+    private function seedDealWithPipeline(Agency $agency, ?Branch $branch, User $agent): void
+    {
+        foreach (['deals_v2.distribute_documents', 'create_deals'] as $key) {
+            DB::table('role_permissions')->insertOrIgnore(['role' => 'agent', 'permission_key' => $key, 'scope' => null, 'agency_id' => $agency->id, 'created_at' => now(), 'updated_at' => now()]);
+        }
+        $dealNo = self::DEAL_NO;
+        $property = Property::withoutGlobalScope(AgencyScope::class)->where('agency_id', $agency->id)->orderBy('id')->first();
+        if (! $property || \App\Models\Deal::withoutGlobalScopes()->where('agency_id', $agency->id)->where('deal_no', $dealNo)->exists()) {
+            return;
+        }
+        if (! \App\Models\DealV2\DealPipelineTemplate::withoutGlobalScopes()->where('agency_id', $agency->id)->exists()) {
+            app(\App\Services\DealV2\DealPipelineTemplateProvisioner::class)->provisionDefaultsForAgency($agency->id, $agent->id);
+        }
+        $template = \App\Models\DealV2\DealPipelineTemplate::withoutGlobalScopes()->where('agency_id', $agency->id)->where('is_default', true)->orderBy('id')->first();
+
+        $deal = \App\Models\Deal::withoutGlobalScopes()->create([
+            'agency_id' => $agency->id, 'branch_id' => $branch?->id, 'deal_no' => $dealNo, 'period' => now()->format('Y-m'), 'deal_date' => now()->subDays(10)->toDateString(),
+            'deal_type' => 'bond', 'property_id' => $property->id, 'property_address' => $property->address ?? $property->street_address ?? 'Training house', 'property_value' => 1850000, 'sale_price' => 1850000,
+            'total_commission' => 129500, 'seller_name' => 'Sipho Seller', 'buyer_name' => 'Bianca Buyer', 'accepted_status' => 'P',
+        ]);
+        \App\Models\DealProperty::create(['deal_id' => $deal->id, 'property_id' => $property->id, 'is_primary' => true]);
+        $deal->agents()->attach($agent->id, ['side' => 'listing', 'agent_split_percent' => 100, 'agent_cut_percent' => 50, 'paye_method' => 'percentage', 'paye_value' => 0]);
+        if ($template) {
+            app(\App\Services\Deal\Dr1PipelineService::class)->createPipeline($deal, $template->id, ['from_date' => now()->subDays(10)->toDateString()]);
+        }
+    }
+
+    /** Remove the invented deal and its pipeline (reset only). */
+    private function clearDeals(Agency $agency): void
+    {
+        $ids = \App\Models\Deal::withoutGlobalScopes()->where('agency_id', $agency->id)->pluck('id');
+        if ($ids->isEmpty()) {
+            return;
+        }
+        DB::table('deal_step_instances')->whereIn('dr1_deal_id', $ids)->delete();
+        DB::table('deal_user')->whereIn('deal_id', $ids)->delete();
+        DB::table('deal_properties')->whereIn('deal_id', $ids)->delete();
+        DB::table('deal_logs')->whereIn('deal_id', $ids)->delete();
+        \App\Models\Deal::withoutGlobalScopes()->whereIn('id', $ids)->forceDelete();
     }
 }
