@@ -1,7 +1,7 @@
 <?php
 
 /**
- * Training script - Deals 5 of 5: ticking a certificate and sending its work order to a supplier or the transferring attorney. Ticking and choosing only change the screen until Save work orders is pressed, and the recording stops before it: nothing is saved or sent. Shares the List screen with deals-pipeline-list, so no route and a ?flow= url.
+ * Training script - Deals 5 of 5: ticking a certificate and sending its work order to a supplier or the transferring attorney. Ticking and choosing only change the screen until Save work orders is pressed, and the recording stops before it: nothing is saved or sent. Shares the List screen with deals-pipeline-list, so no route and a ?flow= url. The training agent's saved view is List (seeded), so the Pipeline link lands on it.
  */
 return [
     'key' => 'deals-work-orders',
@@ -19,11 +19,6 @@ return [
             'selector' => 'main a[href*="/pipeline/view"]', 'action' => 'click', 'done' => 'click',
             'narration' => 'Open the deal\'s pipeline from the register.',
             'why' => 'One page shows every step from offer to transfer.',
-        ],
-        [
-            'selector' => '.toggle a[href$="/pipeline/list"]', 'action' => 'click', 'done' => 'click',
-            'narration' => 'Choose List.',
-            'why' => 'The work orders are on the right of the list.',
         ],
         [
             'selector' => '[data-tour="pipe-tab-wo"]', 'action' => 'click', 'done' => 'click',

@@ -101,6 +101,7 @@ final class AutoVideoPipelineTest extends TestCase
         $this->assertGreaterThan(5, DB::table('deal_step_instances')->where('dr1_deal_id', $deals->first()->id)->count(), 'the deal carries its pipeline steps');
         $this->assertSame(1, DB::table('deal_user')->where('deal_id', $deals->first()->id)->where('user_id', $r['users']['agent']->id)->count(), 'the training agent owns the deal');
         $this->assertSame(1, DB::table('role_permissions')->where('agency_id', $a->id)->where('role', 'agent')->where('permission_key', 'deals_v2.distribute_documents')->count());
+        $this->assertSame('list', \App\Models\DealV2\PipelineUserPreference::viewForUser($r['users']['agent']->id), 'the Pipeline link opens List for the training agent, which is where the deal scripts start');
 
         app(TrainingAgencySeeder::class)->seed();
         $this->assertSame(1, \App\Models\Deal::withoutGlobalScopes()->where('agency_id', $a->id)->count(), 'seeding again adds no second deal');
