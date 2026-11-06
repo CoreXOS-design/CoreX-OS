@@ -8,14 +8,15 @@ use App\Services\TrainingVideos\Auto\TrainingScriptValidator;
 use Tests\TestCase;
 
 /**
- * Training scripts for the screens agents use most (spec .ai/specs/training-videos.md 9.26): FICA (agent side and the client's link), Properties, Contacts and the Diary.
+ * Training scripts for the screens agents use most (spec .ai/specs/training-videos.md 9.26): FICA (agent side and the client's link), Properties, Contacts, the Diary and Deals (9.27).
  * Every one passes the validator (plain words, a why on every step, two minutes at most), is recorded as the training agent, uses invented sample data only, and no two
  * scripts claim the same route or start url (the Watch how button would pick one by accident).
  */
 final class MainScreenTrainingScriptsTest extends TestCase
 {
     private const KEYS = ['fica-send-request', 'fica-agent-review', 'fica-client-form', 'properties-load', 'properties-edit', 'properties-photos', 'properties-status',
-        'contacts-find', 'contacts-create', 'contacts-page-tabs', 'contacts-link-property', 'calendar-view-diary', 'calendar-book-appointment', 'calendar-viewing-feedback'];
+        'contacts-find', 'contacts-create', 'contacts-page-tabs', 'contacts-link-property', 'calendar-view-diary', 'calendar-book-appointment', 'calendar-viewing-feedback',
+        'deals-register-find', 'deals-create', 'deals-pipeline-list', 'deals-pipeline-timeline', 'deals-work-orders'];
 
     /** @return array<string, \App\Services\TrainingVideos\Auto\TrainingScript> */
     private function all(): array
@@ -65,7 +66,7 @@ final class MainScreenTrainingScriptsTest extends TestCase
             $this->assertArrayNotHasKey($s->url(), $urls, "{$key} and " . ($urls[$s->url()] ?? '') . ' share the start url ' . $s->url());
             $urls[$s->url()] = $key;
         }
-        foreach (['properties-photos', 'properties-status', 'contacts-create', 'contacts-link-property', 'calendar-view-diary', 'calendar-book-appointment', 'calendar-viewing-feedback'] as $key) {
+        foreach (['properties-photos', 'properties-status', 'contacts-create', 'contacts-link-property', 'calendar-view-diary', 'calendar-book-appointment', 'calendar-viewing-feedback', 'deals-work-orders'] as $key) {
             $this->assertNull($this->all()[$key]->route(), $key . ' shares its screen with another video, so the Watch how button must not guess: no route, a ?flow= url');
             $this->assertStringContainsString('?flow=', $this->all()[$key]->url());
         }
@@ -74,5 +75,16 @@ final class MainScreenTrainingScriptsTest extends TestCase
     public function test_the_client_fica_video_opens_the_training_agencys_own_fixed_link(): void
     {
         $this->assertSame('/fica/' . TrainingAgencySeeder::FICA_LINK_TOKEN, $this->all()['fica-client-form']->url());
+    }
+
+    public function test_the_pipeline_list_carries_the_anchors_the_deal_scripts_point_at(): void
+    {
+        $blade = (string) file_get_contents(resource_path('views/dr2/pipeline-list.blade.php'));
+        foreach (['structure', 'wo', 'docs', 'email', 'comms', 'pi', 'comments'] as $tab) {
+            $this->assertStringContainsString('data-tour="pipe-tab-' . $tab . '"', $blade, 'tab ' . $tab);
+        }
+        $this->assertStringContainsString('data-tour="pipe-wo-panel"', $blade);
+        $this->assertStringContainsString('pipe-tab-structure', json_encode($this->all()['deals-pipeline-list']->data));
+        $this->assertStringContainsString('pipe-tab-wo', json_encode($this->all()['deals-work-orders']->data));
     }
 }

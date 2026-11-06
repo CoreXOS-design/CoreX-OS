@@ -14,9 +14,10 @@ use Tests\TestCase;
 final class NarratedTourDraftScriptsTest extends TestCase
 {
     private const LIVE_PILOTS = ['book-a-viewing', 'agency-setup-identity', 'mic-work'];
-    // the main-screen how-tos (FICA, Properties, Contacts, Calendar - 9.26) are agent-recorded and some share a screen, so they have their own test (MainScreenTrainingScriptsTest)
+    // the main-screen how-tos (FICA, Properties, Contacts, Calendar - 9.26; Deals - 9.27) are agent-recorded and some share a screen, so they have their own test (MainScreenTrainingScriptsTest)
     private const MAIN_SCREENS = ['fica-send-request', 'fica-agent-review', 'fica-client-form', 'properties-load', 'properties-edit', 'properties-photos', 'properties-status',
-        'contacts-find', 'contacts-create', 'contacts-page-tabs', 'contacts-link-property', 'calendar-view-diary', 'calendar-book-appointment', 'calendar-viewing-feedback'];
+        'contacts-find', 'contacts-create', 'contacts-page-tabs', 'contacts-link-property', 'calendar-view-diary', 'calendar-book-appointment', 'calendar-viewing-feedback',
+        'deals-register-find', 'deals-create', 'deals-pipeline-list', 'deals-pipeline-timeline', 'deals-work-orders'];
     private const WIZARD_STEPS = ['welcome', 'capabilities', 'branding', 'branches', 'commission', 'proforma', 'leases', 'properties', 'presentations', 'matches',
         'market-intelligence', 'road-to-sold', 'contacts', 'compliance', 'outgoing-mail', 'notifications', 'roles', 'access'];
 
