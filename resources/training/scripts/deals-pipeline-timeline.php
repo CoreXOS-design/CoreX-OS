@@ -1,7 +1,7 @@
 <?php
 
 /**
- * Training script - Deals 4 of 5: the pipeline Timeline view - bars by date, today's line, zoom and re-dating. Starts at the register; the recording never drags a bar.
+ * Training script - Deals 4 of 5: the pipeline Timeline view - bars by date, today's line, zoom and re-dating. Starts at the register; the recording never drags a bar. Leaves the view on List again (last step), because the Pipeline link opens whichever view the user used last and the other scripts expect List.
  */
 return [
     'key' => 'deals-pipeline-timeline',
@@ -60,6 +60,11 @@ return [
             'selector' => '#dr2tl-feed', 'action' => 'highlight', 'done' => 'none',
             'narration' => 'Comments on the deal sit below the timeline.',
             'why' => 'The notes stay next to the dates.',
+        ],
+        [
+            'selector' => '.toggle a[href$="/pipeline/list"]', 'action' => 'click', 'done' => 'click',
+            'narration' => 'Press List to go back to the step cards.',
+            'why' => 'CoreX remembers your last choice for next time.',
         ],
     ],
     'outro' => 'Next, see how to send a work order.',

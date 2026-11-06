@@ -1,7 +1,7 @@
 <?php
 
 /**
- * Training script - Deals 3 of 5: the pipeline List view - the step cards, completing a step, and the tabs on the right. Starts at the register and opens the deal's pipeline; the recording never completes a step.
+ * Training script - Deals 3 of 5: the pipeline List view - the step cards, completing a step, and the tabs on the right. Starts at the register and opens the deal's pipeline; the recording never completes a step. The training agent's saved view is List (seeded), so the Pipeline link lands on it.
  */
 return [
     'key' => 'deals-pipeline-list',
@@ -20,11 +20,6 @@ return [
             'selector' => 'main a[href*="/pipeline/view"]', 'action' => 'click', 'done' => 'click',
             'narration' => 'Open the deal\'s pipeline from the register.',
             'why' => 'One page shows every step from offer to transfer.',
-        ],
-        [
-            'selector' => '.toggle a[href$="/pipeline/list"]', 'action' => 'click', 'done' => 'click',
-            'narration' => 'Choose List.',
-            'why' => 'Each step gets its own card.',
         ],
         [
             'selector' => '#dr2ls-list', 'action' => 'highlight', 'done' => 'none',

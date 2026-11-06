@@ -192,6 +192,8 @@ class TrainingAgencySeeder
         foreach (['deals_v2.distribute_documents', 'create_deals'] as $key) {
             DB::table('role_permissions')->insertOrIgnore(['role' => 'agent', 'permission_key' => $key, 'scope' => null, 'agency_id' => $agency->id, 'created_at' => now(), 'updated_at' => now()]);
         }
+        // the Pipeline link opens whichever view the user used last: the deal scripts expect List (the Timeline script puts it back)
+        \App\Models\DealV2\PipelineUserPreference::setViewForUser($agent->id, 'list');
         $dealNo = self::DEAL_NO;
         $property = Property::withoutGlobalScope(AgencyScope::class)->where('agency_id', $agency->id)->orderBy('id')->first();
         if (! $property || \App\Models\Deal::withoutGlobalScopes()->where('agency_id', $agency->id)->where('deal_no', $dealNo)->exists()) {
