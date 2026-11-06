@@ -119,7 +119,7 @@ class TrainingAgencySeeder
 
     /** The token of the client's FICA link in the training agency - fixed, so the client-side how-to can open it; it never expires and is on an invented person. */
     public const FICA_LINK_TOKEN = 'bluegum-training-fica-link';
-    public const DEAL_NO = 'TRN-0001';   // not numeric, so the register's next-number maths ignores it
+    public const DEAL_NO = 1001;   // the register numbers per agency, so the training agency's own first deal is 1001
 
     /**
      * Two invented FICA requests, so the FICA how-tos have something real to point at (9.26): Priya's is still waiting for her (the link the client video opens),
