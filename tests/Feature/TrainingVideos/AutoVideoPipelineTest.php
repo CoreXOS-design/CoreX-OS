@@ -3,6 +3,7 @@
 namespace Tests\Feature\TrainingVideos;
 
 use App\Models\Agency;
+use App\Models\Contact;
 use App\Models\Property;
 use App\Models\Scopes\AgencyScope;
 use App\Models\TrainingVideo;
@@ -84,14 +85,34 @@ final class AutoVideoPipelineTest extends TestCase
             $this->assertStringEndsWith('@training.corexos.invalid', $u->email, 'no address that could ever receive real mail');
         }
         $this->assertGreaterThanOrEqual(6, Property::withoutGlobalScope(AgencyScope::class)->where('agency_id', $a->id)->count());
-        $this->assertSame(1, DB::table('calendar_events')->where('agency_id', $a->id)->where('event_type', 'viewing')->count());
+        // two diary events (one booked, one that already happened), both real diary classes the diary can open, each linked to its house and buyer (9.26)
+        $this->assertSame(2, DB::table('calendar_events')->where('agency_id', $a->id)->where('event_type', 'manual')->where('category', 'viewing')->count());
+        $this->assertSame(4, DB::table('calendar_event_links')->whereIn('calendar_event_id', DB::table('calendar_events')->where('agency_id', $a->id)->pluck('id'))->count());
+        // the invented contacts belong to the training agent, so its own-scoped contact list is never empty
+        $this->assertSame(4, Contact::withoutGlobalScope(AgencyScope::class)->where('agency_id', $a->id)->where('agent_id', $r['users']['agent']->id)->count());
+        // two invented FICA requests: the client link the FICA video opens (never expires) and one waiting for the agent
+        $this->assertSame(['draft', 'submitted'], DB::table('fica_submissions')->where('agency_id', $a->id)->orderBy('id')->pluck('status')->all());
+        $this->assertNull(DB::table('fica_submissions')->where('token', TrainingAgencySeeder::FICA_LINK_TOKEN)->value('token_expires_at'));
+
+        // one invented deal with a running pipeline (9.27); the agent may see the Supplier Work Orders tab
+        $deals = \App\Models\Deal::withoutGlobalScopes()->where('agency_id', $a->id)->get();
+        $this->assertCount(1, $deals);
+        $this->assertSame(TrainingAgencySeeder::DEAL_NO, (int) $deals->first()->deal_no);
+        $this->assertGreaterThan(5, DB::table('deal_step_instances')->where('dr1_deal_id', $deals->first()->id)->count(), 'the deal carries its pipeline steps');
+        $this->assertSame(1, DB::table('deal_user')->where('deal_id', $deals->first()->id)->where('user_id', $r['users']['agent']->id)->count(), 'the training agent owns the deal');
+        $this->assertSame(1, DB::table('role_permissions')->where('agency_id', $a->id)->where('role', 'agent')->where('permission_key', 'deals_v2.distribute_documents')->count());
+        $this->assertSame('list', \App\Models\DealV2\PipelineUserPreference::viewForUser($r['users']['agent']->id), 'the Pipeline link opens List for the training agent, which is where the deal scripts start');
 
         app(TrainingAgencySeeder::class)->seed();
+        $this->assertSame(1, \App\Models\Deal::withoutGlobalScopes()->where('agency_id', $a->id)->count(), 'seeding again adds no second deal');
         $this->assertSame(1, Agency::withoutGlobalScopes()->where('is_training', true)->count());
-        $this->assertSame(1, DB::table('calendar_events')->where('agency_id', $a->id)->count(), 'seeding again adds nothing');
+        $this->assertSame(2, DB::table('calendar_events')->where('agency_id', $a->id)->where('event_type', 'manual')->count(), 'seeding again adds nothing (the deal pipeline adds its own deadline events, not counted here)');
+        $this->assertSame(2, DB::table('fica_submissions')->where('agency_id', $a->id)->count(), 'seeding again adds no FICA request');
 
         app(TrainingAgencySeeder::class)->reset();
-        $this->assertSame(1, DB::table('calendar_events')->where('agency_id', $a->id)->count(), 'reset puts the demo rows back, once');
+        $this->assertSame(2, DB::table('calendar_events')->where('agency_id', $a->id)->where('event_type', 'manual')->count(), 'reset puts the demo rows back, once');
+        $this->assertSame(2, DB::table('fica_submissions')->where('agency_id', $a->id)->count(), 'reset puts the FICA requests back, once');
+        $this->assertSame(1, \App\Models\Deal::withoutGlobalScopes()->where('agency_id', $a->id)->count(), 'reset puts the invented deal back, once');
     }
 
     public function test_the_recorder_can_only_sign_in_as_a_training_agency_user(): void

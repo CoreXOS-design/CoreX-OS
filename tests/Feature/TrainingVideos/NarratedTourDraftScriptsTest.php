@@ -14,6 +14,10 @@ use Tests\TestCase;
 final class NarratedTourDraftScriptsTest extends TestCase
 {
     private const LIVE_PILOTS = ['book-a-viewing', 'agency-setup-identity', 'mic-work'];
+    // the main-screen how-tos (FICA, Properties, Contacts, Calendar - 9.26; Deals - 9.27) are agent-recorded and some share a screen, so they have their own test (MainScreenTrainingScriptsTest)
+    private const MAIN_SCREENS = ['fica-send-request', 'fica-agent-review', 'fica-client-form', 'properties-load', 'properties-edit', 'properties-photos', 'properties-status',
+        'contacts-find', 'contacts-create', 'contacts-page-tabs', 'contacts-link-property', 'calendar-view-diary', 'calendar-book-appointment', 'calendar-viewing-feedback',
+        'deals-register-find', 'deals-create', 'deals-pipeline-list', 'deals-pipeline-timeline', 'deals-work-orders'];
     private const WIZARD_STEPS = ['welcome', 'capabilities', 'branding', 'branches', 'commission', 'proforma', 'leases', 'properties', 'presentations', 'matches',
         'market-intelligence', 'road-to-sold', 'contacts', 'compliance', 'outgoing-mail', 'notifications', 'roles', 'access'];
 
@@ -22,7 +26,7 @@ final class NarratedTourDraftScriptsTest extends TestCase
         config(['training-videos.auto.scripts_dir' => resource_path('training/scripts')]);
         $this->app->forgetInstance(TrainingScriptRepository::class);
 
-        return array_filter(app(TrainingScriptRepository::class)->all(), fn ($s) => ! in_array($s->key(), self::LIVE_PILOTS, true));
+        return array_filter(app(TrainingScriptRepository::class)->all(), fn ($s) => ! in_array($s->key(), self::LIVE_PILOTS, true) && ! in_array($s->key(), self::MAIN_SCREENS, true));
     }
 
     public function test_every_wizard_step_after_the_pilot_has_a_script_plus_settings_and_role_manager(): void
