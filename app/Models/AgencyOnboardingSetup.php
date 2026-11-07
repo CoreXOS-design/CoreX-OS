@@ -143,10 +143,16 @@ class AgencyOnboardingSetup extends Model
     public static function activeSteps(?Agency $agency = null): array
     {
         $gates = self::stepGates();
+        // Solo Agent Accounts (spec section 7.3): a single-agent account walks a trimmed track - the steps outside
+        // config('solo-agent.wizard_steps') are skipped exactly like a gated-off feature step. Normal agencies: no change.
+        $soloTrack = $agency && $agency->isSolo() ? (array) config('solo-agent.wizard_steps', []) : null;
 
         return array_values(array_filter(
             self::STEPS,
-            static function (string $step) use ($gates, $agency): bool {
+            static function (string $step) use ($gates, $agency, $soloTrack): bool {
+                if ($soloTrack !== null && ! in_array($step, $soloTrack, true)) {
+                    return false;
+                }
                 $gate = $gates[$step] ?? null;
                 return $gate === null ? true : (bool) $gate($agency);
             }

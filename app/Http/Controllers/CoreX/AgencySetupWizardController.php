@@ -65,7 +65,7 @@ class AgencySetupWizardController extends Controller
             return redirect()->route('corex.agency-setup.step', ['step' => $this->nearestActiveStep($step, $active)]);
         }
 
-        $config = config("agency-onboarding-copy.$step");
+        $config = $this->copyFor(config("agency-onboarding-copy.$step"), $agency);
 
         return view('agency-setup.wizard', array_merge([
             'setup'    => $setup,
@@ -581,6 +581,18 @@ class AgencySetupWizardController extends Controller
         $setup->save();
 
         return $setup;
+    }
+
+    /**
+     * A step may carry a `solo` block that replaces its wording for a single-agent account (no team, no "your agents").
+     * Only text keys are overridden - the controls and savers are always the same ones, so there is one write path.
+     */
+    private function copyFor(array $config, Agency $agency): array
+    {
+        $solo = $config['solo'] ?? null;
+        unset($config['solo']);
+
+        return ($solo && $agency->isSolo()) ? array_replace_recursive($config, $solo) : $config;
     }
 
     private function agency(): Agency

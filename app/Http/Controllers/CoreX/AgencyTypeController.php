@@ -26,9 +26,15 @@ class AgencyTypeController extends Controller
         }
 
         $user = Auth::user();
-        abort_unless($user?->hasPermission('agency_features.manage'), 403);
+        $agencyId = $user?->effectiveAgencyId();
 
-        $agencyId = $user->effectiveAgencyId();
+        // A single-agent account never holds agency_features.manage (it cannot touch the switchboard), but choosing
+        // sales / rentals / both is the one feature decision that is theirs: it is asked in their setup guide
+        // (.ai/specs/solo-agent-accounts.md section 7.3). The locked features stay off whatever they choose - that lock is
+        // applied where the switches are read - so this opens nothing else. Every other account: unchanged.
+        $isSoloOwnAccount = $user && ! $user->isOwnerRole() && $agencyId && \App\Models\Agency::idIsSolo((int) $agencyId);
+        abort_unless($user?->hasPermission('agency_features.manage') || $isSoloOwnAccount, 403);
+
         abort_unless($agencyId, 404, 'No agency in scope.');
 
         $data = $request->validate([

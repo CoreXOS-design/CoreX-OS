@@ -461,6 +461,13 @@ Route::middleware('auth')->group(function () {
             Route::post('/{upload}/complete', [\App\Http\Controllers\Api\V1\TrainingVideoUploadController::class, 'complete'])->name('complete');
         });
 
+    // Solo Agents (solo-agent-accounts.md section 10) - the CoreX team's list of single-agent accounts as JSON (non-negotiable #7).
+    // Under /api/v1 so the Admin -> API catalogue lists it. Owner-only: owner_only here, the key, and re-checked in the controller.
+    // There is deliberately NO public sign-up endpoint - single agents are only ever created by the CoreX team.
+    Route::get('api/v1/solo-agents', [\App\Http\Controllers\Admin\SoloAgentController::class, 'apiIndex'])
+        ->middleware(['owner_only', 'permission:solo_agents.view', 'throttle:staff-api'])
+        ->name('api.v1.solo-agents.index');
+
     // Ad Studio (AT-527) — the script editor's live check and the list's progress poll (fetch + session cookie). Under /api/v1 so the Admin -> API catalogue
     // lists them (non-negotiable #7). Owner-only: owner_only here, re-checked in the controller. .ai/specs/training-videos.md 9.21.8
     Route::prefix('api/v1/admin/video-ads')->middleware(['owner_only', 'throttle:staff-api'])

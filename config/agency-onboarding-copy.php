@@ -52,6 +52,19 @@ return [
     // before asking for a single field: what this wizard is, how long it takes,
     // and that nothing here is a one-shot decision.
     'welcome' => [
+        // Single-agent account: a short track (see config/solo-agent.php 'wizard_steps').
+        'solo' => [
+            'intro' => "You're setting up your CoreX account. This takes a few short screens - your business details, "
+                . 'your logo and colours, and how CoreX should keep in touch with you. Everything saves as you go and '
+                . 'can be changed later from Settings.',
+            'what' => [
+                'body' => "CoreX needs to know who you are so the documents it produces for you - mandates, offers, "
+                    . "leases - carry your details and your look from day one. Each step explains what it's asking for "
+                    . 'and why before it asks, ships with a sensible default so you can accept and continue if you are '
+                    . 'not sure, and saves the moment you press "Save & continue". You can stop at any point and pick up '
+                    . 'where you left off. Nothing here is a one-time decision.',
+            ],
+        ],
         'title' => 'Welcome to CoreX',
         'intro' => "You're setting up your agency's copy of CoreX. This walks you through "
             . "everything it needs to work the way your agency actually works — a few "
@@ -71,6 +84,12 @@ return [
     ],
 
     'identity' => [
+        // Single-agent account (solo-agent-accounts.md section 7.3): same controls and savers, wording for one person.
+        'solo' => [
+            'intro' => "Let's start with who you are. Your agency name and these details appear on your documents, "
+                . 'letterhead, email signature and public listings. Choose below whether you do sales, rentals or both. '
+                . 'Fill in what you have - nothing here is locked, and you can change it any time in Settings.',
+        ],
         'title' => 'Your agency identity',
         'intro' => "Let's start with who you are. These details appear on your documents, "
             . 'letterheads, email signatures and your public listings. Fill in what you '
@@ -2179,6 +2198,16 @@ return [
     ],
 
     'notifications' => [
+        'solo' => [
+            'intro' => 'Decide what CoreX chases you about, and how it reaches you.',
+            'what'  => [
+                'body' => 'Deals die quietly. A mandate expires, a FICA document is never collected, a lease renewal '
+                    . 'passes, a property sits untouched for three weeks. None of these announce themselves. CoreX '
+                    . 'watches for them and nudges you before they become a problem. The settings below decide which '
+                    . 'of those nudges fire and how they reach you. Turn on what you will genuinely act on - reminders '
+                    . 'you ignore are worse than none.',
+            ],
+        ],
         'title' => 'Notifications & dashboard',
         'intro' => 'Decide what CoreX chases your team about, and who controls those settings.',
         'what' => [

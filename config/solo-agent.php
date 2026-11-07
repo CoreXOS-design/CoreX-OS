@@ -15,6 +15,13 @@ return [
     'ai_template_monthly_limit' => 5,
 
     /**
+     * The setup guide a single agent walks through (spec section 7.3): business details and what they do (both on the identity
+     * step) -> logo and colours -> notifications -> finish. Every other step is skipped for a single-agent account, the way the
+     * switchboard skips a step whose feature is off (AgencyOnboardingSetup::activeSteps). Step keys of AgencyOnboardingSetup::STEPS.
+     */
+    'wizard_steps' => ['welcome', 'identity', 'branding', 'notifications', 'access'],
+
+    /**
      * Features that are OFF for a solo agency and cannot be switched on by anyone inside it. Registry keys from
      * config/corex-features.php. Applied inside AgencyFeatureService, so the sidebar, every feature-gated route,
      * the Features page and the permissions owned by these features all follow one decision.

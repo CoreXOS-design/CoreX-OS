@@ -433,4 +433,21 @@ solo; `corex-domain-events-spec.md`; `.ai/CHAT_STARTER.md`.
      `/corex/settings?s=agency`, keeping any save message. The CoreX owner is never redirected - support sees the full
      page for any agency, single agents included. Normal agencies: no change (pinned by tests).
    - Tests: `tests/Feature/SoloAgent/SoloSettingsMergeTest.php` (12).
-6. Wizard solo track + events catalogue + API catalogue + docs.
+6. **DONE (2026-11-07)** - Wizard solo track + API + docs + multi-agency check. As built (amends §7.3/§10/§12):
+   - **Setup guide:** `config('solo-agent.wizard_steps')` = welcome, identity (business details AND what they do), branding
+     (logo + colours), notifications, access (finish). `AgencyOnboardingSetup::activeSteps()` drops every other step for a
+     single-agent account exactly like a gated-off feature step (a team step opened by URL is stepped past, not a 404).
+     A step may carry a `solo` wording block in `agency-onboarding-copy.php` (welcome, identity, notifications use it); the
+     controls and savers are always the same ones. NN #10a: **this build adds no agency setting** - the flat fee and AI allowance
+     are CoreX-owner config (`config/solo-agent.php`, owner-only AI control), not something an agency configures, so there is
+     nothing new to surface in the wizard (recorded here as the §5.1 decision).
+   - **What they do:** `AgencyTypeController::update` (the one saver) now also accepts a single agent changing their OWN
+     account's type; the direct route stays behind `agency_features.manage`, so it is reachable only through the guide, and
+     the locked features stay off whatever they choose.
+   - **API:** `GET /api/v1/solo-agents` (name `api.v1.solo-agents.index`, owner-only, listed in Admin -> API): same query as
+     the screen (search, sort, filters, paging), sign-up facts and counts only. No other verb exists under it; no public
+     sign-up route exists and `register` stays off.
+   - **Multi-agency check (rule 9):** two single agents never see each other's listings/contacts (query layer, tested); a
+     test pins that the solo code carries no hardcoded agency id or house name; every default (fee, allowance, lists, wizard
+     track, wording) is neutral config.
+   - Tests: `tests/Feature/SoloAgent/SoloWizardApiAndIsolationTest.php` (13).

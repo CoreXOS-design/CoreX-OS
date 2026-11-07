@@ -254,7 +254,18 @@ agency, so the visible count is ≤ 13.
 | 12 | `roles` | How roles & permissions work (explainer) | — (explainer only; no savers) |
 | 13 | `access` | Access & finish | `agencies.require_external_access_authorization`; review summary; mark complete |
 
+**Single-agent track (Solo Agent Accounts, 2026-11-07; `solo-agent-accounts.md` §7.3).** For an agency with `account_kind='solo'`,
+`AgencyOnboardingSetup::activeSteps()` keeps only `config('solo-agent.wizard_steps')` (welcome, identity, branding, notifications,
+access) - every other step is skipped like a gated-off feature step. A step may carry a `solo` block of replacement WORDING in
+`config/agency-onboarding-copy.php` (merged by `AgencySetupWizardController::copyFor()`); controls and savers never differ. Normal
+agencies are unaffected.
+
 ### 5.1 Deliberately NOT in the wizard (Johan, 2026-07-11)
+
+- **Solo Agent Accounts (2026-11-07):** this build adds **no agency setting**. The single-agent fee (`config('solo-agent.monthly_fee_zar')`)
+  and the AI template allowance (`agencies.ai_template_monthly_limit`, set to 5 at sign-up) are CoreX-owner controls, not something an
+  agency configures, so nothing was added to the wizard; the single agent's own choices (business details, what they do, branding,
+  notifications) are the existing controls on the trimmed track.
 
 These were built and then removed on Johan's call. They are out of scope by decision, not
 by oversight — do not reinstate them without asking:

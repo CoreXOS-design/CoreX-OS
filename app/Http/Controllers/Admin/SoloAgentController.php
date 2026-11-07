@@ -62,7 +62,51 @@ class SoloAgentController extends Controller
     public function index(Request $request)
     {
         $this->owner($request);
+        $list = $this->listing($request);
 
+        return view('admin.solo-agents.index', $list + [
+            'fee' => (float) config('solo-agent.monthly_fee_zar', 450),
+        ]);
+    }
+
+    /**
+     * GET /api/v1/solo-agents - the same list, search, sort, filters and paging as the Solo Agents screen, as JSON
+     * (non-negotiable #7; spec solo-agent-accounts.md section 10). Owner-only; sign-up facts and counts only - never the
+     * agent's contacts or deals. Same query as the screen, so the two can never disagree.
+     */
+    public function apiIndex(Request $request)
+    {
+        $this->owner($request);
+        $list = $this->listing($request);
+        $limit = (int) config('solo-agent.ai_template_monthly_limit', 5);
+
+        $page = $list['rows'];
+        $data = $page->getCollection()->map(fn (SoloAgentSignup $r) => [
+            'id'         => $r->id,
+            'agency'     => ['id' => $r->agency_id, 'name' => $r->agency?->name, 'trading_name' => $r->agency?->trading_name],
+            'agent'      => ['id' => $r->user_id, 'name' => $r->user?->name, 'email' => $r->user?->email, 'mobile' => $r->user?->cell],
+            'ffc'        => ['number' => $r->ffc_number, 'expires_on' => $r->ffc_expires_on?->toDateString()],
+            'does'       => $r->agency?->agency_type ?: 'both',
+            'created_at' => $r->created_at?->toIso8601String(),
+            'contract'   => ['status' => $r->status, 'sent_at' => $r->contract_sent_at?->toIso8601String(), 'signed_at' => $r->contract_signed_at?->toIso8601String()],
+            'status'     => $r->displayStatus(),
+            'last_login_at' => $r->last_login_at ? \Illuminate\Support\Carbon::parse($r->last_login_at)->toIso8601String() : null,
+            'listings'   => (int) $r->listings_count,
+            'deals'      => (int) $r->deals_count,
+            'ai_templates' => ['used' => (int) $r->ai_used, 'limit' => $limit],
+        ])->all();
+
+        return response()->json([
+            'data' => $data,
+            'meta' => ['current_page' => $page->currentPage(), 'per_page' => $page->perPage(), 'total' => $page->total(), 'last_page' => $page->lastPage()],
+            'query' => ['q' => $list['q'], 'status' => $list['status'], 'does' => $list['does'], 'from' => $list['from'], 'to' => $list['to'],
+                'ffc_days' => $list['ffcDays'], 'sort' => $list['sort'], 'dir' => $list['dir']],
+        ]);
+    }
+
+    /** The one listing query (search, filters, sort, paging) behind both the screen and the API. @return array<string,mixed> */
+    private function listing(Request $request): array
+    {
         $q       = $this->qs($request, 'q');
         $status  = $this->qs($request, 'status');
         $does    = $this->qs($request, 'does');
@@ -122,11 +166,10 @@ class SoloAgentController extends Controller
         $rows = $query->orderBy(self::SORTS[$sort], $dir)->orderBy('solo_agent_signups.id', 'desc')
             ->paginate($perPage)->withQueryString();
 
-        return view('admin.solo-agents.index', [
+        return [
             'rows' => $rows, 'q' => $q, 'status' => $status, 'does' => $does, 'from' => $from, 'to' => $to,
             'ffcDays' => $ffcDays, 'sort' => $sort, 'dir' => $dir, 'perPage' => $perPage,
-            'fee' => (float) config('solo-agent.monthly_fee_zar', 450),
-        ]);
+        ];
     }
 
     // ── Create ─────────────────────────────────────────────────────────────
