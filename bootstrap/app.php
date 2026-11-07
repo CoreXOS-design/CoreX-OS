@@ -135,6 +135,8 @@ return Application::configure(basePath: dirname(__DIR__))
                 // feature is off. Spec: .ai/specs/corex-feature-registry.md §6.3.
                 'feature' => \App\Http\Middleware\CheckFeature::class,
                 'owner_only' => \App\Http\Middleware\OwnerOnly::class,
+                // Single-agent accounts (solo-agent-accounts.md): refuse a team / portal-intake page the account does not have.
+                'not_solo' => \App\Http\Middleware\NotSoloAccount::class,
                 // Mobile "Delete my account" (Apple 5.1.1(v)) — .ai/specs/mobile-app-access.md §4.3.
                 'app_access' => \App\Http\Middleware\EnsureAppAccess::class,
                 // AT-267 — an assistant may never create a listing. Layer 2 of the

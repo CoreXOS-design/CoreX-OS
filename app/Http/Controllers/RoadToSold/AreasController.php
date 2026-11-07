@@ -34,6 +34,12 @@ class AreasController extends Controller
     private const SUBURB_PAGE_SIZE = 50;
     private const PICKER_LIMIT = 100;
 
+    /** A single-agent account has no P24 Auto-Import (solo-agent-accounts.md): the links to it are not shown. */
+    private function isSoloViewer(User $viewer): bool
+    {
+        return ! $viewer->isOwnerRole() && \App\Models\Agency::idIsSolo((int) $viewer->effectiveAgencyId());
+    }
+
     /** Sales or rentals: decided by where these screens are mounted (see Support\Routing). */
     private function track(): string
     {
@@ -66,7 +72,7 @@ class AreasController extends Controller
             'canHide'     => $viewer->hasPermission('road_to_sold.manage_settings'),
             'minArea'     => SettingsService::forAgency($agencyId, $this->track())->minAreaProperties(),
             'micUrl'      => url('/corex/market-intelligence'),
-            'autoImportUrl' => $viewer->hasPermission('access_settings') ? route('admin.minion.setup') : null,
+            'autoImportUrl' => ($viewer->hasPermission('access_settings') && ! $this->isSoloViewer($viewer)) ? route('admin.minion.setup') : null,
             'mode'     => $mode,
             'warnDays' => $warnDays,
             'portals'  => SettingsService::forAgency($agencyId, $this->track())->refreshPortals(),

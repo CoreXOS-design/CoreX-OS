@@ -451,3 +451,7 @@ solo; `corex-domain-events-spec.md`; `.ai/CHAT_STARTER.md`.
      test pins that the solo code carries no hardcoded agency id or house name; every default (fee, allowance, lists, wizard
      track, wording) is neutral config.
    - Tests: `tests/Feature/SoloAgent/SoloWizardApiAndIsolationTest.php` (13).
+7. **P24 Auto-Import removed (Johan, 2026-11-07, after step 6).** A single agent does not pull from or push to portals, so the
+   Auto-Import capture page is not theirs: the Settings list item and the Road to Sold "P24 Auto-Import" / "Refresh now" links are
+   not shown, and the page and its actions (`admin.minion.*`) answer 403 through the `not_solo` route middleware
+   (`NotSoloAccount`; the CoreX owner is never refused, a normal agency is unchanged). Tests: `SoloNoAutoImportTest` (5).

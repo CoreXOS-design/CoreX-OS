@@ -216,7 +216,8 @@
                     ($u && $u->hasFeature('tv-display') && $can('manage_tv_messages'))
                         ? ['key'=>'tv-display', 'label'=>'TV Display', 'type'=>'link', 'href'=>route('corex.settings.tv-display.index'), 'keywords'=>'tv television screen office display code codes messages ticker hero branch']
                         : null,
-                    $can('access_settings')
+                    // A single agent does not syndicate or pull from portals (solo-agent-accounts.md): no P24 Auto-Import.
+                    (! $solo && $can('access_settings'))
                         ? ['key'=>'p24-auto-import', 'label'=>'P24 Auto-Import', 'type'=>'link', 'href'=>route('admin.minion.setup'), 'keywords'=>'property24 p24 import capture minion areas towns suburbs schedule run refresh listings']
                         : null,
                     $solo ? null : ['key'=>'leave-visibility',      'label'=>'Leave Visibility',      'type'=>'section', 'keywords'=>'leave calendar matrix roles branch'],

@@ -314,11 +314,11 @@
                         <td class="px-4 py-2">
                             <div class="flex items-center gap-2 flex-wrap">
                             @if($s['needs_refresh'])
-                                @permission('access_settings')
+                                @if($autoImportUrl)
                                     <a href="{{ route('admin.minion.setup') }}" class="corex-btn-outline">Refresh now</a>
                                 @else
                                     <span class="text-xs font-semibold" style="color:var(--text-muted);">Needs a refresh: {{ $portalWords($s['stale_portals']) }}</span>
-                                @endpermission
+                                @endif
                             @endif
                             @if($canHide)
                                 <form method="POST" action="{{ route($rb . 'areas.hide') }}" data-confirm="Hide {{ $s['name'] }} from Road to Sold? Nothing is deleted - you can bring it back.">

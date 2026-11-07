@@ -9063,7 +9063,7 @@ Route::middleware(['waha.webhook'])->post('/communications/wa/webhook', [\App\Ht
 
 
 // AT-284 — P24 minion setup page (the control surface). Gated by access_settings.
-Route::middleware(['auth', 'permission:access_settings'])
+Route::middleware(['auth', 'not_solo', 'permission:access_settings'])
     ->prefix('admin/settings/minion')
     ->name('admin.minion.')
     ->group(function () {
