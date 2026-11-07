@@ -402,6 +402,19 @@ class User extends Authenticatable
      */
     protected static function booted(): void
     {
+        // Solo Agent one-seat rule (.ai/specs/solo-agent-accounts.md §2/§5) — a single-agent
+        // account has exactly one login. Enforced here, structurally, so no path (a form,
+        // the Agency Switcher, an import, Tinker) can put a second person into one.
+        // Archived (soft-deleted) users do not hold a seat.
+        static::creating(function (self $user) {
+            static::guardSoloSeat($user);
+        });
+        static::updating(function (self $user) {
+            if ($user->isDirty('agency_id')) {
+                static::guardSoloSeat($user);
+            }
+        });
+
         // AT-267 (audit 2026-07-21) — pin an assistant's identity. The assistant's authority is
         // matrix ∩ agent, resolved through AssistantPermissionResolver, but ~20 sites still read
         // users.role / is_admin DIRECTLY (bypassing the resolver). If an assistant's role ever drifted
@@ -476,6 +489,27 @@ class User extends Authenticatable
                 );
             }
         });
+    }
+
+    /**
+     * Refuse to seat $user in a solo agency that already has a (different) live user.
+     */
+    protected static function guardSoloSeat(self $user): void
+    {
+        $agencyId = (int) $user->agency_id;
+        if (! $agencyId || ! Agency::idIsSolo($agencyId)) {
+            return;
+        }
+
+        $occupied = \Illuminate\Support\Facades\DB::table('users')
+            ->where('agency_id', $agencyId)
+            ->whereNull('deleted_at')
+            ->when($user->exists, fn ($q) => $q->where('id', '!=', $user->id))
+            ->exists();
+
+        if ($occupied) {
+            throw \App\Exceptions\SoloSeatException::forAgency($agencyId);
+        }
     }
 
     // --- View-As support (session override) ---

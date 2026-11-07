@@ -223,6 +223,14 @@ return Application::configure(basePath: dirname(__DIR__))
             return back()->with('error', $e->getMessage());
         });
 
+        // Solo Agent one-seat rule: a plain-English refusal, never a raw error.
+        $exceptions->render(function (\App\Exceptions\SoloSeatException $e, $request) {
+            if ($request->expectsJson()) {
+                return response()->json(['ok' => false, 'error' => $e->getMessage()], 422);
+            }
+            return back()->with('error', $e->getMessage());
+        });
+
         // AT-398 — safety net for any ownership-lock/owner-mismatch site that
         // isn't (or can't be) caught locally for a tailored redirect. Both
         // exceptions already carry a plain-English message by construction —

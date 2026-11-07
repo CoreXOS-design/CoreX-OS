@@ -170,69 +170,16 @@ class AgencyController extends Controller
         // must succeed together. Demo agencies skip the admin requirement but
         // still get their first branch — AT-378. See spec R1.
         //
-        // Email-only invite (spec §R1a): the Admin is created with an unusable
-        // placeholder password — the same mechanism UserManagementController's
-        // existing invite flow uses (AT-268) — and invited_at stamped.
-        // email_verified_at stays null (CoreX's "invite not yet redeemed" marker;
-        // User::isPendingInvite()) until they set a real password via the
-        // account.setup link mailed below.
-        $adminUser = null;
-        $agency = DB::transaction(function () use ($data, $adminPayload, $branchPayload, &$adminUser) {
-            $data['agency_type'] = \App\Services\Features\AgencyTypeFeatureSeeder::normalise($data['agency_type'] ?? null);
-            $agency = Agency::create($data);
-
-            // The feature switches start from what the agency does — not from the platform-wide defaults,
-            // which carry Home Finders Coastal's own choices (syndication, marketing).
-            app(\App\Services\Features\AgencyTypeFeatureSeeder::class)->seedNewAgency($agency);
-
-            // AT-378 — every agency's first branch, created in the same
-            // transaction so an agency can never exist without one.
-            // withoutAgencyStamping: same reason as the admin User below —
-            // a creating owner with an active Agency Switcher session would
-            // otherwise have Branch's own BelongsToAgency creating() hook
-            // silently force this row onto THEIR switched-into agency
-            // instead of the one just created above.
-            $branch = Branch::withoutAgencyStamping(fn () => Branch::create([
-                'name'      => $branchPayload['name'],
-                'code'      => $branchPayload['code'],
-                'agency_id' => $agency->id,
-            ]));
-
-            // This was never actually set here despite AT-378 guaranteeing every
-            // agency a first branch — every branch-context fallback that reads
-            // agencies.default_branch_id (e.g. SellerOutreach\EntryPointController
-            // ::resolveBranchId()) had nothing to land on for an agency created
-            // through this form until now.
-            $agency->update(['default_branch_id' => $branch->id]);
-
-            if ($adminPayload) {
-                // withoutAgencyStamping: the creating owner may have an
-                // unrelated Agency Switcher session active (session
-                // active_agency_id), which would otherwise force this brand
-                // new admin onto that agency instead of the one just
-                // created above. See BelongsToAgency::withoutAgencyStamping().
-                // (This supersedes QA1's post-create raw-DB agency_id correction:
-                // withoutAgencyStamping PREVENTS the clobber during create, and
-                // this is the live email-only invite flow — pendingInvitePassword
-                // + invited_at — which must be preserved.)
-                $adminUser = User::withoutAgencyStamping(fn () => User::create([
-                    'name'       => $adminPayload['name'],
-                    'email'      => $adminPayload['email'],
-                    'password'   => Hash::make(User::pendingInvitePassword()),
-                    'cell'       => $adminPayload['cell'],
-                    'role'       => 'admin',
-                    'agency_id'  => $agency->id,
-                    // AT-378 — the first Admin defaults onto the agency's first
-                    // branch instead of NULL (every other user in the system
-                    // has one; NULL silently breaks branch-filtered features).
-                    'branch_id'  => $branch->id,
-                    'is_active'  => true,
-                    'invited_at' => now(),
-                ]));
-            }
-
-            return $agency;
-        });
+        // The creation itself (agency + feature profile + first branch + first Admin)
+        // lives in AgencyProvisioningService so the Solo Agent provisioner reuses it.
+        // Email-only invite (spec §R1a): the Admin has an unusable placeholder
+        // password and invited_at stamped; email_verified_at stays null (CoreX's
+        // "invite not yet redeemed" marker; User::isPendingInvite()) until they set
+        // a real password via the account.setup link mailed below.
+        $provisioning = app(\App\Services\Agencies\AgencyProvisioningService::class);
+        $created   = $provisioning->createWithFirstAdmin($data, $branchPayload, $adminPayload);
+        $agency    = $created['agency'];
+        $adminUser = $created['admin'];
 
         // Email the new Admin their password-setup link (mirrors
         // UserManagementController's invite flow — same Mailable, same signed
@@ -258,29 +205,12 @@ class AgencyController extends Controller
         // successful login — spec §R1b — NOT sent by this listener anymore).
         // Non-negotiable #9 (domain events, not an ad-hoc hook).
         // Spec: .ai/specs/agency-onboarding-setup.md §3.4/§3.5.
-        if ($adminPayload && $adminUser) {
-            event(new \App\Events\AgencyCreated(
-                agency: $agency,
-                adminUser: $adminUser,
-                adminEmail: $adminUser->email,
-                createdByUserId: auth()->id(),
-            ));
-        }
+        $provisioning->announceCreated($agency, $adminPayload ? $adminUser : null, auth()->id());
 
-        // Seed default marketing-compliance required document types (mandate,
-        // FICA, disclosure) so a new agency has sensible gating out of the box.
-        app(\App\Services\Compliance\AgencyComplianceDocTypeService::class)->ensureDefaults($agency->id);
-
-        // Seed this agency's own daily-activity points definitions from the
-        // shared system template, isolated from every other agency from the
-        // moment the agency exists — see ActivityDefinitionDefaultsService.
-        app(\App\Services\ActivityDefinitions\ActivityDefinitionDefaultsService::class)->ensureDefaults($agency->id);
-
-        // Seed a starter WhatsApp outreach template (cloned from HFC's own
-        // first template) so a brand-new agency's Seller Outreach composer
-        // is never empty — see SellerOutreachTemplateDefaultsService.
-        app(\App\Services\SellerOutreach\SellerOutreachTemplateDefaultsService::class)
-            ->ensureDefaults($agency->id, $adminUser?->id);
+        // Per-agency defaults: marketing-compliance document types, daily-activity
+        // points definitions, starter WhatsApp outreach template — each isolated
+        // from every other agency from the moment the agency exists.
+        $provisioning->seedDefaults($agency, $adminUser);
 
         if ($request->hasFile('logo')) {
             $ext = $request->file('logo')->getClientOriginalExtension();

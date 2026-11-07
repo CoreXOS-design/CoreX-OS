@@ -371,8 +371,15 @@ solo; `corex-domain-events-spec.md`; `.ai/CHAT_STARTER.md`.
 2. **DONE (2026-11-07)** — The locks: feature lock in `AgencyFeatureService`, permission refusal in
    `PermissionService`, portal block at the P24 and PP clients, `config/solo-agent.php`, tests
    (`tests/Feature/SoloAgent/SoloLocksTest.php`, `tests/Feature/Syndication/SoloAgentPortalBlockTest.php`).
-2b. `SoloAgentProvisioner` (sets `account_kind` at creation; extracts the shared agency+user creation from
-   `Admin\AgencyController@store`) + the one-seat rule (no second login in a solo agency).
+2b. **DONE (2026-11-07)** — `SoloAgentProvisioner` (`app/Services/SoloAgent/`) sets `account_kind` in the
+   creating insert; the shared agency + first branch + first admin creation was extracted from
+   `Admin\AgencyController@store` into `AgencyProvisioningService` (the controller now calls it, behaviour
+   unchanged). The one-seat rule lives in the `User` model (`creating`, and `updating` when `agency_id`
+   changes) and throws `SoloSeatException`, so no path can seat a second person. Provisioning creates the
+   login **inactive and un-invited** (`is_active=false`, `invited_at=null`); step 4's activation sets it
+   active and sends the password-setup email. Provisioning also fires `AgencyCreated` (rental defaults etc.)
+   and seeds the same per-agency defaults a normal agency gets. Sign-up record, fee and AI allowance follow
+   in steps 3-4. Tests: `tests/Feature/SoloAgent/SoloProvisionerTest.php`.
 3. Price (R450 solo line) + AI allowance of 5 at provisioning.
 4. Solo Agents section (create → contract send → list → detail → actions) + activation listener + awaiting-contract gate.
 5. Merged Settings + sidebar for solo + Company Settings redirect.
