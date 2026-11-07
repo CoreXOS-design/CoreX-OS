@@ -1044,6 +1044,18 @@ class Agency extends Model
         return $this->hasMany(Leave\StaffTakeOnRecord::class);
     }
 
+    // ── Solo agent accounts (.ai/specs/solo-agent-accounts.md) ───────────
+
+    public const ACCOUNT_KIND_AGENCY = 'agency';
+    public const ACCOUNT_KIND_SOLO   = 'solo';
+
+    // account_kind is deliberately NOT fillable: only the owner-only solo provisioner may set it.
+    /** A single-agent account: an agency with exactly one user, no team machinery, no portal syndication. */
+    public function isSolo(): bool
+    {
+        return $this->account_kind === self::ACCOUNT_KIND_SOLO;
+    }
+
     // ── Agency suspension (.ai/specs/agency-suspension.md) ───────────────
 
     // suspended_at is deliberately NOT fillable: only suspend()/unsuspend() (owner-only route) may set it.
