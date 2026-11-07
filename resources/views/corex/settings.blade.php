@@ -71,6 +71,9 @@
     @php
         $u = auth()->user();
         $can = fn($p) => $u && $u->hasPermission($p);
+        // Single-agent account (solo-agent-accounts.md section 7): Company Settings is merged into this page, and the
+        // team-only sections (commission splits, team inbox, leave visibility, other-agency stock) are not offered.
+        $solo = (bool) ($soloAccount ?? false);
         $railGroups = [
             [
                 'label' => 'My Preferences',
@@ -82,15 +85,15 @@
             [
                 'label' => 'Agency',
                 'items' => array_values(array_filter([
-                    ['key'=>'agency',                'label'=>'Agency Settings',       'type'=>'section', 'keywords'=>'company branding logo signature'],
+                    ['key'=>'agency',                'label'=>$solo ? 'Business details & branding' : 'Agency Settings', 'type'=>'section', 'keywords'=>'company branding logo signature' . ($solo ? ' trading name address contact vat registration letterhead colours performance desk' : '')],
                     ($u && $u->hasPermission('agency_setup.run'))
                         ? ['key'=>'agency-setup', 'label'=>'Setup Guide', 'type'=>'link', 'href'=>route('corex.agency-setup.index'), 'keywords'=>'onboarding wizard guided introduction getting started']
                         : null,
                     ($u && $u->hasPermission('manage_feature_rollout'))
                         ? ['key'=>'feature-rollout', 'label'=>'Feature rollout', 'type'=>'link', 'href'=>route('corex.feature-rollout.index'), 'keywords'=>'gradual introduction new features switch on groups waves weekdays pause tours overwhelm']
                         : null,
-                    ['key'=>'company',               'label'=>'Company Settings',      'type'=>'link', 'href'=>route('admin.company-settings'), 'keywords'=>'trading name address logo branches assignments performance vat'],
-                    ($u && $u->hasPermission('manage_performance_settings'))
+                    $solo ? null : ['key'=>'company',               'label'=>'Company Settings',      'type'=>'link', 'href'=>route('admin.company-settings'), 'keywords'=>'trading name address logo branches assignments performance vat'],
+                    (! $solo && $u && $u->hasPermission('manage_performance_settings'))
                         ? ['key'=>'company-other-agency-stock', 'label'=>'Other Agency Stock', 'type'=>'link', 'href'=>route('admin.company-settings') . '#other-agency-stock', 'keywords'=>'company settings imported stock another agency who can see consent wording import property24 private property']
                         : null,
                     // AT-509 — .ai/specs/property-compliance-gate-settings.md §7.1.
@@ -101,7 +104,7 @@
                         ? ['key'=>'remote-access', 'label'=>'Remote Access', 'type'=>'section', 'keywords'=>'system owner consent authorization cross-agency switch']
                         : null,
                     // AT-423 — sub-users signing in with a username, sharing one inbox.
-                    (!empty($teamInbox))
+                    (!$solo && !empty($teamInbox))
                         ? ['key'=>'team-inbox', 'label'=>'Team Inbox', 'type'=>'section', 'keywords'=>'one email shared inbox sub-user sub users username login sign in agents share one email address']
                         : null,
                 ])),
@@ -183,7 +186,7 @@
             [
                 'label' => 'Operations',
                 'items' => array_values(array_filter([
-                    ['key'=>'commission',            'label'=>'Commission & Revenue Share','type'=>'section', 'keywords'=>'splits caps fees tiers revenue share mentor flqa'],
+                    $solo ? null : ['key'=>'commission',            'label'=>'Commission & Revenue Share','type'=>'section', 'keywords'=>'splits caps fees tiers revenue share mentor flqa'],
                     $can('command_center.settings')
                         ? ['key'=>'command-center', 'label'=>'Command Center Rules', 'type'=>'section', 'keywords'=>'expectations reminders automation rules document event classes thresholds']
                         : null,
@@ -216,7 +219,7 @@
                     $can('access_settings')
                         ? ['key'=>'p24-auto-import', 'label'=>'P24 Auto-Import', 'type'=>'link', 'href'=>route('admin.minion.setup'), 'keywords'=>'property24 p24 import capture minion areas towns suburbs schedule run refresh listings']
                         : null,
-                    ['key'=>'leave-visibility',      'label'=>'Leave Visibility',      'type'=>'section', 'keywords'=>'leave calendar matrix roles branch'],
+                    $solo ? null : ['key'=>'leave-visibility',      'label'=>'Leave Visibility',      'type'=>'section', 'keywords'=>'leave calendar matrix roles branch'],
                     ($u && $u->hasFeature('leave') && $can('manage_leave_types'))
                         ? ['key'=>'leave-types', 'label'=>'Leave Types', 'type'=>'section', 'keywords'=>'leave types annual sick family responsibility bcea entitlement accrual cycle public holidays']
                         : null,
@@ -306,8 +309,12 @@
              ============================================================ --}}
         <div x-show="activeSection === 'agency'" x-cloak class="p-6 space-y-6">
 
+            {{-- Single-agent account: Company Settings is merged in here - the SAME body and savers the Company Settings page uses,
+                 minus the team-only tabs (branches, other-agency stock, compliance board, website). --}}
+            @if($solo && ! empty($companyPage))
+                @include('admin.company-settings._page', array_merge($companyPage, ['embedded' => true, 'soloAccount' => true]))
             {{-- Company Settings — moved to its own admin page (now contains Branches & Performance tabs) --}}
-            @if(isset($agency) && $agency)
+            @elseif(isset($agency) && $agency)
             <div>
                 <h3 class="text-xs font-semibold uppercase tracking-wider mb-3" style="color:var(--text-muted);">Company</h3>
                 <a href="{{ route('admin.company-settings') }}"
@@ -1414,7 +1421,8 @@
 
         <div x-show="activeSection === 'user'" x-cloak class="p-6 space-y-6">
 
-            {{-- Links: User Mgmt + Roles --}}
+            {{-- Links: User Mgmt + Roles (a single agent has neither - one login, no roles to manage) --}}
+            @unless($solo)
             <div>
                 <h3 class="text-xs font-semibold uppercase tracking-wider mb-3" style="color:var(--text-muted);">Management</h3>
                 <div class="space-y-2">
@@ -1444,6 +1452,7 @@
                     </a>
                 </div>
             </div>
+            @endunless
 
             {{-- FICA Officers — Primary CO + MLROs --}}
             @permission('manage_compliance_officer')

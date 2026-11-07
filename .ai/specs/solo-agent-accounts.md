@@ -417,5 +417,20 @@ solo; `corex-domain-events-spec.md`; `.ai/CHAT_STARTER.md`.
    - **Agency Management** hides single agents by default; `?type=solo|all` shows them.
    - **Events** (catalogue updated): `SoloAgentCreated/Activated/Suspended/Unsuspended/Archived/Restored` and `EsignDocumentCompleted`.
    - Tests: `tests/Feature/SoloAgent/SoloAgentSectionTest.php` (29).
-5. Merged Settings + sidebar for solo + Company Settings redirect.
+5. **DONE (2026-11-07)** — Merged Settings + sidebar + Company Settings redirect. As built (amends §7):
+   - **One body, two homes.** The Company Settings page was split: `admin/company-settings/_page.blade.php` is the body
+     (identical content and savers), `index.blade.php` is now a thin wrapper, and `CompanySettingsController::pageData()`
+     supplies the data to both. A single agent's Settings page (`/corex/settings`, rail item **Business details &
+     branding**) embeds that same body; there is no second settings system and every form posts to the same saver.
+   - **What a single agent keeps from Company Settings:** Company (identity, contact, address, registration, VAT set-up,
+     catalogue and proforma blocks), Branding (logo, colours, letterhead, email signature, document defaults), CoreX Desk,
+     Performance. **Left out:** Branches, Other Agency Stock, the Compliance board list, the public Website tab.
+   - **Rail:** Company Settings, Other Agency Stock, Commission & Revenue Share, Leave Visibility, Team Inbox and the
+     Management cards (Users / Role Manager) are not offered; a bookmark to one lands on the business details.
+   - **Sidebar:** the Settings group holds one **Settings** entry (the team entries were already refused by
+     step 2's permission lock); the Company Settings entry is hidden for a single-agent account.
+   - **Redirect:** `/admin/company-settings` (and every save-redirect that lands there) sends a single agent to
+     `/corex/settings?s=agency`, keeping any save message. The CoreX owner is never redirected - support sees the full
+     page for any agency, single agents included. Normal agencies: no change (pinned by tests).
+   - Tests: `tests/Feature/SoloAgent/SoloSettingsMergeTest.php` (12).
 6. Wizard solo track + events catalogue + API catalogue + docs.

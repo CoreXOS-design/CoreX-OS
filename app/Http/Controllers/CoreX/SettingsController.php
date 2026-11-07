@@ -61,6 +61,11 @@ class SettingsController extends Controller
         if (!in_array($section, $validSections, true)) {
             $section = 'agency';
         }
+        // A single agent has no commission splits, team inbox or leave matrix: a bookmark to one lands on the business details.
+        if (in_array($section, ['commission', 'team-inbox', 'leave-visibility', 'leave-types'], true)
+            && $user && ! $user->isOwnerRole() && \App\Models\Agency::idIsSolo((int) $user->effectiveAgencyId())) {
+            $section = 'agency';
+        }
 
         $data = [
             'activeSection'  => $section,
@@ -385,6 +390,14 @@ class SettingsController extends Controller
                 app(\App\Services\Compliance\ComplianceGateSettingsService::class), (int) $user->effectiveAgencyId()
             );
         }
+
+        // Solo Agent Accounts - a single agent has no separate Company Settings page: its sections are merged into this
+        // Settings page (.ai/specs/solo-agent-accounts.md section 7.2). Same body, same savers; team-only parts left out.
+        // Normal agencies and the CoreX owner get exactly the page they always had.
+        $data['soloAccount'] = (bool) ($user && ! $user->isOwnerRole() && \App\Models\Agency::idIsSolo((int) $user->effectiveAgencyId()));
+        $data['companyPage'] = $data['soloAccount']
+            ? app(\App\Http\Controllers\Admin\CompanySettingsController::class)->pageData($request, true)
+            : null;
 
         return view('corex.settings', $data);
     }

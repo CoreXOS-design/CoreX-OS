@@ -33,6 +33,29 @@ class CompanySettingsController extends Controller
     {
         $this->authorizeAccess();
 
+        // A single-agent account has no separate Company Settings page: it is merged into Settings
+        // (.ai/specs/solo-agent-accounts.md section 7.2). Every old link, bookmark and save-redirect that lands here
+        // goes to the merged section instead of dead-ending; a message flashed by the save that sent them is kept.
+        // The CoreX owner is never redirected (support looks at the full page for any agency).
+        $viewer = auth()->user();
+        if ($viewer && ! $viewer->isOwnerRole() && \App\Models\Agency::idIsSolo((int) $viewer->effectiveAgencyId())) {
+            $request->session()->reflash();
+
+            return redirect()->route('corex.settings', ['s' => 'agency']);
+        }
+
+        return view('admin.company-settings.index', $this->pageData($request));
+    }
+
+    /**
+     * Everything the Company Settings body needs. Shared by the standalone page (index) and by the Settings hub, which
+     * embeds the same body for a single-agent account - one source of data, one set of savers.
+     *
+     * @param bool $forSoloAccount a single-agent account: the team-only Compliance board list is not loaded (and not seeded).
+     * @return array<string,mixed>
+     */
+    public function pageData(Request $request, bool $forSoloAccount = false): array
+    {
         $user = auth()->user();
         $activeAgencyId = $user?->effectiveAgencyId();
 
@@ -90,7 +113,7 @@ class CompanySettingsController extends Controller
 
         // Compliance tab - the board / senior management list that signs the RMCP approval letter. Shown only to people
         // who manage board approval; the first look starts the list from the agency's top-role users (service docblock).
-        $canManageBoard = (bool) ($agency && $user?->hasPermission('manage_rmcp_board_approval'));
+        $canManageBoard = (bool) (! $forSoloAccount && $agency && $user?->hasPermission('manage_rmcp_board_approval'));
         $boardMembers = collect();
         $boardArchived = collect();
         $boardUsers = collect();
@@ -104,11 +127,11 @@ class CompanySettingsController extends Controller
                 ->where('is_assistant', false)->whereNull('deleted_at')->orderBy('name')->get(['id', 'name']);
         }
 
-        return view('admin.company-settings.index', compact(
+        return compact(
             'agencies', 'agency', 'agents', 'branches', 'branchUsers', 'archivedBranches', 'vatRate', 'listingsPerSale',
             'websiteActive', 'vatTypes', 'catalogueItemTypes', 'catalogueUnits',
             'canManageBoard', 'boardMembers', 'boardArchived', 'boardUsers'
-        ));
+        );
     }
 
     public function update(Request $request, Agency $agency)
