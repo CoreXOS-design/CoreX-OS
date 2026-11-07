@@ -1,198 +1,133 @@
 @extends('layouts.corex')
 
 @section('corex-content')
-<div class="corex-auctions w-full h-full flex flex-col gap-4">
-    <div class="-mx-4 lg:-mx-6 -mt-4 lg:-mt-6 px-6 py-3.5 flex-shrink-0 flex flex-wrap items-center justify-between gap-3" style="border-bottom:1px solid var(--border);">
+@php
+    $fieldStyle = 'border:1px solid var(--border);background:var(--surface-2);color:var(--text-primary);';
+    $canReserve = auth()->user()->hasPermission('auctions.reserve.view');
+    $money = fn ($v) => $v === null ? '—' : 'R ' . number_format((float) $v, 0, '.', ' ');
+    $isLive = $auction->format === 'live';
+@endphp
+<div class="corex-auctions w-full flex flex-col gap-4">
+    <div class="rounded-md px-6 py-5 corex-page-banner flex flex-wrap items-center justify-between gap-3">
         <div>
-            <a href="{{ route('corex.auctions.show', $auction) }}" class="text-sm text-muted underline">&larr; {{ $auction->title }}</a>
-            <h1 class="text-base font-bold leading-tight" style="color:var(--text-primary);">Sale Room</h1>
+            <h1 class="text-base font-bold" style="color:var(--text-primary);">Sale Room — {{ $auction->title }}</h1>
+            <p class="text-xs" style="color:var(--text-muted);">{{ $auction->reference }} · {{ \App\Models\Auction::FORMATS[$auction->format] ?? $auction->format }} · {{ $auction->statusLabel() }} · {{ $approved }} approved {{ $approved === 1 ? 'bidder' : 'bidders' }}
+                @unless($isLive) · <strong>Monitor only: a timed auction runs on its own clock.</strong> @endunless</p>
         </div>
-        <div class="flex gap-1 text-xs">
-            @foreach($lots as $l)
-                <a href="{{ route('corex.auctions.room.show', [$auction, 'lot' => $l->id]) }}"
-                   class="px-2 py-1 rounded border {{ $lot && $lot->id === $l->id ? 'bg-blue-600 text-white' : 'bg-gray-50' }}">
-                    Lot {{ $l->lot_number }}
-                </a>
-            @endforeach
+        <div class="flex gap-2">
+            @permission('auctions.bidders.view')<a href="{{ route('corex.auctions.bidders.index', ['auction_id' => $auction->id]) }}" class="corex-btn-outline text-xs px-3 py-2">Bidders</a>@endpermission
+            <a href="{{ route('corex.auctions.edit', $auction->id) }}" class="corex-btn-outline text-xs px-3 py-2">← The auction</a>
         </div>
     </div>
 
-    @if($errors->any())<div class="rounded-md px-4 py-2 text-sm" style="background:color-mix(in srgb,var(--ds-crimson,#dc2626) 12%,transparent);color:var(--ds-crimson,#dc2626);">{{ $errors->first() }}</div>@endif
+    @if(session('status'))<div class="rounded-md px-4 py-2 text-sm" style="background:color-mix(in srgb,#10b981 12%,transparent);color:#10b981;">{{ session('status') }}</div>@endif
+    @if($errors->any())<div class="rounded-md px-4 py-2 text-sm" style="background:color-mix(in srgb,#ef4444 12%,transparent);color:#ef4444;">@foreach($errors->all() as $e)<div>{{ $e }}</div>@endforeach</div>@endif
 
-    @if(!$lot)
-        <div class="text-center py-16 text-muted">No lot is ready for the floor — catalogue and publish a lot first.</div>
+    @if($lots->isEmpty())
+        <div class="text-center py-16 text-sm" style="color:var(--text-muted);">This auction has no lots yet.</div>
     @else
-        <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 flex-1">
-            {{-- Current lot, large --}}
-            <div class="lg:col-span-2 rounded-md p-6 flex flex-col gap-4" style="background:var(--surface);border:1px solid var(--border);">
-                <div>
-                    <div class="text-xs text-muted">Lot {{ $lot->lot_number }} — {{ ucwords(str_replace('_', ' ', $lot->status)) }}</div>
-                    <div class="text-2xl font-semibold">{{ $lot->property?->buildDisplayAddress() ?? ('Property #'.$lot->property_id) }}</div>
+    <div class="grid grid-cols-1 lg:grid-cols-4 gap-4">
+        {{-- lots --}}
+        <aside class="rounded-md overflow-hidden" style="background:var(--surface);border:1px solid var(--border);" data-room-lots>
+            @foreach($lots as $l)
+            <a href="{{ route('corex.auctions.room.show', [$auction->id, 'lot' => $l->id]) }}" class="block px-4 py-2.5 text-sm"
+               style="border-top:1px solid var(--border);{{ $lot && $lot->id === $l->id ? 'background:var(--surface-2);' : '' }}color:var(--text-primary);text-decoration:none;">
+                <strong>Lot {{ $l->lot_number }}</strong> — {{ \Illuminate\Support\Str::limit($l->displayTitle(), 28) }}
+                <div class="text-xs" style="color:{{ $l->status === 'open' ? '#10b981' : 'var(--text-muted)' }};">{{ $l->statusLabel() }}@if($l->hammer_price !== null) · {{ $money($l->hammer_price) }}@endif</div>
+            </a>
+            @endforeach
+        </aside>
+
+        {{-- the lot on the block --}}
+        <section class="lg:col-span-3 space-y-4">
+            @if($lot)
+            <div class="rounded-md p-5 space-y-3" style="background:var(--surface);border:1px solid var(--border);" data-room-lot="{{ $lot->id }}">
+                <div class="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                        <h2 class="text-base font-bold" style="color:var(--text-primary);">Lot {{ $lot->lot_number }} — {{ $lot->displayTitle() }}</h2>
+                        <p class="text-xs" style="color:var(--text-muted);">{{ $lot->property?->buildDisplayAddress() }}</p>
+                    </div>
+                    <span class="px-3 py-1 rounded-full text-xs font-semibold" style="background:var(--surface-2);">{{ $lot->statusLabel() }}</span>
                 </div>
-
-                <div class="grid grid-cols-3 gap-4 text-center">
-                    <div>
-                        <div class="text-xs text-muted">
-                            Current Bid
-                            @if($currentHighBid && $currentHighBid->channel !== 'in_room')
-                                <span id="room-online-badge" class="ml-1 px-1.5 py-0.5 rounded bg-blue-600 text-white text-[10px] font-semibold">ONLINE</span>
-                            @else
-                                <span id="room-online-badge" class="ml-1 px-1.5 py-0.5 rounded bg-blue-600 text-white text-[10px] font-semibold hidden">ONLINE</span>
-                            @endif
-                        </div>
-                        <div id="room-current-bid" class="text-3xl font-bold">{{ $currentHighBid ? 'R '.number_format($currentHighBid->amount, 0) : '—' }}</div>
-                        <div id="room-current-bid-detail" class="text-xs text-muted">
-                            @if($currentHighBid)Paddle {{ $currentHighBid->bidder?->paddle_number }} — {{ $currentHighBid->bidder?->contact?->full_name }}@endif
-                        </div>
-                    </div>
-                    <div>
-                        <div class="text-xs text-muted">Next Increment</div>
-                        <div id="room-next-increment" class="text-3xl font-bold">{{ $suggestedNextBid !== null ? 'R '.number_format($suggestedNextBid, 0) : '—' }}</div>
-                    </div>
-                    <div>
-                        <div class="text-xs text-muted">Bidders</div>
-                        <div id="room-bidder-count" class="text-3xl font-bold">{{ $bidderCount }}</div>
-                    </div>
-                </div>
-                @if($auction->bidding_mode !== 'in_room' && $lot && in_array($lot->status, ['open_for_bids', 'under_the_hammer']))
-                <div id="room-online-notice" class="text-xs text-muted hidden">Live feed — updates every 5s. An online bid just landed; refresh the page before knocking down.</div>
-                @endif
-
-                @if($canSeeReserve)
-                <div class="text-sm text-muted">Reserve: {{ $lot->reserve_price ? 'R '.number_format($lot->reserve_price, 0) : 'No reserve' }}</div>
-                @endif
-
-                {{-- Lot status controls --}}
-                <div class="flex gap-2">
-                    @if($lot->status === 'catalogued')
-                    <form method="POST" action="{{ route('corex.auctions.room.open', [$auction, $lot]) }}">@csrf<button class="corex-btn-primary">Open for Bids</button></form>
-                    @endif
-                    @if($lot->status === 'open_for_bids')
-                    <form method="POST" action="{{ route('corex.auctions.room.hammer.start', [$auction, $lot]) }}">@csrf<button class="corex-btn-primary">Start Hammer</button></form>
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+                    <div><div class="text-xs" style="color:var(--text-muted);">Opening bid</div><strong>{{ $money($lot->opening_bid) }}</strong></div>
+                    <div><div class="text-xs" style="color:var(--text-muted);">Current bid</div><strong id="room-current">{{ $high ? $money($high->amount) : '—' }}</strong>@if($highReg)<div class="text-xs" id="room-leader">Bidder #{{ $highReg->bidder_number }} {{ $highReg->displayName() }}</div>@endif</div>
+                    <div><div class="text-xs" style="color:var(--text-muted);">Next minimum</div><strong>{{ $minNext !== null ? $money($minNext) : '—' }}</strong></div>
+                    @if($canReserve)
+                    <div><div class="text-xs" style="color:var(--text-muted);">Reserve (staff only)</div><strong>{{ $money($lot->reserve_price) }}</strong>
+                        @if($lot->reserve_price !== null && $high)<div class="text-xs" style="color:{{ (float) $high->amount >= (float) $lot->reserve_price ? '#10b981' : '#b45309' }};">{{ (float) $high->amount >= (float) $lot->reserve_price ? 'Reserve met' : 'Reserve not met' }}</div>@endif</div>
                     @endif
                 </div>
 
-                {{-- One-keystroke bid entry --}}
-                @if(in_array($lot->status, ['open_for_bids', 'under_the_hammer']))
-                <form method="POST" action="{{ route('corex.auctions.room.bid', [$auction, $lot]) }}" class="flex gap-2 items-end" autocomplete="off">
+                @if($canOperate && $lot->status === 'published')
+                    <form method="POST" action="{{ route('corex.auctions.room.open', [$auction->id, $lot->id]) }}">@csrf<button class="corex-btn-primary">Open Lot {{ $lot->lot_number }} for bids</button></form>
+                @endif
+
+                @if($canOperate && $lot->status === 'open')
+                <form method="POST" action="{{ route('corex.auctions.room.bid', [$auction->id, $lot->id]) }}" class="flex flex-wrap items-end gap-3" data-floor-bid>
                     @csrf
-                    <div>
-                        <label class="prop-label">Paddle #</label>
-                        <input type="text" name="paddle_number" autofocus class="prop-input text-lg" style="width:8rem">
-                    </div>
-                    <div>
-                        <label class="prop-label">Amount (blank = next increment)</label>
-                        <input type="number" name="amount" step="0.01" class="prop-input" placeholder="{{ $suggestedNextBid !== null ? 'R '.number_format($suggestedNextBid, 0) : 'Type a starting amount' }}">
-                    </div>
-                    <button type="submit" class="corex-btn-primary">Bid</button>
+                    <div><label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Bidder number</label>
+                        <input name="bidder_number" type="number" min="1" required autofocus class="px-3 py-2 text-sm rounded-md w-32" style="{{ $fieldStyle }}"></div>
+                    <div><label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Bid (R)</label>
+                        <input name="amount" type="number" min="1" step="1" required value="{{ $minNext !== null ? (int) $minNext : '' }}" class="px-3 py-2 text-sm rounded-md w-44" style="{{ $fieldStyle }}"></div>
+                    <button class="corex-btn-primary">Record bid</button>
                 </form>
+                @endif
 
-                <div class="flex gap-2">
-                    @if($canRetract && $currentHighBid)
-                    <form method="POST" action="{{ route('corex.auctions.room.bid.retract', [$auction, $lot]) }}" onsubmit="return confirm('Retract the last bid?')" class="flex gap-2 items-end">
-                        @csrf
-                        <input type="text" name="reason" placeholder="Reason" class="prop-input text-xs">
-                        <button type="submit" class="corex-btn-outline text-xs">Retract Last Bid</button>
-                    </form>
+                @if($canHammer && $lot->status === 'open')
+                <div class="flex flex-wrap items-center gap-3 pt-2" style="border-top:1px solid var(--border);">
+                    @if($high)
+                    <form method="POST" action="{{ route('corex.auctions.room.hammer', [$auction->id, $lot->id]) }}" onsubmit="return confirm('Knock Lot {{ $lot->lot_number }} down at {{ $money($high->amount) }}?');">@csrf<button class="corex-btn-primary" style="background:#b91c1c;">Knock down at {{ $money($high->amount) }}</button></form>
                     @endif
+                    <form method="POST" action="{{ route('corex.auctions.room.pass-in', [$auction->id, $lot->id]) }}" onsubmit="return confirm('Pass this lot in?');" class="flex items-center gap-2">@csrf
+                        <input name="note" placeholder="Note (optional)" class="px-2 py-2 text-xs rounded-md" style="{{ $fieldStyle }}"><button class="corex-btn-outline">Pass in</button></form>
                 </div>
                 @endif
 
-                {{-- Fall of the hammer — deliberate, confirmed action (§11.1) --}}
-                @if($lot->status === 'under_the_hammer')
-                <div class="border-t pt-4 flex gap-2">
-                    <form method="POST" action="{{ route('corex.auctions.room.hammer.knock-down', [$auction, $lot]) }}"
-                          onsubmit="return confirm('Going once… going twice… SOLD to paddle {{ $currentHighBid->bidder->paddle_number ?? '?' }} for R {{ number_format($currentHighBid->amount ?? 0, 0) }}?\n\nThis cannot be undone from here.')">
-                        @csrf
-                        <button type="submit" class="corex-btn-primary" @if(!$currentHighBid) disabled @endif>Fall of the Hammer — SOLD</button>
-                    </form>
-                    <form method="POST" action="{{ route('corex.auctions.room.hammer.pass-in', [$auction, $lot]) }}" onsubmit="return confirm('No bid reached the reserve — pass this lot in?')" class="flex gap-2 items-end">
-                        @csrf
-                        <input type="text" name="reason" placeholder="Reason (optional)" class="prop-input text-xs">
-                        <button type="submit" class="corex-btn-outline">Pass In</button>
-                    </form>
-                </div>
+                @if(in_array($lot->status, ['sold', 'sold_subject_to_confirmation', 'passed_in'], true))
+                    <p class="text-sm"><strong>{{ $lot->statusLabel() }}</strong>@if($lot->hammer_price !== null) at {{ $money($lot->hammer_price) }}@endif
+                        <a href="{{ route('corex.auctions.lots.edit', $lot->id) }}" class="underline text-xs ml-2">Open the lot</a></p>
                 @endif
             </div>
 
-            {{-- Bid history --}}
-            <div class="rounded-md p-4" style="background:var(--surface);border:1px solid var(--border);">
-                <h2 class="font-medium mb-2 text-sm">Bid History</h2>
-                <div id="room-bid-history" class="flex flex-col gap-1 text-sm max-h-96 overflow-y-auto">
-                    @forelse($bidHistory as $bid)
-                    <div class="flex justify-between border-b py-1 {{ $bid->isRetracted() ? 'opacity-40 line-through' : '' }}">
-                        <span>#{{ $bid->bidder?->paddle_number }} ({{ $bid->channel }})</span>
-                        <span>R {{ number_format($bid->amount, 0) }}</span>
-                    </div>
-                    @empty
-                    <p class="text-muted">No bids yet.</p>
-                    @endforelse
+            <div class="rounded-md p-5" style="background:var(--surface);border:1px solid var(--border);" data-room-bids>
+                <h3 class="text-sm font-bold mb-2" style="color:var(--text-primary);">Bids ({{ $bids->where('status', 'valid')->count() }})</h3>
+                @forelse($bids as $b)
+                <div class="flex items-center gap-3 text-sm py-1.5" style="border-top:1px solid var(--border);{{ $b->status === 'retracted' ? 'opacity:.55;' : '' }}">
+                    <span class="w-24 text-xs" style="color:var(--text-muted);">{{ $b->placed_at->format('H:i:s') }}</span>
+                    <span class="flex-1">#{{ $b->registration?->bidder_number ?? '—' }} {{ $b->registration?->displayName() }}</span>
+                    <strong>{{ $money($b->amount) }}</strong>
+                    <span class="text-xs w-20">{{ \App\Models\AuctionBid::SOURCES[$b->source] ?? $b->source }}{{ $b->status === 'retracted' ? ' · retracted' : '' }}</span>
+                    @if($b->status === 'valid' && ! $lot->isConcluded())@permission('auctions.bids.retract')
+                    <form method="POST" action="{{ route('corex.auctions.bids.retract', $b->id) }}" class="flex items-center gap-1" onsubmit="return confirm('Retract this bid?');">@csrf
+                        <input name="reason" placeholder="Reason" required class="px-2 py-1 text-xs rounded-md w-24" style="{{ $fieldStyle }}"><button class="text-xs underline" style="color:#ef4444;">Retract</button></form>
+                    @endpermission @endif
                 </div>
-
-                <h2 class="font-medium mt-4 mb-2 text-sm">Approved Bidders</h2>
-                <div class="text-sm flex flex-col gap-1">
-                    @foreach($approvedBidders as $ab)
-                    <div>#{{ $ab->paddle_number }} — {{ $ab->contact?->full_name }}</div>
-                    @endforeach
-                </div>
+                @empty
+                <p class="text-xs" style="color:var(--text-muted);">No bids on this lot yet.</p>
+                @endforelse
             </div>
-        </div>
+            @endif
+        </section>
+    </div>
     @endif
 </div>
 
-@if($auction->bidding_mode !== 'in_room' && $lot && in_array($lot->status, ['open_for_bids', 'under_the_hammer']))
+@if($lot)
 <script>
-// AT-432 Phase 4 (§11.4) — hybrid Sale Room: poll the catalogued bid feed
-// so an online/proxy bid appears live without the clerk reloading the
-// page. Plain setInterval + fetch — "no new realtime infrastructure"
-// (§11.2). Never touches the bid-entry form or the fall-of-hammer
-// controls; those still act on the server-rendered state on submit.
-(function () {
-    const feedUrl = @json(route('api.v1.auctions.lots.feed', $lot->id));
-    const noticeEl = document.getElementById('room-online-notice');
-    let lastBidId = {{ $currentHighBid?->id ?? 'null' }};
-
-    function fmt(amount) {
-        return 'R ' + Math.round(amount).toLocaleString('en-ZA');
-    }
-
-    async function poll() {
-        let data;
-        try {
-            data = await window.CoreX.api.fetch(feedUrl);
-        } catch (e) {
-            return; // transient network hiccup — try again next tick
-        }
-
-        document.getElementById('room-current-bid').textContent = data.current_bid ? fmt(data.current_bid.amount) : '—';
-        document.getElementById('room-current-bid-detail').textContent = data.current_bid ? ('Paddle ' + (data.current_bid.bidder_paddle_number ?? '?')) : '';
-        document.getElementById('room-next-increment').textContent = data.suggested_next_bid !== null ? fmt(data.suggested_next_bid) : '—';
-        document.getElementById('room-bidder-count').textContent = data.distinct_bidder_count;
-
-        const badge = document.getElementById('room-online-badge');
-        const isOnlineLeading = !!data.current_bid && data.current_bid.channel !== 'in_room';
-        badge.classList.toggle('hidden', !isOnlineLeading);
-
-        const newestId = (data.recent_bids && data.recent_bids[0]) ? data.recent_bids[0].id : null;
-        if (newestId !== null && newestId !== lastBidId) {
-            lastBidId = newestId;
-            if (noticeEl && isOnlineLeading) {
-                noticeEl.classList.remove('hidden');
-            }
-            const history = document.getElementById('room-bid-history');
-            if (history) {
-                history.innerHTML = data.recent_bids.map(function (b) {
-                    return '<div class="flex justify-between border-b py-1">'
-                        + '<span>#' + (b.bidder_paddle_number ?? '?') + ' (' + b.channel + ')</span>'
-                        + '<span>' + fmt(b.amount) + '</span>'
-                        + '</div>';
-                }).join('') || '<p class="text-muted">No bids yet.</p>';
-            }
-        }
-    }
-
-    setInterval(poll, 5000);
-})();
+    // Keep the room live: when a bid (from the web or another operator) changes the lot, reload to show it. Never while typing.
+    (function () {
+        var feed = @json(route('api.v1.auctions.lots.feed', $lot->id));
+        var seen = { bids: @json($bids->where('status', 'valid')->count()), status: @json($lot->status), top: @json($high ? (float) $high->amount : null) };
+        setInterval(function () {
+            if (document.activeElement && ['INPUT', 'TEXTAREA', 'SELECT'].indexOf(document.activeElement.tagName) !== -1 && document.activeElement.value) return;
+            fetch(feed, { credentials: 'same-origin', headers: { 'Accept': 'application/json' } }).then(function (r) { return r.ok ? r.json() : null; }).then(function (j) {
+                if (!j) return;
+                var n = j.bids.filter(function (b) { return b.status === 'valid'; }).length;
+                if (n !== seen.bids || j.state.lot_status !== seen.status || j.state.current_bid !== seen.top) location.reload();
+            }).catch(function () {});
+        }, 3000);
+    })();
 </script>
 @endif
 @endsection

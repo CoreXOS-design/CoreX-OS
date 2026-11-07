@@ -40,7 +40,7 @@ class AgencyOnboardingSetup extends Model
         'proforma',       // 5a — Proforma invoices (gated: proforma-invoices feature)
         'leases',         // 5b — Lease expiry-notice window (leases.md §5.2)
         'properties',     // 6  — Properties & listings
-        'auctions',       // 6a — Auctions (gated: auctions feature) — AT-432
+        'auctions',       // 6a — Auctions (gated: auctions feature)
         'presentations',  // 7  — Presentations / CMA
         'matches',        // 8  — Matches
         'market_intelligence', // 8a — Market Intelligence / Prospecting Setup (gated: prospecting feature)

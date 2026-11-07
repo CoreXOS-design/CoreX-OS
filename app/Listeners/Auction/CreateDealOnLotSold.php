@@ -7,30 +7,23 @@ use App\Services\Auctions\AuctionDealFactory;
 use Illuminate\Support\Facades\Log;
 
 /**
- * AT-432 Phase 3 — .ai/specs/auctions.md §17: AuctionLotSold's known
- * subscribers include "Deal creation". Sync (never queued — a queued
- * listener on a domain event fatals, per corex-domain-events-spec.md and
- * this codebase's own memory of that exact incident: AbstractDomainEvent's
- * parent readonly $eventId cannot be restored from the child scope on
- * deserialisation).
- *
- * Prevent-or-absorb: never let a failed deal-open (most commonly, the
- * property has no linked seller contact yet — DealPropertyOwnerGate) break
- * the fall-of-hammer transaction that already committed. The lot detail
- * page's "Open Deal" action (AuctionLotController::openDeal) is the
- * manual retry path for exactly this failure — see its own docblock.
+ * AuctionLotSold -> open the Deal. Synchronous on purpose (a queued listener cannot restore a domain event's readonly
+ * eventId). A failure — usually "the property has no linked seller yet" — never undoes the sale: it is logged and the lot
+ * page offers "Open deal" to retry once the seller has been added.
  */
 class CreateDealOnLotSold
 {
     public function handle(AuctionLotSold $event): void
     {
+        $lot = $event->lot->fresh();
+        if (! $lot || $lot->deal_id !== null) {
+            return;   // idempotent: running twice opens one deal
+        }
+
         try {
-            app(AuctionDealFactory::class)->createFromSoldLot($event->lot, $event->actorId);
+            app(AuctionDealFactory::class)->createFromSoldLot($lot);
         } catch (\Throwable $e) {
-            Log::warning('CreateDealOnLotSold: automatic deal creation failed — use the lot page\'s Open Deal action to retry', [
-                'auction_lot_id' => $event->lot->id,
-                'error' => $e->getMessage(),
-            ]);
+            Log::warning('Auction deal not opened automatically: ' . $e->getMessage(), ['lot' => $lot->id]);
         }
     }
 }

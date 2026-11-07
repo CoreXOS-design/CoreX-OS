@@ -407,6 +407,36 @@ The initial catalogue. Each row: event name, when it fires, payload, who emits i
 
 **A webinar grant expires on an absolute date, so `DemoAccessFirstLogin` no longer implies a clock started.** Webinar registration issues its grant with `expires_at` already set and `expiry_hours` NULL; `stampFirstLogin()` COALESCEs and leaves that deadline alone. The event still fires on first sign-in — it is still true that the prospect signed in for the first time — but for these grants it marks *use*, not the start of a countdown. Nothing downstream may infer `expires_at = first_login_at + expiry_hours`. Spec: `.ai/specs/webinar-registration.md` §5.2.
 
+**Auctions v2 (`.ai/specs/auctions.md` §10) — events added as each phase ships.**
+
+| Event | Fact | Subject | Emitted by | Listeners |
+|---|---|---|---|---|
+| `Auction\AuctionEnquiryReceived` | A buyer or guest sent an enquiry from the public auction site (phase 2) | `AuctionEnquiry` | `AuctionEnquiryService::capture()`, after the enquiry, its Contact and the buyer-pipeline seed are stored | `NotifyOfAuctionEnquiry` (emails the listing agent / branch manager per Settings → Auctions, falling back to the agency's enquiries address) |
+| `Auction\AuctionSellerSubmitted` | A seller completed the "Sell at auction" questionnaire on the public auction site (§22) | `AuctionSellerSubmission` | `AuctionSellerSubmissionService::capture()`, after the submission, its Contact and its Tracked Property are stored | `NotifyOfSellerSubmission` (emails the team per Settings -> Auctions), `NotifyStaffOfAuctionActivity::handleSeller` (alerts the administrators) |
+
+| `Auction\BidderRegistered` | A buyer submitted a bidder registration for an auction (phase 3) | `AuctionRegistration` | `AuctionRegistrationService::submit()` | audit |
+| `Auction\BidderApproved` | Staff approved a bidder; a bidder number was issued | `AuctionRegistration` | `AuctionRegistrationService::approve()` | `NotifyBidder` (email, as the agency) |
+| `Auction\BidderDeclined` | Staff declined a registration, with a reason | `AuctionRegistration` | `AuctionRegistrationService::decline()` | `NotifyBidder` |
+| `Auction\BidPlaced` | A valid bid was placed (by hand or by the auto-bid engine) | `AuctionBid` | `BidEngine`, after the bid transaction commits | audit |
+| `Auction\BidRetracted` | Staff retracted a bid | `AuctionBid` | `BidEngine::retract()` | audit |
+| `Auction\LotOutbid` | The leading bidder on a lot was outbid | `AuctionLot` | `BidEngine`, only when the leader actually changed | `NotifyBidder` (honours Settings -> Auctions "outbid emails") |
+| `Auction\AuctionLotSold` | A timed lot closed at/above its reserve | `AuctionLot` | `LotResultService::conclude()` | `NotifyBidder` (winner "you won", others "ended") |
+| `Auction\AuctionLotSoldSubjectToConfirmation` | A timed lot closed below its reserve: the seller must confirm | `AuctionLot` | `LotResultService::conclude()` | `NotifyBidder` |
+| `Auction\AuctionLotPassedIn` | A timed lot closed with no valid bid; the property is released | `AuctionLot` | `LotResultService::conclude()` | audit |
+
+| `Auction\AuctionPublished` | An auction was published to the public auction site (phase 4 completes the set) | `Auction` | `AuctionLifecycleService::publish()` | audit |
+| `Auction\AuctionCancelled` | An auction was cancelled; its lots were withdrawn | `Auction` | `AuctionLifecycleService::cancel()` | audit |
+| `Auction\AuctionCompleted` | Every lot has a final result and staff completed the auction | `Auction` | `AuctionLifecycleService::complete()` | audit |
+| `Auction\AuctionLotWithdrawn` | A lot was withdrawn; the property was released | `AuctionLot` | `AuctionLotService::withdraw()` | audit |
+| `Auction\LotDeclinedBySeller` | The seller declined the highest bid on a below-reserve sale; the lot was passed in | `AuctionLot` | `LotResultService::declineSale()` (with `AuctionLotPassedIn`) | `NotifyBidder` ("your bid was not accepted") |
+
+| `Auction\AuctionInvoiceIssued` | A bidder invoice was numbered and issued to the winning bidder (fees phase) | `AuctionInvoice` | `AuctionInvoiceService::issue()` | audit (the buyer is emailed the PDF by the service) |
+| `Auction\AuctionPaymentRecorded` | Money was recorded against a bidder invoice; the invoice may now be paid in full | `AuctionInvoice` | `AuctionInvoiceService::recordPayment()` | audit |
+
+`AuctionLotSold` also has a third listener, `CreateInvoiceOnLotSold` (drafts the bidder invoice after the Deal opens; idempotent).
+
+`AuctionLotSold` (above) now also carries `afterConfirmation` (true when the seller confirmed a below-reserve sale) and has a second listener, `CreateDealOnLotSold`, which opens the Deal (sync, idempotent: a second event never opens a second deal; failure is logged and never undoes the sale). The only §10 event not built yet is `LotClosingSoon`.
+
 This catalogue is **not exhaustive**. As new features ship, new events are added per E9.
 
 > **Note on `AgencyCreated`:** the domain event (`App\Events\AgencyCreated`) is distinct

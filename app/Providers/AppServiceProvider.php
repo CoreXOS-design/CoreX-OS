@@ -498,6 +498,23 @@ class AppServiceProvider extends ServiceProvider
         );
 
         // The domain-event logging family — every one of these was discovery-only.
+        // Auctions v2 (.ai/specs/auctions.md §10) — tell the agency about a new public-site enquiry.
+        Event::listen(\App\Events\Auction\AuctionEnquiryReceived::class, \App\Listeners\Auction\NotifyOfAuctionEnquiry::class);
+        Event::listen(\App\Events\Auction\BidderRegistered::class, \App\Listeners\Auction\NotifyOfBidderRegistration::class);
+        Event::listen(\App\Events\Auction\AuctionSellerSubmitted::class, \App\Listeners\Auction\NotifyOfSellerSubmission::class);
+        Event::listen(\App\Events\Auction\AuctionSellerSubmitted::class, [\App\Listeners\Auction\NotifyStaffOfAuctionActivity::class, 'handleSeller']);
+        // In-app alerts (.ai/specs/auctions.md §19.4): a new online bid -> the lot's listing agent; a new enquiry -> its assigned agent; else the admins.
+        Event::listen(\App\Events\Auction\BidPlaced::class, [\App\Listeners\Auction\NotifyStaffOfAuctionActivity::class, 'handleBid']);
+        Event::listen(\App\Events\Auction\AuctionEnquiryReceived::class, [\App\Listeners\Auction\NotifyStaffOfAuctionActivity::class, 'handleEnquiry']);
+        // Phase 3 — bidders hear about their registration and about their lots, as the agency.
+        Event::listen(\App\Events\Auction\BidderApproved::class, [\App\Listeners\Auction\NotifyBidder::class, 'handleApproved']);
+        Event::listen(\App\Events\Auction\BidderDeclined::class, [\App\Listeners\Auction\NotifyBidder::class, 'handleDeclined']);
+        Event::listen(\App\Events\Auction\LotOutbid::class, [\App\Listeners\Auction\NotifyBidder::class, 'handleOutbid']);
+        Event::listen(\App\Events\Auction\AuctionLotSold::class, \App\Listeners\Auction\CreateDealOnLotSold::class);
+        Event::listen(\App\Events\Auction\AuctionLotSold::class, \App\Listeners\Auction\CreateInvoiceOnLotSold::class);   // after the deal, so the draft knows it   // Deal first: the winner's email links to a finished sale
+        Event::listen(\App\Events\Auction\AuctionLotSold::class, [\App\Listeners\Auction\NotifyBidder::class, 'handleSold']);
+        Event::listen(\App\Events\Auction\LotDeclinedBySeller::class, [\App\Listeners\Auction\NotifyBidder::class, 'handleDeclinedBySeller']);
+        Event::listen(\App\Events\Auction\AuctionLotSoldSubjectToConfirmation::class, [\App\Listeners\Auction\NotifyBidder::class, 'handleSoldSubject']);
         Event::listen(\App\Events\AbstractDomainEvent::class, \App\Listeners\Agent\LogAgentEvent::class);
         Event::listen(\App\Events\AbstractDomainEvent::class, \App\Listeners\Mandate\LogMandateEvent::class);
         Event::listen(\App\Events\AbstractDomainEvent::class, \App\Listeners\Deal\LogDealEvent::class);
@@ -534,7 +551,7 @@ class AppServiceProvider extends ServiceProvider
         $registry->register(\App\Services\CommandCenter\Calendar\Sources\DocumentCalendarSource::class);
         $registry->register(\App\Services\CommandCenter\Calendar\Sources\PeopleCalendarSource::class);
         $registry->register(\App\Services\CommandCenter\Calendar\Sources\RecurringCalendarSource::class);
-        // AT-432 — .ai/specs/auctions.md §16.
+        // Auctions v2 (.ai/specs/auctions.md §10): auction date, registration closes, seller confirmation due.
         $registry->register(\App\Services\CommandCenter\Calendar\Sources\AuctionCalendarSource::class);
 
         // Domain events: every concrete DomainEvent is recorded to
@@ -614,11 +631,6 @@ class AppServiceProvider extends ServiceProvider
         //     commission_engine_spec.md §13's unbuilt integration point
         //     (.ai/atlas/deals-commission.md §8.1 "System C ... orphaned").
         Event::listen(\App\Events\Deal\DealCommissionFinalised::class, \App\Listeners\Deal\GenerateCommissionLedgerEntries::class);
-
-        // AT-432 Phase 3 (.ai/specs/auctions.md §17) — AuctionLotSold → open the
-        // Deal (App\Services\Auctions\AuctionDealFactory). Sync, never queued —
-        // see that service's own docblock for why (readonly $eventId).
-        Event::listen(\App\Events\Auction\AuctionLotSold::class, \App\Listeners\Auction\CreateDealOnLotSold::class);
 
         // ─────────────────────────────────────────────────────────────────
         // MIC Phase A3 — log every activity-relevant domain event to
@@ -1276,6 +1288,15 @@ class AppServiceProvider extends ServiceProvider
             ];
         });
 
+        // Auction website API (§24): the write endpoints (sign-up, log-in, enquiries, the seller form...) are limited per website key AND visitor
+        // (the visitor address the website passes in X-Visitor-IP), so one noisy visitor never locks the whole site out.
+        \Illuminate\Support\Facades\RateLimiter::for('auction-website-write', function (\Illuminate\Http\Request $request) {
+            $key = \Illuminate\Support\Facades\Auth::guard('agency-api')->user();
+
+            return \Illuminate\Cache\RateLimiting\Limit::perMinute(30)->by('awk:' . ($key instanceof \App\Models\AgencyApiKey ? $key->getKey() : 'x') . ':' . $request->ip())
+                ->response(fn () => response()->json(['message' => 'Too many attempts. Please wait a minute and try again.', 'code' => 'rate_limited'], 429));
+        });
+
         \Illuminate\Support\Facades\RateLimiter::for('website-api', function (\Illuminate\Http\Request $request) {
             $key = $request->user();
             $perMinute = ($key instanceof \App\Models\AgencyApiKey) ? max(1, (int) $key->rate_limit_per_min) : 120;
@@ -1557,18 +1578,12 @@ class AppServiceProvider extends ServiceProvider
                 });
         });
 
-        // AT-432 Phase 5 — .ai/specs/auctions.md §10.1 public bidder
-        // registration. No per-applicant token (this is a fresh public
-        // form anyone reaches from the auction's public listing, not a
-        // prefilled per-recipient link) — keyed by IP, matching a plain
-        // spam/abuse throttle rather than the token-keyed rental-application
-        // limiters above.
-        \Illuminate\Support\Facades\RateLimiter::for('auction-registration-submit', function (\Illuminate\Http\Request $request) {
-            return \Illuminate\Cache\RateLimiting\Limit::perMinutes(10, 5)
-                ->by('auction-registration-submit:' . $request->ip())
-                ->response(fn () => response()->json([
-                    'message' => "You've submitted a few registrations in a short time, so submitting is paused for a moment. Please wait and try again.",
-                ], 429));
+        // Auctions v2 — a bidder may place 30 bids / auto-bids a minute (keyed by their login, else the address).
+        \Illuminate\Support\Facades\RateLimiter::for('auction-bids', function (\Illuminate\Http\Request $request) {
+            $buyer = \Illuminate\Support\Facades\Auth::guard('client-web')->user();
+
+            return \Illuminate\Cache\RateLimiting\Limit::perMinute(30)->by('auction-bids:' . ($buyer ? 'u' . $buyer->getAuthIdentifier() : $request->ip()))
+                ->response(fn () => response()->json(['message' => 'You are bidding too fast. Please wait a moment.'], 429));
         });
     }
 }

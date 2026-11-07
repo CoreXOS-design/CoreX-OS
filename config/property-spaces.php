@@ -124,7 +124,7 @@ return [
     'feature_categories' => [
         'theProperty' => [
             'label'    => 'The Property',
-            'features' => ['Air Conditioned','Balcony','Cleaning Service','Complex','Freehold','Furnished','Green Building','Ground Floor Unit','Investment','Leasehold','Multi Tenanted','Natural Light','No Transfer Duty','Office Building','Pet Friendly','Pets Not Allowed','Renovation Fixer-Upper','Second Floor and Above','Sectional Title','Serviced','Single Storey','Standalone','Top Floor','Unfurnished','Wheelchair Friendly'],
+            'features' => ['Air Conditioned','Balcony','Cleaning Service','Complex','Freehold','Furnished','Green Building','Ground Floor Unit','Investment','Leasehold','Multi Tenanted','Natural Light','No Stairs','No Transfer Duty','Office Building','Pet Friendly','Pets Not Allowed','Renovation Fixer-Upper','Second Floor and Above','Sectional Title','Serviced','Single Storey','Stairs','Standalone','Top Floor','Unfurnished','Wheelchair Friendly'],
         ],
         // The building's fabric and style (Property24's "Building" section) — one tick-list, each label
         // prefixed with what it describes (Wall / Floor / Roof / Window / Style) so it reads on its own.

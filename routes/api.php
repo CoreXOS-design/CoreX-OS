@@ -375,6 +375,61 @@ Route::prefix('v1/website')
         Route::middleware('website.scope:stats:write')->group(function () {
             Route::post('/listings/stats', [\App\Http\Controllers\Api\V1\Website\ListingStatsController::class, 'store'])->name('v1.website.listings.stats.store');
         });
+
+        // ── AUCTION WEBSITE API (.ai/specs/auctions-website-api.md, auctions.md §24) ─────────────────────────────────────
+        // Everything the CoreX-hosted public auction page shows and does, for an external auction website. The website's SERVER calls it with its
+        // agency key; a signed-in buyer is identified by the X-Buyer-Token the sign-up / log-in endpoints hand out; X-Visitor-IP may name the real visitor.
+        Route::prefix('auctions')->middleware([\App\Http\Middleware\Auctions\UseVisitorIp::class])->name('v1.website.auctions.')->group(function () {
+            $S = \App\Http\Controllers\Api\V1\Website\Auctions\SiteController::class;
+            $B = \App\Http\Controllers\Api\V1\Website\Auctions\BuyerController::class;
+            $K = \App\Http\Controllers\Api\V1\Website\Auctions\BiddingController::class;
+            $L = \App\Http\Controllers\Api\V1\Website\Auctions\LeadsController::class;
+            $buyerOptional = \App\Http\Middleware\Auctions\EnsureAuctionBuyer::class . ':optional';
+            $buyerRequired = \App\Http\Middleware\Auctions\EnsureAuctionBuyer::class;
+            $write = 'throttle:auction-website-write';
+            $release = \App\Http\Middleware\Auctions\ReleaseApiKeyPrincipal::class;
+
+            // read what the public page shows (a buyer token, when sent, unlocks the "registered" documents and personalises)
+            Route::middleware(['website.scope:auctions:read', $buyerOptional, $release])->group(function () use ($S) {
+                Route::get('/site', [$S, 'site'])->name('site');
+                Route::get('/', [$S, 'auctions'])->name('index');
+                Route::get('/{auction}', [$S, 'auction'])->whereNumber('auction')->name('show');
+                Route::get('/{auction}/lots/{lot}', [$S, 'lot'])->whereNumber(['auction', 'lot'])->name('lots.show');
+                Route::get('/{auction}/lots/{lot}/feed', [$S, 'feed'])->whereNumber(['auction', 'lot'])->name('lots.feed');
+                Route::get('/{auction}/documents/{document}', [$S, 'auctionDocument'])->whereNumber(['auction', 'document'])->name('documents.download');
+                Route::get('/{auction}/lots/{lot}/documents/{document}', [$S, 'lotDocument'])->whereNumber(['auction', 'lot', 'document'])->name('lots.documents.download');
+            });
+
+            // buyer accounts: no token yet
+            Route::middleware(['website.scope:auctions:buyers', $release, $write])->prefix('buyers')->name('buyers.')->group(function () use ($B) {
+                Route::post('/signup/send', [$B, 'signupSend'])->name('signup.send');
+                Route::post('/signup/verify', [$B, 'signupVerify'])->name('signup.verify');
+                Route::post('/login', [$B, 'login'])->name('login');
+                Route::post('/forgot/send', [$B, 'forgotSend'])->name('forgot.send');
+                Route::post('/forgot/reset', [$B, 'forgotReset'])->name('forgot.reset');
+            });
+
+            // a signed-in buyer (X-Buyer-Token)
+            Route::middleware(['website.scope:auctions:buyers', $buyerRequired, $release])->group(function () use ($B, $K, $write) {
+                Route::post('/buyers/logout', [$B, 'logout'])->name('buyers.logout');
+                Route::get('/buyers/me', [$B, 'me'])->name('buyers.me');
+                Route::put('/buyers/me', [$B, 'updateMe'])->middleware($write)->name('buyers.me.update');
+                Route::get('/buyers/me/invoices/{invoice}/pdf', [$B, 'invoicePdf'])->whereNumber('invoice')->name('buyers.invoices.pdf');
+                Route::get('/{auction}/registration', [$B, 'registrationShow'])->whereNumber('auction')->name('registration.show');
+                Route::post('/{auction}/registration', [$B, 'registrationSubmit'])->whereNumber('auction')->middleware($write)->name('registration.submit');
+                Route::post('/lots/{lot}/watch', [$B, 'watch'])->whereNumber('lot')->middleware($write)->name('lots.watch');
+                Route::post('/lots/{lot}/bids', [$K, 'bid'])->whereNumber('lot')->middleware('throttle:auction-bids')->name('lots.bid');
+                Route::post('/lots/{lot}/auto-bid', [$K, 'autoBid'])->whereNumber('lot')->middleware('throttle:auction-bids')->name('lots.auto-bid');
+                Route::delete('/lots/{lot}/auto-bid', [$K, 'cancelAutoBid'])->whereNumber('lot')->middleware('throttle:auction-bids')->name('lots.auto-bid.cancel');
+            });
+
+            // enquiries (a buyer token is optional) and the seller questionnaire
+            Route::middleware(['website.scope:auctions:leads', $buyerOptional, $release, $write])->group(function () use ($L) {
+                Route::post('/{auction}/enquiries', [$L, 'enquire'])->whereNumber('auction')->name('enquiries.store');
+                Route::post('/{auction}/lots/{lot}/enquiries', [$L, 'enquire'])->whereNumber(['auction', 'lot'])->name('enquiries.lot.store');
+                Route::post('/sell', [$L, 'sell'])->name('sell');
+            });
+        });
     });
 
 // ════════════════════════════════════════════════════════════════

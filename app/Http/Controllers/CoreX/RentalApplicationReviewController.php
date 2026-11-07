@@ -355,7 +355,7 @@ class RentalApplicationReviewController extends Controller
             : null;
         $matchCategories = \App\Models\PropertySettingItem::group('category')->get();
         $matchTypes = \App\Models\PropertySettingItem::group('property_type')->where('active', true)->get();
-        $featureOptions = array_merge(\App\Http\Controllers\CoreX\ContactMatchController::FEATURE_OPTIONS, \App\Http\Controllers\CoreX\ContactMatchController::POOL_TYPE_OPTIONS);
+        $featureOptions = array_merge(\App\Http\Controllers\CoreX\ContactMatchController::FEATURE_OPTIONS, \App\Http\Controllers\CoreX\ContactMatchController::POOL_TYPE_OPTIONS, \App\Http\Controllers\CoreX\ContactMatchController::STAIRS_OPTIONS);
 
         // AT-392 — real rental stock only, not the full sale+rental type
         // list. Johan: "unless the agency actually lets commercial,

@@ -3,45 +3,34 @@
 namespace App\Http\Controllers\Api\V1\Auctions;
 
 use App\Http\Controllers\Controller;
-use App\Models\Auction;
 use App\Models\Property;
-use App\Services\Auctions\AuctionLotAttacher;
-use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
-/**
- * Typeahead for "Attach a Property" on the auction page. Uses the canonical
- * Property::searchAddress() (address, unit/complex, title) and the user's own/
- * branch/agency visibility, and leaves out properties already lots in this auction and
- * anything AuctionLotAttacher would refuse (rentals, concluded listings, a property
- * still open in another auction).
- */
+/** GET /api/v1/auctions/property-search — the property picker on the Lots screen (.ai/specs/auctions.md §11). */
 class AuctionPropertySearchController extends Controller
 {
-    public function index(Request $request, Auction $auction): JsonResponse
+    public function index(Request $request)
     {
-        $term = trim((string) $request->query('q', ''));
-        if (mb_strlen($term) < 2) {
-            return response()->json([]);
+        $q = trim((string) $request->query('q', ''));
+        if (mb_strlen($q) < 2) {
+            return response()->json(['data' => []]);
         }
 
-        $attached = $auction->lots()->pluck('property_id');
+        $rows = Property::visibleTo($request->user())
+            ->where('listing_type', '!=', 'rental')
+            ->whereDoesntHave('auctionLots', fn ($l) => $l->live())
+            ->where(function ($w) use ($q) {
+                $like = "%{$q}%";
+                $w->where('title', 'like', $like)->orWhere('address', 'like', $like)
+                    ->orWhere('street_name', 'like', $like)->orWhere('suburb', 'like', $like)
+                    ->orWhere('property_number', 'like', $like)->orWhere('erf_number', 'like', $like);
+            })
+            ->orderBy('title')->limit(15)->get();
 
-        $results = AuctionLotAttacher::constrainToEligible(Property::query(), $auction)
-            ->visibleTo($request->user())
-            ->where('agency_id', $auction->agency_id)
-            ->whereNotIn('id', $attached)
-            ->searchAddress($term)
-            ->latest()
-            ->limit(15)
-            ->get()
-            ->map(fn (Property $p) => [
-                'id' => $p->id,
-                'label' => $p->buildDisplayAddress(),
-                'title' => $p->title,
-                'status' => $p->statusBadge(),
-            ]);
-
-        return response()->json($results);
+        return response()->json(['data' => $rows->map(fn (Property $p) => [
+            'id' => $p->id,
+            'label' => trim($p->title . ' — ' . $p->buildDisplayAddress(), ' —'),
+            'price' => $p->price,
+        ])->values()]);
     }
 }

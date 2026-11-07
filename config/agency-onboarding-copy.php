@@ -5,7 +5,6 @@ use App\Http\Controllers\Admin\DealPropertySyncSettingsController;
 use App\Http\Controllers\Admin\ProformaSettingsController;
 use App\Http\Controllers\Commission\CommissionSettingsController;
 use App\Http\Controllers\Compliance\FicaOfficerAppointmentsController;
-use App\Http\Controllers\CoreX\Auctions\AuctionSettingsController;
 use App\Http\Controllers\CoreX\AgencyTypeController;
 use App\Http\Controllers\CoreX\ComplianceSwitchesController;
 use App\Http\Controllers\CoreX\FeatureRolloutController;
@@ -1410,45 +1409,114 @@ return [
         ],
     ],
 
-    // AT-432 — Auctions. Gated on the `auctions` feature (AgencyOnboardingSetup::
-    // stepGates), so an agency that does not auction never sees it. Posts a
-    // SUBSET of the settings page, so its saver (updateWizard) guards every write
-    // with $request->has() — spec §6.1. The deeper auction settings (fees,
-    // bidding rules, deposits) stay on Settings → Auctions: see the spec's
-    // "Deliberately NOT in the wizard" list.
+    // Auctions v2 (.ai/specs/auctions.md §7). Gated on the `auctions` feature (AgencyOnboardingSetup::stepGates), so an
+    // agency that does not auction never sees it. Posts a SUBSET of Settings -> Auctions, so its saver (updateWizard)
+    // guards every write with $request->has() (wizard spec 6.1). Deliberately NOT in the wizard (recorded in the wizard
+    // spec 5.1): the default bid-increment ladder, bidder document lists and the registration terms text - they live on
+    // Settings -> Auctions.
     'auctions' => [
         'title' => 'Auctions',
-        'intro' => 'Tell CoreX how your agency uses Auctions — most agencies only need to advertise their auction properties.',
+        'intro' => 'Tell CoreX how your agency runs auctions. You can change all of this later under Settings -> Auctions.',
         'what' => [
             'title' => 'What Auctions is',
-            'body'  => 'Auctions is where you advertise properties that are being sold at auction. Each auction gets its own '
-                . 'public page showing the date, venue, who is running the sale, the guide price, viewing times and the '
-                . 'Rules of Auction, plus an "I\'m interested" form that sends the enquiry straight to the listing agent. '
-                . 'After the sale you record the result and the advert shows Sold or Passed in. If you also want CoreX to run '
-                . 'the sale itself — register bidders, take bids, bang the hammer — you can switch that on below.',
+            'body'  => 'Auctions lets you sell properties by auction. You build an auction, add lots (one property each), and publish a public auction page. '
+                . 'Buyers sign up, register for the auction and bid; you approve each bidder first and can see every bid. '
+                . 'These settings decide how your public auction page looks and how bidding behaves.',
         ],
         'savers' => [
-            ['controller' => AuctionSettingsController::class, 'method' => 'updateWizard'],
+            ['controller' => \App\Http\Controllers\CoreX\Auctions\AuctionSettingsController::class, 'method' => 'updateWizard'],
         ],
         'controls' => [
-            ['key' => 'auction_advertising_only', 'source' => 'auction', 'type' => 'toggle', 'default' => 1,
-             'label' => 'Advertising only',
-             'explain' => 'On means CoreX is used to advertise auction properties, and the auction itself is run somewhere else — by an outside auction house or on the day without CoreX. Off means CoreX also runs the sale: bidder registration, the Sale Room and recording bids.',
-             'affects' => 'What this changes: when on, the Sale Room and Bidder Register disappear and "Register to bid" sends buyers to the auctioneer\'s own link; when off, they appear and buyers can register on CoreX.'],
-            ['key' => 'auction_auctioneer_mode', 'source' => 'auction', 'type' => 'select', 'default' => 'both',
-             'options' => ['internal' => 'Our own auctioneer', 'external' => 'An outside auction house', 'both' => 'Either — ask each time'],
-             'label' => 'Who conducts your auctions',
-             'explain' => 'Whether the auctioneer is someone at your agency or an outside auction house. An outside auction house\'s name and licence number are printed on the public advert.',
-             'affects' => 'What the New Auction form asks for, and what buyers see under "Conducted by" on the public page. An agency auctioneer must hold a valid Fidelity Fund Certificate before the auction can be published.'],
-            ['key' => 'auction_reserve_visibility', 'source' => 'auction', 'type' => 'select', 'default' => 'private',
-             'options' => ['private' => 'Never show the reserve amount', 'disclosed_on_the_day' => 'Reveal on the day', 'published' => 'Show it on the advert'],
-             'label' => 'Reserve price on the advert',
-             'explain' => 'Every advert must say whether a lot is subject to a reserve — that is the law. This only decides whether the reserve AMOUNT is shown too.',
-             'affects' => 'Whether buyers see the actual reserve figure on the public lot page, or only "Subject to a reserve price".'],
-            ['key' => 'auction_guide_price_enabled', 'source' => 'auction', 'type' => 'toggle', 'default' => 1,
-             'label' => 'Show a guide price',
-             'explain' => 'A guide price is the range you expect the lot to sell for. It is shown to buyers as an indication, not a promise.',
-             'affects' => 'Whether the public advert and the portal listings show a guide price on each lot.'],
+            ['key' => 'site_title', 'source' => 'auction', 'type' => 'text', 'default' => '',
+             'label' => 'Auction page title',
+             'explain' => 'The name shown at the top of your public auction page. Leave it blank to use your agency name.',
+             'affects' => 'What this changes: the heading buyers see on your public auction page and in the emails they receive about it.'],
+            ['key' => 'contact_email', 'source' => 'auction', 'type' => 'text', 'default' => '',
+             'label' => 'Enquiries email',
+             'explain' => 'The email address buyers are shown on the auction page for questions about an auction.',
+             'affects' => 'What this changes: the contact address printed on your public auction page.'],
+            ['key' => 'notify_enquiry_to', 'source' => 'auction', 'type' => 'select', 'default' => 'listing_agent',
+             'options' => ['listing_agent' => 'The listing agent', 'branch_manager' => 'The branch manager', 'both' => 'Both'],
+             'label' => 'Who is told about a new enquiry',
+             'explain' => 'When a buyer sends an enquiry about a lot, this decides who is notified.',
+             'affects' => 'What this changes: who receives the notification the moment a buyer enquires about an auction lot.'],
+            ['key' => 'notify_emails_enabled', 'source' => 'auction', 'type' => 'toggle', 'default' => 1,
+             'label' => 'Email us about new registrations and enquiries',
+             'explain' => 'When a buyer registers to bid, or sends an enquiry about a lot, we can email your team straight away so nobody has to keep checking the screens.',
+             'affects' => 'What this changes: whether your team gets an email the moment a buyer registers to bid or enquires. Switch it off and no email is sent.'],
+            ['key' => 'seller_form_enabled', 'source' => 'auction', 'type' => 'toggle', 'default' => 1,
+             'label' => 'Show the "Sell at auction" form on your auction page',
+             'explain' => 'Owners can fill in a short questionnaire about a property they want to sell at auction. You then contact them with a free valuation and auction proposal.',
+             'affects' => 'What this changes: whether your public auction page has a "Sell at auction" section, and a Seller leads screen fills up with what owners send you.'],
+            ['key' => 'seller_response_text', 'source' => 'auction', 'type' => 'text', 'default' => 'within one business day',
+             'label' => 'How quickly do you reply to sellers?',
+             'explain' => 'After an owner sends the questionnaire they are told "An auctioneer will contact you ..." followed by these words, for example "within one business day". Only write what you will keep to.',
+             'affects' => 'What this changes: the promise on the thank-you message an owner sees after sending the form.'],
+            ['key' => 'start_emails_enabled', 'source' => 'auction', 'type' => 'toggle', 'default' => 1,
+             'label' => 'Email everyone who signed up when an auction starts',
+             'explain' => 'When an auction begins, everyone who has created an account on your auction page can be emailed straight away to tell them bidding is open.',
+             'affects' => 'What this changes: whether people who signed up get an email the moment one of your auctions starts. Switch it off and no start email is sent.'],
+            ['key' => 'notify_emails_to', 'source' => 'auction', 'type' => 'textarea', 'default' => '',
+             'label' => 'Send those emails to',
+             'explain' => 'The email addresses that should receive them, separated by commas. Leave it blank and they go to your auction enquiries email, or your agency\'s main email if you have not set one.',
+             'affects' => 'What this changes: who receives the new-registration and new-enquiry emails.'],
+            ['key' => 'reserve_visibility', 'source' => 'auction', 'type' => 'select', 'default' => 'met_not_met',
+             'options' => ['met_not_met' => 'Show "Reserve met" / "Reserve not met"', 'hidden' => 'Do not show anything about the reserve'],
+             'label' => 'What buyers see about the reserve',
+             'explain' => 'The reserve is the lowest price the seller will accept. The amount itself is never shown to buyers; this only decides whether they see if it has been reached.',
+             'affects' => 'What this changes: whether a lot on your public auction page shows a "Reserve met" or "Reserve not met" label while bidding is open.'],
+            ['key' => 'soft_close_minutes', 'source' => 'auction', 'type' => 'number', 'default' => 5, 'min' => 0, 'max' => 60,
+             'label' => 'Soft close (minutes)',
+             'explain' => 'If someone bids in the last few minutes, the closing time moves out by the same number of minutes so nobody is beaten at the last second. 0 switches it off.',
+             'affects' => 'What this changes: how long a timed lot stays open after a late bid.'],
+            ['key' => 'show_past_auctions', 'source' => 'auction', 'type' => 'toggle', 'default' => 1,
+             'label' => 'Show past auctions on your page',
+             'explain' => 'Whether auctions that have finished stay listed on your public auction page, under "Past auctions".',
+             'affects' => 'What this changes: whether visitors see your earlier auctions below the upcoming ones.'],
+            ['key' => 'how_it_works', 'source' => 'auction', 'type' => 'textarea', 'default' => '',
+             'label' => 'How bidding works (optional)',
+             'explain' => 'A short explanation for first-time bidders, shown on your public auction page. Leave it blank to show nothing.',
+             'affects' => 'What this changes: a "How bidding works" section on your public auction page. You can see it, and add your banner picture and colour, on the Preview page.'],
+            ['key' => 'footer_text', 'source' => 'auction', 'type' => 'textarea', 'default' => '',
+             'label' => 'Footer text (optional)',
+             'explain' => 'A line or two shown at the very bottom of your public auction page, for example your trading hours or a legal notice.',
+             'affects' => 'What this changes: the text at the bottom of every page on your public auction site.'],
+            ['key' => 'buyers_commission_percent', 'source' => 'auction', 'type' => 'number', 'default' => 0, 'min' => 0, 'max' => 50,
+             'label' => 'Buyer\'s commission (% of the price)',
+             'explain' => 'The fee your agency charges the winning bidder on top of the price, before VAT. Leave it at 0 if you do not charge one. Each auction can use a different percentage.',
+             'affects' => 'What this changes: the buyer\'s commission and VAT on every winning bidder\'s invoice, the commission on the deal that opens when a lot sells, and the fee notice buyers read before they bid.'],
+            ['key' => 'deposit_percent', 'source' => 'auction', 'type' => 'number', 'default' => 10, 'min' => 0, 'max' => 100,
+             'label' => 'Deposit (% of the price)',
+             'explain' => 'How much of the price the winning bidder must pay as a deposit after the sale.',
+             'affects' => 'What this changes: the deposit amount on the winning bidder\'s invoice and the fee notice buyers read before they bid.'],
+            ['key' => 'deposit_due_days', 'source' => 'auction', 'type' => 'number', 'default' => 3, 'min' => 0, 'max' => 365,
+             'label' => 'Deposit due within (days)',
+             'explain' => 'How many days after the sale the deposit must be paid.',
+             'affects' => 'What this changes: the deposit due date on the invoice, and when the invoice shows as overdue.'],
+            ['key' => 'balance_due_days', 'source' => 'auction', 'type' => 'number', 'default' => 30, 'min' => 0, 'max' => 365,
+             'label' => 'Balance due within (days)',
+             'explain' => 'How many days after the sale the rest of the money must be paid (or the bank guarantee must be in).',
+             'affects' => 'What this changes: the balance due date on the invoice, and when the invoice shows as overdue.'],
+            ['key' => 'payment_details', 'source' => 'auction', 'type' => 'textarea', 'default' => '',
+             'label' => 'Payment details printed on invoices',
+             'explain' => 'Your bank details, so a winning bidder knows where to pay. Leave it blank to print none.',
+             'affects' => 'What this changes: the payment details on every winning bidder\'s invoice and in the invoice email.'],
+            ['key' => 'confirmation_days', 'source' => 'auction', 'type' => 'number', 'default' => 3, 'min' => 1, 'max' => 60,
+             'label' => 'Days a seller has to confirm a below-reserve sale',
+             'explain' => 'If the highest bid on a lot is lower than the seller\'s reserve, the sale is not final until the seller confirms or declines it. This is how long they have.',
+             'affects' => 'What this changes: the deadline shown on the lot and in the calendar for the seller\'s decision.'],
+            ['key' => 'show_bid_count', 'source' => 'auction', 'type' => 'toggle', 'default' => 1,
+             'label' => 'Show how many bids a lot has',
+             'explain' => 'Whether buyers can see the number of bids placed on a lot.',
+             'affects' => 'What this changes: the bid count shown on each lot on your public auction page.'],
+            ['key' => 'show_bid_history', 'source' => 'auction', 'type' => 'toggle', 'default' => 1,
+             'label' => 'Show the latest bids on a lot',
+             'explain' => 'Whether buyers can see the most recent bids on a lot (the amount, the bidder number and how long ago), like the bid history in a live auction room. Names are never shown.',
+             'affects' => 'What this changes: the "Bidding activity" list on each lot page of your public auction page.'],
+            ['key' => 'registration_closes_hours', 'source' => 'auction', 'type' => 'number', 'default' => 24, 'min' => 0, 'max' => 720,
+             'label' => 'Registration closes (hours before the auction)',
+             'explain' => 'Buyers must register and be approved before bidding. This is how long before the auction starts they must have registered by.',
+             'affects' => 'What this changes: the registration deadline buyers see, and when "Register to bid" stops accepting new registrations.'],
         ],
     ],
 

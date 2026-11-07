@@ -265,13 +265,8 @@
     ) {
         $activeGroup = 'rental-applications';
     } elseif (
-        // AT-432 — same lens-highlighting mechanism as Rentals above (AT-401),
-        // on the auctions.* route family and the session('corex.lens.auctions')
-        // flag PropertyController::index() sets on the way in. Placed BEFORE
-        // the generic real-estate matcher below (which would otherwise claim
-        // corex.properties.* first).
+        // Auctions v2 — highlights the Auctions group on its own screens.
         request()->routeIs('corex.auctions.*')
-        || (request()->routeIs('corex.properties.*') && session('corex.lens.auctions', false))
     ) {
         $activeGroup = 'auctions';
     } elseif (request()->routeIs(
@@ -993,8 +988,16 @@
                      (corex.lens.properties) lens lights Rentals instead, as before. --}}
                 @php $_propTabs = \App\Support\Navigation\Hubs\PropertiesTabs::forUser($user); @endphp
                 @if($_propTabs !== [])
-                <a href="{{ route('corex.hubs.properties') }}" data-nav-extra="{{ json_encode(\App\Support\Navigation\Hubs\PropertiesTabs::searchEntries($_propTabs), JSON_UNESCAPED_UNICODE) }}" class="corex-nav-subitem {{ (request()->routeIs('corex.hubs.properties', 'corex.properties.*', 'corex.map.*', 'corex.sold-stock.*') && ! session('corex.lens.properties', false)) ? 'active' : '' }}">Properties</a>
+                <a href="{{ route('corex.hubs.properties') }}" data-nav-extra="{{ json_encode(\App\Support\Navigation\Hubs\PropertiesTabs::searchEntries($_propTabs), JSON_UNESCAPED_UNICODE) }}" class="corex-nav-subitem {{ (request()->routeIs('corex.hubs.properties', 'corex.properties.*', 'corex.map.*', 'corex.sold-stock.*') && ! session('corex.lens.properties', false) && request()->query('status') !== 'auction_enquiry') ? 'active' : '' }}">Properties</a>
                 @endif
+                {{-- Auction enquiries (.ai/specs/auctions.md §23): properties owners described through "Sell at auction". Only while Auctions is on. --}}
+                @feature('auctions')
+                @permission('access_properties')
+                @if(\Illuminate\Support\Facades\Route::has('corex.properties.index'))
+                <a href="{{ route('corex.properties.index', ['status' => 'auction_enquiry']) }}" class="corex-nav-subitem {{ request()->query('status') === 'auction_enquiry' ? 'active' : '' }}" data-auction-enquiries-link>Auction enquiries</a>
+                @endif
+                @endpermission
+                @endfeature
 
                 @permission('access_contacts')
                 @if(\Illuminate\Support\Facades\Route::has('corex.contacts.index'))
@@ -1272,15 +1275,22 @@
         @endif
 
         {{-- ═══════════════════════════════════════════
-             AUCTIONS (expandable group) — AT-432, .ai/specs/auctions.md §7.1
+             AUCTIONS (expandable group) — AT-432, Auctions v2, .ai/specs/auctions.md §5
              Feature-flagged AND permission-gated: an agency that does not
              auction sees nothing here at all. Alpine group key 'auctions'.
-             Mirrors the Rentals panel above exactly (same push()/pop() +
-             corex-nav-group-toggle + lens pattern) — copy that fix, don't
-             rediscover it, per §7.1's own instruction.
+             Same push()/pop() + corex-nav-group-toggle pattern as the Rentals panel above.
              ═══════════════════════════════════════════ --}}
         @feature('auctions')
         @if($user && $user->hasPermission('access_auctions'))
+        @php
+            // Numbers on the Auctions links (.ai/specs/auctions.md §19.3) - new enquiries, and new bids since the Bids screen was last opened.
+            $auctionNav = app(\App\Services\Auctions\AuctionNavCounts::class);
+            $auctionBidsCount = $auctionNav->bids($user);
+            $auctionEnquiriesCount = $auctionNav->enquiries($user);
+            $auctionBiddersCount = $auctionNav->registrations($user);
+            $auctionSellersCount = $auctionNav->sellerLeads($user);
+            $auctionTotalCount = $auctionBidsCount + $auctionEnquiriesCount + $auctionBiddersCount + $auctionSellersCount;
+        @endphp
         <div>
             <button type="button" @click="push('auctions')"
                     class="corex-nav-item corex-nav-group-toggle {{ $activeGroup === 'auctions' ? 'active' : '' }}">
@@ -1288,6 +1298,7 @@
                     <path stroke-linecap="round" stroke-linejoin="round" d="M14.25 9.75 16.5 12l-6.75 6.75-2.25-2.25M3 21l3-3m12.75-15L21 5.25m-3.75 3.75L21 5.25m-8.303 8.303 2.652 2.652M5.25 5.25l3.879 3.879" />
                 </svg>
                 <span>Auctions</span>
+                @if($auctionTotalCount > 0)<span style="margin-left:auto;margin-right:6px;display:inline-block;min-width:18px;padding:1px 6px;background:#dc2626;color:#fff;border-radius:99px;font-size:0.625rem;font-weight:700;text-align:center;line-height:1.4;" data-auction-count="total">{{ $auctionTotalCount > 99 ? '99+' : $auctionTotalCount }}</span>@endif
                 <svg class="corex-chevron" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" /></svg>
             </button>
 
@@ -1298,29 +1309,40 @@
                 </button>
                 <div class="corex-nav-panel-title">Auctions</div>
 
-                <a href="{{ route('corex.auctions.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.auctions.index', 'corex.auctions.show', 'corex.auctions.create', 'corex.auctions.edit', 'corex.auctions.lots.show', 'corex.auctions.bidders.*', 'corex.auctions.room.*', 'corex.auctions.document') ? 'active' : '' }}">Auction Diary</a>
-
-                {{-- Entry point into the SAME Properties screen as Real Estate →
-                     Properties, sale_method locked to 'auction' server-side
-                     (PropertyController::index(), by route name). Stays
-                     highlighted on a property opened from this list
-                     (session('corex.lens.auctions') — set on the way in). --}}
-                @permission('properties.view')
-                @permission('access_properties')
-                <a href="{{ route('corex.auctions.properties.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.auctions.properties.index') || (request()->routeIs('corex.properties.*') && session('corex.lens.auctions', false)) ? 'active' : '' }}">Properties</a>
+                @permission('auctions.view')
+                <a href="{{ route('corex.auctions.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.auctions.index', 'corex.auctions.create', 'corex.auctions.edit', 'corex.auctions.documents.*', 'corex.auctions.room.*') ? 'active' : '' }}">Auctions</a>
+                <a href="{{ route('corex.auctions.preview') }}" class="corex-nav-subitem {{ request()->routeIs('corex.auctions.preview*') ? 'active' : '' }}">Preview page</a>
+                <a href="{{ route('corex.auctions.lots.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.auctions.lots.*') ? 'active' : '' }}">Lots</a>
                 @endpermission
+                @permission('auctions.bids.view')
+                <div style="position:relative;">
+                    <a href="{{ route('corex.auctions.bids.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.auctions.bids.*') ? 'active' : '' }}">Bids</a>
+                    @if($auctionBidsCount > 0)<span style="position:absolute;right:14px;top:50%;transform:translateY(-50%);pointer-events:none;display:inline-block;min-width:18px;padding:1px 6px;background:#dc2626;color:#fff;border-radius:99px;font-size:0.625rem;font-weight:700;text-align:center;line-height:1.4;" data-auction-count="auctionbids">{{ $auctionBidsCount > 99 ? '99+' : $auctionBidsCount }}</span>@endif
+                </div>
                 @endpermission
-
-                {{-- AT-432 Phase 3 — Results is genuinely auction-independent (it
-                     already lists every auction's concluded lots), so it gets a
-                     real top-level entry per §7.1. Bidder Register and Sale Room
-                     (§7 screens 5, 7) deliberately do NOT get one — both need an
-                     auction context to mean anything (you cannot "operate the
-                     sale room" without first picking which auction), so they are
-                     reached from the auction's own catalogue-builder page
-                     (corex.auctions.show) instead, where that link already lives. --}}
+                @permission('auctions.bidders.view')
+                <div style="position:relative;">
+                    <a href="{{ route('corex.auctions.bidders.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.auctions.bidders.*') ? 'active' : '' }}">Bidders</a>
+                    @if($auctionBiddersCount > 0)<span style="position:absolute;right:14px;top:50%;transform:translateY(-50%);pointer-events:none;display:inline-block;min-width:18px;padding:1px 6px;background:#dc2626;color:#fff;border-radius:99px;font-size:0.625rem;font-weight:700;text-align:center;line-height:1.4;" data-auction-count="auctionbidders">{{ $auctionBiddersCount > 99 ? '99+' : $auctionBiddersCount }}</span>@endif
+                </div>
+                @endpermission
+                @permission('auctions.invoices.view')
+                <a href="{{ route('corex.auctions.invoices.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.auctions.invoices.*') ? 'active' : '' }}">Invoices</a>
+                @endpermission
                 @permission('auctions.results.view')
                 <a href="{{ route('corex.auctions.results') }}" class="corex-nav-subitem {{ request()->routeIs('corex.auctions.results', 'corex.auctions.results.export') ? 'active' : '' }}">Results</a>
+                @endpermission
+                @permission('auctions.enquiries.view')
+                <div style="position:relative;">
+                    <a href="{{ route('corex.auctions.enquiries.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.auctions.enquiries.*') ? 'active' : '' }}">Enquiries</a>
+                    @if($auctionEnquiriesCount > 0)<span style="position:absolute;right:14px;top:50%;transform:translateY(-50%);pointer-events:none;display:inline-block;min-width:18px;padding:1px 6px;background:#dc2626;color:#fff;border-radius:99px;font-size:0.625rem;font-weight:700;text-align:center;line-height:1.4;" data-auction-count="auctionenquiries">{{ $auctionEnquiriesCount > 99 ? '99+' : $auctionEnquiriesCount }}</span>@endif
+                </div>
+                @endpermission
+                @permission('auctions.sellers.view')
+                <div style="position:relative;">
+                    <a href="{{ route('corex.auctions.sellers.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.auctions.sellers.*') ? 'active' : '' }}">Seller leads</a>
+                    @if($auctionSellersCount > 0)<span style="position:absolute;right:14px;top:50%;transform:translateY(-50%);pointer-events:none;display:inline-block;min-width:18px;padding:1px 6px;background:#dc2626;color:#fff;border-radius:99px;font-size:0.625rem;font-weight:700;text-align:center;line-height:1.4;" data-auction-count="auctionsellers">{{ $auctionSellersCount > 99 ? '99+' : $auctionSellersCount }}</span>@endif
+                </div>
                 @endpermission
 
             </div>

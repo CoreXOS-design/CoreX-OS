@@ -3,125 +3,82 @@
 namespace App\Models;
 
 use App\Models\Concerns\BelongsToAgency;
+use App\Services\PermissionService;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Relations\BelongsTo;
-use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
-/**
- * AT-432 — .ai/specs/auctions.md §5.3 / §6.2. A property's place in an
- * auction. All status transitions go through AuctionLotStatusService —
- * never set `status` directly here or in a controller (§6.2).
- */
+/** One property offered in one auction (.ai/specs/auctions.md §4.4). */
 class AuctionLot extends Model
 {
     use BelongsToAgency, SoftDeletes;
 
-    // §6.2 — Auction lot lifecycle. Slugs match
-    // PropertySettingItem::AUCTION_LOT_STATUS_SLUGS exactly — that constant
-    // is the single other place these strings may ever be repeated.
     public const STATUS_DRAFT = 'draft';
-    public const STATUS_CATALOGUED = 'catalogued';
-    public const STATUS_OPEN_FOR_BIDS = 'open_for_bids';
-    public const STATUS_UNDER_THE_HAMMER = 'under_the_hammer';
+    public const STATUS_PUBLISHED = 'published';
+    public const STATUS_OPEN = 'open';
     public const STATUS_SOLD = 'sold';
-    public const STATUS_SOLD_SUBJECT_TO_CONFIRMATION = 'sold_subject_to_confirmation';
+    public const STATUS_SOLD_SUBJECT = 'sold_subject_to_confirmation';
     public const STATUS_PASSED_IN = 'passed_in';
     public const STATUS_WITHDRAWN = 'withdrawn';
 
-    /** Terminal — no further bidding, no further transition except by a human decision recorded elsewhere. */
-    public const CONCLUDED_STATUSES = [
-        self::STATUS_SOLD, self::STATUS_PASSED_IN, self::STATUS_WITHDRAWN,
+    public const STATUSES = [
+        self::STATUS_DRAFT, self::STATUS_PUBLISHED, self::STATUS_OPEN, self::STATUS_SOLD,
+        self::STATUS_SOLD_SUBJECT, self::STATUS_PASSED_IN, self::STATUS_WITHDRAWN,
     ];
 
-    /**
-     * Matches the migration's DB-level default. Eloquent does not re-fetch a
-     * column's DB default after create() — without this, a freshly-created
-     * lot's in-memory `status` reads as null until the caller explicitly
-     * refresh()es, which is exactly the staleness bug
-     * AuctionLotStatusService's own defensive refresh() calls exist to
-     * guard against for service callers; this covers every other caller.
-     */
-    protected $attributes = [
-        'status' => self::STATUS_DRAFT,
-    ];
+    /** Finished for good: the property is free to go into another auction. */
+    public const CONCLUDED_STATUSES = [self::STATUS_SOLD, self::STATUS_PASSED_IN, self::STATUS_WITHDRAWN];
 
     protected $fillable = [
-        'agency_id', 'auction_id', 'property_id', 'lot_number', 'reserve_price',
-        'guide_price_min', 'guide_price_max', 'opening_bid', 'bid_increment', 'online_closes_at',
-        'buyers_premium_percent', 'sellers_commission_percent', 'deposit_percent', 'deposit_amount',
-        'status', 'hammer_price', 'hammer_at', 'winning_bid_id', 'winning_bidder_id', 'reserve_met',
-        'confirmation_deadline', 'confirmed_at', 'confirmed_by_id', 'deal_id', 'withdrawn_reason', 'passed_in_at',
+        'agency_id', 'auction_id', 'property_id', 'lot_number', 'title', 'reference', 'external_ref', 'description',
+        'opens_at', 'closes_at', 'opening_bid', 'reserve_price', 'guide_price_min', 'guide_price_max', 'status',
+        'winning_bid_id', 'deal_id', 'hammer_price', 'result_at', 'confirmation_deadline', 'confirmed_at', 'result_note',
     ];
 
     protected $casts = [
+        'opens_at' => 'datetime',
+        'closes_at' => 'datetime',
+        'result_at' => 'datetime',
+        'confirmation_deadline' => 'datetime',
+        'confirmed_at' => 'datetime',
+        'lot_number' => 'integer',
+        'opening_bid' => 'decimal:2',
         'reserve_price' => 'decimal:2',
         'guide_price_min' => 'decimal:2',
         'guide_price_max' => 'decimal:2',
-        'opening_bid' => 'decimal:2',
-        'bid_increment' => 'decimal:2',
-        'online_closes_at' => 'datetime',
-        'buyers_premium_percent' => 'decimal:2',
-        'sellers_commission_percent' => 'decimal:2',
-        'deposit_percent' => 'decimal:2',
-        'deposit_amount' => 'decimal:2',
         'hammer_price' => 'decimal:2',
-        'hammer_at' => 'datetime',
-        'reserve_met' => 'boolean',
-        'confirmation_deadline' => 'datetime',
-        'confirmed_at' => 'datetime',
-        'passed_in_at' => 'datetime',
     ];
 
-    public function auction(): BelongsTo
+    public function auction()
     {
         return $this->belongsTo(Auction::class);
     }
 
-    public function property(): BelongsTo
+    public function property()
     {
         return $this->belongsTo(Property::class);
     }
 
-    public function confirmedBy(): BelongsTo
+    public function bids()
     {
-        return $this->belongsTo(User::class, 'confirmed_by_id');
+        // A lot's bids always belong to the lot's own agency; never filter them by whoever happens to be browsing.
+        return $this->hasMany(AuctionBid::class, 'lot_id')->withoutGlobalScope(\App\Models\Scopes\AgencyScope::class);
     }
 
-    public function deal(): BelongsTo
+    public function invoice()
     {
-        return $this->belongsTo(Deal::class);
+        return $this->hasOne(AuctionInvoice::class, 'lot_id')->where('status', '!=', AuctionInvoice::STATUS_CANCELLED)->latest('id');
     }
 
-    public function winningBidder(): BelongsTo
+    /** True once any valid bid exists: the window, opening bid and reserve are then locked. */
+    public function hasBids(): bool
     {
-        return $this->belongsTo(AuctionBidder::class, 'winning_bidder_id');
+        return $this->bids()->valid()->exists();
     }
 
-    public function winningBid(): BelongsTo
+    /** The current highest valid bid (the earlier one wins an exact tie). */
+    public function highestBid(): ?AuctionBid
     {
-        return $this->belongsTo(AuctionBid::class, 'winning_bid_id');
-    }
-
-    public function bids(): HasMany
-    {
-        return $this->hasMany(AuctionBid::class);
-    }
-
-    public function statusHistory(): HasMany
-    {
-        return $this->hasMany(AuctionLotStatusHistory::class)->orderByDesc('created_at');
-    }
-
-    public function viewings(): HasMany
-    {
-        return $this->hasMany(AuctionLotViewing::class)->orderBy('starts_at');
-    }
-
-    /** §14.4 — the public lot page shows only viewings that haven't already ended. */
-    public function upcomingViewings(): HasMany
-    {
-        return $this->viewings()->where('ends_at', '>=', now());
+        return $this->bids()->valid()->orderByDesc('amount')->orderBy('id')->first();
     }
 
     public function isConcluded(): bool
@@ -129,10 +86,77 @@ class AuctionLot extends Model
         return in_array($this->status, self::CONCLUDED_STATUSES, true);
     }
 
-    /** Current label for this lot's status, honouring an agency's rename of the default (§5.9). */
     public function statusLabel(): string
     {
-        $labels = PropertySettingItem::auctionLotStatusLabelsFor((int) $this->agency_id);
-        return $labels[$this->status] ?? ucwords(str_replace('_', ' ', (string) $this->status));
+        return ucwords(str_replace('_', ' ', (string) $this->status));
+    }
+
+    public function displayTitle(): string
+    {
+        return (string) ($this->title ?: ($this->property?->title ?: 'Lot ' . $this->lot_number));
+    }
+
+    /** Bidding window: the lot's own dates, falling back to the auction's. */
+    public function windowOpensAt()
+    {
+        return $this->opens_at ?? $this->auction?->starts_at;
+    }
+
+    public function windowClosesAt()
+    {
+        return $this->closes_at ?? $this->auction?->ends_at;
+    }
+
+    /**
+     * When the sale happens, for adverts and portal feeds: a live auction sells when the auction starts, a timed one when
+     * bidding on the lot closes. Null unless the lot is published or open (a draft, finished or withdrawn lot is not advertised).
+     */
+    public function advertisedDate()
+    {
+        if (! in_array($this->status, [self::STATUS_PUBLISHED, self::STATUS_OPEN], true) || ! $this->auction) {
+            return null;
+        }
+
+        return $this->auction->format === 'live' ? $this->auction->starts_at : $this->windowClosesAt();
+    }
+
+    /** Venue line for adverts: "Name, address", else "Online auction" for a timed auction, else ''. */
+    public function advertisedVenue(): string
+    {
+        $name = trim((string) $this->auction?->venue_name);
+        $address = trim((string) $this->auction?->venue_address);
+        $venue = $name !== '' && $address !== '' ? $name . ', ' . $address : ($name !== '' ? $name : $address);
+
+        return $venue === '' && $this->auction?->format === 'timed' ? 'Online auction' : $venue;
+    }
+
+    /** Lots of properties the user may see: AGENCY all; BRANCH the branch's properties; OWN the user's listings (spec §5). */
+    public function scopeVisibleTo($query, User $user)
+    {
+        $scope = PermissionService::getDataScope($user, 'auctions');
+
+        if ($scope === 'all') {
+            return $query;
+        }
+        if ($scope === 'branch') {
+            return $query->whereHas('property', fn ($p) => $p->where('branch_id', $user->effectiveBranchId()));
+        }
+        if ($scope === 'own') {
+            return $query->whereHas('property', fn ($p) => $p->whereIn('agent_id', $user->dataIdentityIds()));
+        }
+
+        return $query->whereRaw('1 = 0');
+    }
+
+    /** Lots that still hold their property (not yet sold, passed in or withdrawn). */
+    public function scopeLive($query)
+    {
+        return $query->whereNotIn('status', self::CONCLUDED_STATUSES);
+    }
+
+    /** Next free lot number in an auction; counts archived lots so a number is never reused. */
+    public static function nextLotNumber(int $auctionId): int
+    {
+        return (int) static::withTrashed()->withoutGlobalScopes()->where('auction_id', $auctionId)->max('lot_number') + 1;
     }
 }

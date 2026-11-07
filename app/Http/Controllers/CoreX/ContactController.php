@@ -798,7 +798,8 @@ class ContactController extends Controller
 
         $featureOptions = array_merge(
             \App\Http\Controllers\CoreX\ContactMatchController::FEATURE_OPTIONS,
-            \App\Http\Controllers\CoreX\ContactMatchController::POOL_TYPE_OPTIONS
+            \App\Http\Controllers\CoreX\ContactMatchController::POOL_TYPE_OPTIONS,
+            \App\Http\Controllers\CoreX\ContactMatchController::STAIRS_OPTIONS
         );
 
         // Seller-outreach timeline (Prompt 07). Only fetched when the viewer

@@ -1975,9 +1975,6 @@
                 </form>
             @endif
 
-            {{-- AT-432 — the "Send to Auction" / "On Auction" entry point moved to the page header
-                 (partials/_property-shell-header.blade.php, Johan 2026-10-17). --}}
-
             <form id="prop-update-form" method="POST" enctype="multipart/form-data"
                   action="@if($isNew){{ route('corex.properties.store') }}@else{{ route('corex.properties.update', $property) }}@endif"
                   class="space-y-0"
@@ -2096,13 +2093,6 @@
                             <div>
                                 <label class="prop-label">Listing Type</label>
                                 @if($isNew || $property->listing_type_pending)
-                                    @php
-                                        // AT-432 — third choice, only for a brand-new property on an agency with Auctions on.
-                                        $auctionChoiceOpen = $isNew && ! $property->listing_type_pending
-                                            && app(\App\Services\Features\AgencyFeatureService::class)->enabled('auctions', auth()->user()->effectiveAgencyId() ? \App\Models\Agency::find(auth()->user()->effectiveAgencyId()) : null)
-                                            && auth()->user()->hasPermission('auctions.create');
-                                        $openAuctions = $auctionChoiceOpen ? \App\Services\Auctions\AuctionLotAttacher::openAuctions() : collect();
-                                    @endphp
                                     @if($isNew)
                                     <script>
                                         // New property: the page is rendered before the type is chosen, so picking "For Rental" must
@@ -2122,32 +2112,10 @@
                                     <select name="listing_type" class="prop-select prop-field-enum" id="prop-listing-type">
                                         <option value="sale"   {{ old('listing_type', $property->listing_type ?? 'sale') === 'sale'   ? 'selected' : '' }}>For Sale</option>
                                         <option value="rental" {{ old('listing_type', $property->listing_type ?? 'sale') === 'rental' ? 'selected' : '' }}>For Rental</option>
-                                        @if($auctionChoiceOpen)
+                                        @if($isNew && ! $property->listing_type_pending && auth()->user()->hasPermission('auctions.lots.manage') && app(\App\Services\Features\AgencyFeatureService::class)->enabled('auctions', auth()->user()->effectiveAgencyId() ? \App\Models\Agency::find(auth()->user()->effectiveAgencyId()) : null))
                                         <option value="auction" {{ old('listing_type') === 'auction' ? 'selected' : '' }}>On Auction</option>
                                         @endif
                                     </select>
-                                    @if($auctionChoiceOpen)
-                                    <div id="prop-auction-pick" style="display:none;" class="mt-2">
-                                        <label class="prop-label">Which auction?</label>
-                                        <select name="auction_id" class="prop-select prop-field-enum">
-                                            <option value="">Select an auction…</option>
-                                            @foreach($openAuctions as $oa)
-                                            <option value="{{ $oa->id }}" {{ (string) old('auction_id') === (string) $oa->id ? 'selected' : '' }}>{{ $oa->reference }} — {{ $oa->title }} ({{ $oa->starts_at?->format('d M Y') }})</option>
-                                            @endforeach
-                                        </select>
-                                        @if($openAuctions->isEmpty())
-                                        <p class="mt-1 text-xs" style="color:var(--text-muted);">There is no upcoming auction yet. <a href="{{ route('corex.auctions.create') }}" class="underline">Create the auction first</a>, then come back.</p>
-                                        @endif
-                                    </div>
-                                    <script>
-                                        (function () {
-                                            var lt = document.getElementById('prop-listing-type'), box = document.getElementById('prop-auction-pick');
-                                            if (!lt || !box) return;
-                                            var sync = function () { box.style.display = lt.value === 'auction' ? 'block' : 'none'; };
-                                            lt.addEventListener('change', sync); sync();
-                                        })();
-                                    </script>
-                                    @endif
                                     <p class="mt-1 text-xs" style="color:var(--text-muted);">
                                         @if($property->listing_type_pending)
                                             Draft copy — set the type and complete the details. Locks on first save.
@@ -3902,11 +3870,15 @@
             </div>
         </div>
 
-        {{-- AUCTION TAB — the auction + lot this property is linked to (only when on auction) --}}
+        {{-- AUCTION TAB — when bidding opens/closes, opening bid, reserve (Auctions v2, .ai/specs/auctions.md §6) --}}
         @if(! $isNew && $property->isAuction())
+        @feature('auctions')
+        @permission('auctions.view')
         <div x-show="activeTab === 'auction'" x-cloak class="p-6 space-y-4">
             @include('corex.properties.partials._auction-tab')
         </div>
+        @endpermission
+        @endfeature
         @endif
 
         {{-- ── GALLERY TAB ────────────────────────────────────────────────── --}}
@@ -10493,6 +10465,14 @@
             </div>
         @else
 
+            @if($property->isAuction())
+            @feature('auctions')
+            @permission('auctions.view')
+            @include('corex.properties.partials._auction-pack')
+            @endpermission
+            @endfeature
+            @endif
+
             {{-- Compliance documents checklist (AT-94) — mirrors the marketing-readiness gate --}}
             @include('corex.properties._compliance-checklist', ['complianceChecklist' => $complianceChecklist ?? [], 'property' => $property])
 
@@ -12247,7 +12227,7 @@ const _DEFAULT_SPACE_FEATURES = {
 };
 const _ALL_SPACE_TYPES = ['Bedroom','Bathroom','Garage','Parking','Kitchen','Garden','Pool','Flatlet','Study','Domestic Room','Lounge','Dining Room','Outside Toilet','Domestic Bathroom','Entrance Hall','Bar','Balcony','Boardroom','Boat Launch','Boathouse','Braai Room','Cellar','Changing Room','Clubhouse','Courtyard','Gazebo','Greenhouse','Gym','Jacuzzi','Jetty','Lapa','Laundry Room','Linen Room','Loft','Office','Patio','Pool Shed','Reception Room','Sauna','Scullery','Shed','Squash Court','Stable','Storeroom','Studio','Tennis Court','TV Room','Veranda','Wendy House','Workshop','Yard'];
 const _FEATURE_CATEGORIES = {
-    theProperty:    { label: 'The Property', features: ['Air Conditioned','Balcony','Cleaning Service','Communal Braai Area','Complex','Freehold','Furnished','Green Building','Ground Floor Unit','Investment','Leasehold','Multi Tenanted','Natural Light','No Transfer Duty','Office Building','Pet Friendly','Pets Not Allowed','Renovation Fixer-Upper','Sea View','Second Floor and Above','Sectional Title','Serviced','Single Storey','Standalone','Top Floor','Unfurnished','Wheelchair Friendly'] },
+    theProperty:    { label: 'The Property', features: ['Air Conditioned','Balcony','Cleaning Service','Communal Braai Area','Complex','Freehold','Furnished','Green Building','Ground Floor Unit','Investment','Leasehold','Multi Tenanted','Natural Light','No Stairs','No Transfer Duty','Office Building','Pet Friendly','Pets Not Allowed','Renovation Fixer-Upper','Sea View','Second Floor and Above','Sectional Title','Serviced','Single Storey','Stairs','Standalone','Top Floor','Unfurnished','Wheelchair Friendly'] },
     building:       { label: 'Building',     features: ['Wall: Brick','Wall: Concrete','Wall: Face Brick','Wall: Plaster','Wall: Stone','Wall: Timber','Floor: Carpeted','Floor: Concrete','Floor: Laminated','Floor: Marble','Floor: Parquet','Floor: Tiled','Floor: Vinyl','Floor: Wooden','Roof: Aluminium','Roof: Asbestos','Roof: Clay Tiles','Roof: Concrete','Roof: Concrete Tiles','Roof: Corrugated Iron','Roof: IBR','Roof: Insulation','Roof: Slate','Roof: Thatch','Roof: Tiles','Roof: Waterproofing','Roof: Zinc','Window: Aluminium','Window: Double Glazed','Window: PVC','Window: Steel','Window: Wood','Style: Cape Dutch','Style: Colonial','Style: Contemporary','Style: Conventional','Style: Mediterranean','Style: Modern','Style: Spanish','Style: Tuscan','Style: Victorian'] },
     security:       { label: 'Security',     features: ['24 Hour Access','24 Hour Guard','Alarm System','Armed Response','Boomed Area','Burglar Bars','CCTV','Electric Fence','Electric Gate','Gated Community','Guard House','In Security','Indoor Beams','Intercom','Outdoor Beams','Partially Fenced','Perimeter Wall','Safe','Security Gate','Totally Fenced','Totally Walled','Security Complex','Automated Garage Doors','Security Estate'] },
     connectivity:   { label: 'Connectivity', features: ['ADSL','Cable TV','Fibre','Internet Port','Satellite Dish','Satellite Internet','Telephone Port','TV Port','Wi-Fi'] },
@@ -12494,7 +12474,11 @@ function spacesAndFeaturesManager(initSpaces, initFeatures, initBeds, initBaths,
         },
         toggleGlobalFeature(catKey, feat) {
             const arr = this.features[catKey]; const i = arr.indexOf(feat);
-            if (i >= 0) arr.splice(i, 1); else arr.push(feat);
+            if (i >= 0) { arr.splice(i, 1); return; }
+            // "Stairs" and "No Stairs" contradict each other — picking one clears the other.
+            const opposite = feat === 'Stairs' ? 'No Stairs' : (feat === 'No Stairs' ? 'Stairs' : null);
+            if (opposite) { const o = arr.indexOf(opposite); if (o >= 0) arr.splice(o, 1); }
+            arr.push(feat);
         },
         removeFeatureByName(feat) {
             // Remove from global feature categories

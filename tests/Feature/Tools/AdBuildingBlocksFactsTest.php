@@ -6,8 +6,6 @@ namespace Tests\Feature\Tools;
 
 use App\Http\Controllers\Tools\AdTemplateManagerController;
 use App\Models\Agency;
-use App\Models\Auction;
-use App\Models\AuctionLot;
 use App\Models\Branch;
 use App\Models\Property;
 use App\Models\PropertyShowday;
@@ -206,60 +204,16 @@ final class AdBuildingBlocksFactsTest extends TestCase
         $this->assertSame('', $mine->adData()['show_day']);
     }
 
-    // ── auction ──────────────────────────────────────────────────────────
+    // ── auction ──────────────────────────────────────────────────────────────────────────────────
 
-    public function test_auction_date_and_venue_come_from_the_open_auction_lot(): void
+    public function test_auction_facts_stay_empty_while_the_auction_module_is_rebuilt(): void
     {
-        Carbon::setTestNow('2026-10-17 08:00:00');
-        [$agency, $user, $branch] = $this->agencyWithAgent();
-        $this->actingAs($user);
-        $p = $this->property($agency, $user, []);
-        $this->lot($agency, $branch, $p, ['starts_at' => '2026-11-12 11:00:00', 'venue_name' => 'The Town Hall', 'venue_address' => '1 Main Rd, Margate', 'status' => Auction::STATUS_SCHEDULED]);
+        [$agency, $user] = $this->agencyWithAgent();
+        $p = $this->property($agency, $user, ['title' => 'Auction Villa']);
 
         $d = $p->adData();
-
-        $this->assertSame('12 Nov 2026 · 11:00', $d['auction_date']);
-        $this->assertSame('The Town Hall, 1 Main Rd, Margate', $d['auction_venue']);
-    }
-
-    public function test_an_auction_that_is_not_announced_cancelled_postponed_over_or_already_started_shows_nothing(): void
-    {
-        Carbon::setTestNow('2026-10-17 08:00:00');
-        [$agency, $user, $branch] = $this->agencyWithAgent();
-        $this->actingAs($user);
-
-        foreach ([Auction::STATUS_DRAFT, Auction::STATUS_CANCELLED, Auction::STATUS_POSTPONED, Auction::STATUS_CLOSED, Auction::STATUS_SETTLED] as $status) {
-            $p = $this->property($agency, $user, []);
-            $this->lot($agency, $branch, $p, ['starts_at' => '2026-11-12 11:00:00', 'venue_name' => 'Hall', 'status' => $status]);
-            $d = $p->adData();
-            $this->assertSame('', $d['auction_date'], "auction in status {$status} must not be advertised");
-            $this->assertSame('', $d['auction_venue']);
-        }
-
-        $started = $this->property($agency, $user, []);
-        $this->lot($agency, $branch, $started, ['starts_at' => '2026-10-01 11:00:00', 'venue_name' => 'Hall', 'status' => Auction::STATUS_SCHEDULED]);
-        $this->assertSame('', $started->adData()['auction_date']);
-
-        $concluded = $this->property($agency, $user, []);
-        $this->lot($agency, $branch, $concluded, ['starts_at' => '2026-11-12 11:00:00', 'venue_name' => 'Hall', 'status' => Auction::STATUS_SCHEDULED], AuctionLot::STATUS_SOLD);
-        $this->assertSame('', $concluded->adData()['auction_date']);
-
-        $none = $this->property($agency, $user, []);
-        $this->assertSame('', $none->adData()['auction_date']);
-    }
-
-    public function test_an_online_only_auction_without_a_venue_says_online_auction(): void
-    {
-        Carbon::setTestNow('2026-10-17 08:00:00');
-        [$agency, $user, $branch] = $this->agencyWithAgent();
-        $this->actingAs($user);
-        $p = $this->property($agency, $user, []);
-        $this->lot($agency, $branch, $p, ['starts_at' => '2026-11-12 09:30:00', 'is_online_streamed' => true, 'status' => Auction::STATUS_REGISTRATION_OPEN]);
-
-        $d = $p->adData();
-
-        $this->assertSame('12 Nov 2026 · 09:30', $d['auction_date']);
-        $this->assertSame('Online auction', $d['auction_venue']);
+        $this->assertSame('', $d['auction_date']);
+        $this->assertSame('', $d['auction_venue']);
     }
 
     // ── QR code ──────────────────────────────────────────────────────────
@@ -376,18 +330,6 @@ final class AdBuildingBlocksFactsTest extends TestCase
         return PropertyShowday::create([
             'agency_id' => $agencyId, 'property_id' => $p->id, 'start_date' => $start, 'end_date' => $end,
             'description' => 'Open Showday', 'active' => $active,
-        ]);
-    }
-
-    private function lot(int $agencyId, int $branchId, Property $p, array $auction, string $lotStatus = AuctionLot::STATUS_CATALOGUED): AuctionLot
-    {
-        $a = Auction::create(array_merge([
-            'agency_id' => $agencyId, 'branch_id' => $branchId, 'reference' => 'AUC-' . uniqid(), 'title' => 'Test auction',
-            'bidding_mode' => 'in_room', 'auctioneer_kind' => 'internal',
-        ], $auction));
-
-        return AuctionLot::create([
-            'agency_id' => $agencyId, 'auction_id' => $a->id, 'property_id' => $p->id, 'lot_number' => 1, 'status' => $lotStatus,
         ]);
     }
 

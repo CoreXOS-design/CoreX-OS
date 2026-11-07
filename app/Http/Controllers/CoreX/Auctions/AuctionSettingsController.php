@@ -7,57 +7,92 @@ use App\Models\AgencyAuctionSettings;
 use Illuminate\Http\Request;
 
 /**
- * AT-432 — .ai/specs/auctions.md §4. Settings → Auctions, the switchboard
- * behind Andre's three shape-defining decisions. Renders every field on one
- * screen; `update()` writes every field the form posts (unlike the
- * onboarding wizard step, which posts a SUBSET and must guard each boolean
- * with $request->has() — see AgencyOnboardingSetupController's auctions
- * step for that guard).
+ * Screen S8 — Settings → Auctions (.ai/specs/auctions.md §7). updateWizard() is the Setup Wizard saver:
+ * the wizard step posts a SUBSET of these fields, so every write there is guarded with $request->has()
+ * (wizard spec §6.1) — an absent field is never wiped.
  */
 class AuctionSettingsController extends Controller
 {
-    public function show()
+    public function show(Request $request)
     {
-        $agencyId = (int) auth()->user()->effectiveAgencyId();
+        $agencyId = (int) $request->user()->effectiveAgencyId();
 
         return view('corex.settings.auctions', [
             'agencyId' => $agencyId,
-            'settings' => AgencyAuctionSettings::where('agency_id', $agencyId)->first(),
-            'defaults' => AgencyAuctionSettings::class,
+            'values' => [
+                'site_title' => AgencyAuctionSettings::siteTitleFor($agencyId),
+                'intro_text' => AgencyAuctionSettings::introTextFor($agencyId),
+                'contact_email' => AgencyAuctionSettings::contactEmailFor($agencyId),
+                'contact_phone' => AgencyAuctionSettings::contactPhoneFor($agencyId),
+                'reference_prefix' => AgencyAuctionSettings::referencePrefixFor($agencyId),
+                'soft_close_minutes' => AgencyAuctionSettings::softCloseMinutesFor($agencyId),
+                'reserve_visibility' => AgencyAuctionSettings::reserveVisibilityFor($agencyId),
+                'show_bid_count' => AgencyAuctionSettings::showBidCountFor($agencyId),
+                'show_bid_history' => AgencyAuctionSettings::showBidHistoryFor($agencyId),
+                'seller_form_enabled' => AgencyAuctionSettings::sellerFormEnabledFor($agencyId),
+                'seller_response_text' => AgencyAuctionSettings::sellerResponseTextFor($agencyId),
+                'show_bidder_numbers' => AgencyAuctionSettings::showBidderNumbersFor($agencyId),
+                'registration_closes_hours' => AgencyAuctionSettings::registrationClosesHoursFor($agencyId),
+                'docs_required_individual' => AgencyAuctionSettings::docsRequiredIndividualFor($agencyId),
+                'docs_required_company' => AgencyAuctionSettings::docsRequiredCompanyFor($agencyId),
+                'terms_text' => AgencyAuctionSettings::termsTextFor($agencyId),
+                'notify_enquiry_to' => AgencyAuctionSettings::notifyEnquiryToFor($agencyId),
+                'outbid_emails' => AgencyAuctionSettings::outbidEmailsFor($agencyId),
+                'notify_emails_enabled' => AgencyAuctionSettings::notifyEmailsEnabledFor($agencyId),
+                'notify_emails_to' => AgencyAuctionSettings::notifyEmailsToFor($agencyId),
+                'start_emails_enabled' => AgencyAuctionSettings::startEmailsEnabledFor($agencyId),
+                'confirmation_days' => AgencyAuctionSettings::confirmationDaysFor($agencyId),
+                'buyers_commission_percent' => AgencyAuctionSettings::buyersCommissionPercentFor($agencyId),
+                'buyers_commission_minimum' => AgencyAuctionSettings::buyersCommissionMinimumFor($agencyId),
+                'deposit_percent' => AgencyAuctionSettings::depositPercentFor($agencyId),
+                'deposit_due_days' => AgencyAuctionSettings::depositDueDaysFor($agencyId),
+                'balance_due_days' => AgencyAuctionSettings::balanceDueDaysFor($agencyId),
+                'payment_details' => AgencyAuctionSettings::paymentDetailsFor($agencyId),
+                'how_it_works' => AgencyAuctionSettings::howItWorksFor($agencyId),
+                'footer_text' => AgencyAuctionSettings::footerTextFor($agencyId),
+                'show_past_auctions' => AgencyAuctionSettings::showPastAuctionsFor($agencyId),
+                'default_increments' => AgencyAuctionSettings::defaultIncrementsFor($agencyId),
+            ],
         ]);
     }
 
-    /**
-     * Onboarding-wizard saver (.ai/specs/agency-onboarding-setup.md §6.1). The
-     * wizard step posts only the handful of auction settings it renders, so —
-     * unlike update() — every write here is guarded with $request->has() and a
-     * field the step never showed is never touched. Creating the row on first
-     * save is safe: every other column stays NULL = documented default.
-     */
-    public function updateWizard(Request $request)
+    public function update(Request $request)
     {
-        $agencyId = (int) auth()->user()->effectiveAgencyId();
-        abort_unless(auth()->user()->hasPermission('auctions.manage_settings'), 403);
+        $agencyId = (int) $request->user()->effectiveAgencyId();
 
-        $data = $request->validate([
-            'auction_advertising_only' => 'sometimes|boolean',
-            'auction_auctioneer_mode' => 'sometimes|in:internal,external,both',
-            'auction_reserve_visibility' => 'sometimes|in:private,disclosed_on_the_day,published',
-            'auction_guide_price_enabled' => 'sometimes|boolean',
-        ]);
+        $data = $request->validate($this->rules());
+        $write = $this->scalarWrites($data) + [
+            'show_bid_count' => $request->boolean('show_bid_count'),
+            'show_bid_history' => $request->boolean('show_bid_history'),
+            'seller_form_enabled' => $request->boolean('seller_form_enabled'),
+            'show_bidder_numbers' => $request->boolean('show_bidder_numbers'),
+            'outbid_emails' => $request->boolean('outbid_emails'),
+            'notify_emails_enabled' => $request->boolean('notify_emails_enabled'),
+            'start_emails_enabled' => $request->boolean('start_emails_enabled'),
+            'show_past_auctions' => $request->has('show_past_auctions') ? $request->boolean('show_past_auctions') : AgencyAuctionSettings::showPastAuctionsFor($agencyId),
+            'docs_required_individual' => array_values($data['docs_required_individual'] ?? []),
+            'docs_required_company' => array_values($data['docs_required_company'] ?? []),
+            'default_increments' => $this->rungs($request) ?: null,
+        ];
 
-        $write = [];
-        if ($request->has('auction_advertising_only')) {
-            $write['advertising_only'] = $request->boolean('auction_advertising_only');
-        }
-        if ($request->has('auction_auctioneer_mode')) {
-            $write['auctioneer_mode'] = $data['auction_auctioneer_mode'];
-        }
-        if ($request->has('auction_reserve_visibility')) {
-            $write['reserve_visibility'] = $data['auction_reserve_visibility'];
-        }
-        if ($request->has('auction_guide_price_enabled')) {
-            $write['guide_price_enabled'] = $request->boolean('auction_guide_price_enabled');
+        AgencyAuctionSettings::updateOrCreate(['agency_id' => $agencyId], $write);
+
+        return back()->with('status', 'Auction settings saved.');
+    }
+
+    /** Setup Wizard saver — writes only the fields the step actually posted. */
+    public function updateWizard(Request $request): void
+    {
+        $agencyId = (int) $request->user()->effectiveAgencyId();
+        abort_unless($request->user()->hasPermission('auctions.manage_settings'), 403);
+
+        $data = $request->validate($this->rules(wizard: true));
+
+        $write = $this->scalarWrites($data, guardWithHas: $request);
+        foreach (['show_bid_count', 'show_bid_history', 'seller_form_enabled', 'show_bidder_numbers', 'outbid_emails', 'show_past_auctions', 'notify_emails_enabled', 'start_emails_enabled'] as $bool) {
+            if ($request->has($bool)) {
+                $write[$bool] = $request->boolean($bool);
+            }
         }
 
         if ($write) {
@@ -65,71 +100,73 @@ class AuctionSettingsController extends Controller
         }
     }
 
-    public function update(Request $request)
+    private function rules(bool $wizard = false): array
     {
-        $agencyId = (int) auth()->user()->effectiveAgencyId();
+        $p = $wizard ? 'sometimes|' : '';
+        $kinds = implode(',', array_keys(AgencyAuctionSettings::DOCUMENT_KINDS));
 
-        $data = $request->validate([
-            'auctioneer_mode' => 'required|in:internal,external,both',
-            'bidding_modes_enabled' => 'required|array|min:1',
-            'bidding_modes_enabled.*' => 'in:in_room,online,hybrid',
-            'default_bidding_mode' => 'required|in:in_room,online,hybrid',
-            'online_auto_extend_enabled' => 'boolean',
-            'online_auto_extend_minutes' => 'required|integer|min:1|max:30',
-            'online_bid_increment_mode' => 'required|in:fixed,banded',
-            'proxy_bidding_enabled' => 'boolean',
-            'absentee_bids_enabled' => 'boolean',
-            'phone_bidding_enabled' => 'boolean',
-            'bid_retraction_allowed' => 'boolean',
+        return [
+            'site_title' => $p . 'nullable|string|max:160',
+            'intro_text' => $p . 'nullable|string|max:2000',
+            'contact_email' => $p . 'nullable|email|max:190',
+            'contact_phone' => $p . 'nullable|string|max:40',
+            'reference_prefix' => $p . 'nullable|string|max:12|regex:/^[A-Za-z0-9]+$/',
+            'soft_close_minutes' => $p . 'nullable|integer|min:0|max:60',
+            'reserve_visibility' => $p . 'nullable|in:' . implode(',', array_keys(AgencyAuctionSettings::RESERVE_VISIBILITY)),
+            'registration_closes_hours' => $p . 'nullable|integer|min:0|max:720',
+            'confirmation_days' => $p . 'nullable|integer|min:1|max:60',
+            'buyers_commission_percent' => $p . 'nullable|numeric|min:0|max:50',
+            'buyers_commission_minimum' => $p . 'nullable|numeric|min:0|max:100000000',
+            'deposit_percent' => $p . 'nullable|numeric|min:0|max:100',
+            'deposit_due_days' => $p . 'nullable|integer|min:0|max:365',
+            'balance_due_days' => $p . 'nullable|integer|min:0|max:365',
+            'payment_details' => $p . 'nullable|string|max:2000',
+            'how_it_works' => $p . 'nullable|string|max:5000',
+            'footer_text' => $p . 'nullable|string|max:1000',
+            'terms_text' => $p . 'nullable|string|max:20000',
+            'seller_response_text' => $p . 'nullable|string|max:120',
+            'notify_emails_to' => [$wizard ? 'sometimes' : 'nullable', 'nullable', 'string', 'max:1000', function (string $attribute, mixed $value, \Closure $fail) {
+                foreach (preg_split('/[\s,;]+/', (string) $value, -1, PREG_SPLIT_NO_EMPTY) ?: [] as $address) {
+                    if (! filter_var($address, FILTER_VALIDATE_EMAIL)) {
+                        $fail("'{$address}' is not a valid email address.");
+                    }
+                }
+            }],
+            'notify_enquiry_to' => $p . 'nullable|in:' . implode(',', array_keys(AgencyAuctionSettings::NOTIFY_ENQUIRY_TO)),
+            'docs_required_individual' => 'sometimes|array',
+            'docs_required_individual.*' => 'in:' . $kinds,
+            'docs_required_company' => 'sometimes|array',
+            'docs_required_company.*' => 'in:' . $kinds,
+        ];
+    }
 
-            'fee_model' => 'required|in:buyers_premium,sellers_commission,both',
-            'buyers_premium_percent' => 'required|numeric|min:0|max:100',
-            'buyers_premium_vat_inclusive' => 'boolean',
-            'buyers_premium_minimum' => 'nullable|numeric|min:0',
-            'sellers_commission_percent' => 'nullable|numeric|min:0|max:100',
-            'vat_rate_source' => 'required|in:system,override',
-            'premium_payable_on' => 'required|in:fall_of_hammer,confirmation,registration',
-
-            'registration_required' => 'boolean',
-            'registration_opens_days_before' => 'required|integer|min:0',
-            'registration_closes' => 'required|in:at_start,hours_before',
-            'registration_closes_hours_before' => 'required|integer|min:0',
-            'require_fica_before_paddle' => 'boolean',
-            'registration_deposit_required' => 'boolean',
-            'registration_deposit_amount' => 'required|numeric|min:0',
-            'registration_deposit_refund_days' => 'required|integer|min:0',
-            'require_signed_rules_before_paddle' => 'boolean',
-            'paddle_number_mode' => 'required|in:sequential,manual',
-            'entity_bidders_allowed' => 'boolean',
-
-            'reserve_visibility' => 'required|in:private,disclosed_on_the_day,published',
-            'guide_price_enabled' => 'boolean',
-            'confirmation_period_enabled' => 'boolean',
-            'confirmation_period_days' => 'required|integer|min:1|max:60',
-            'vendor_bidding_disclosure' => 'nullable|string',
-
-            'purchase_deposit_mode' => 'required|in:percent,fixed,none',
-            'purchase_deposit_percent' => 'nullable|numeric|min:0|max:100',
-            'purchase_deposit_fixed_amount' => 'nullable|numeric|min:0',
-            'purchase_deposit_due_days' => 'required|integer|min:0',
-            'balance_due_days' => 'required|integer|min:0',
-        ]);
-
-        // Checkboxes absent from the payload mean "unchecked" on this full-page
-        // form (every field renders here, unlike the wizard's subset) — coerce
-        // explicitly so an unchecked box is stored as false, not left null.
-        foreach ([
-            'advertising_only', 'online_auto_extend_enabled', 'proxy_bidding_enabled', 'absentee_bids_enabled',
-            'phone_bidding_enabled', 'bid_retraction_allowed', 'buyers_premium_vat_inclusive',
-            'registration_required', 'require_fica_before_paddle', 'registration_deposit_required',
-            'require_signed_rules_before_paddle', 'entity_bidders_allowed', 'guide_price_enabled',
-            'confirmation_period_enabled',
-        ] as $bool) {
-            $data[$bool] = $request->boolean($bool);
+    /** @return array<string, mixed> */
+    private function scalarWrites(array $data, ?Request $guardWithHas = null): array
+    {
+        $out = [];
+        foreach (['site_title', 'intro_text', 'contact_email', 'contact_phone', 'notify_emails_to', 'seller_response_text', 'reference_prefix', 'soft_close_minutes', 'reserve_visibility', 'registration_closes_hours', 'confirmation_days', 'buyers_commission_percent', 'buyers_commission_minimum', 'deposit_percent', 'deposit_due_days', 'balance_due_days', 'payment_details', 'how_it_works', 'footer_text', 'terms_text', 'notify_enquiry_to'] as $key) {
+            if ($guardWithHas && ! $guardWithHas->has($key)) {
+                continue;
+            }
+            $v = $data[$key] ?? null;
+            $out[$key] = $key === 'reference_prefix' && $v !== null ? strtoupper($v) : ($v === '' ? null : $v);
         }
 
-        AgencyAuctionSettings::updateOrCreate(['agency_id' => $agencyId], $data);
+        return $out;
+    }
 
-        return back()->with('status', 'Auction settings saved.');
+    /** @return array<int, array{0: float, 1: float}> */
+    private function rungs(Request $request): array
+    {
+        $rungs = [];
+        foreach ((array) $request->input('inc_from', []) as $i => $from) {
+            $inc = $request->input('inc_amount.' . $i);
+            if (is_numeric($from) && is_numeric($inc) && (float) $inc > 0 && (float) $from >= 0) {
+                $rungs[(string) (float) $from] = [(float) $from, (float) $inc];
+            }
+        }
+        ksort($rungs, SORT_NUMERIC);
+
+        return array_values($rungs);
     }
 }

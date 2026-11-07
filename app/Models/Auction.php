@@ -4,118 +4,179 @@ namespace App\Models;
 
 use App\Models\Concerns\BelongsToAgency;
 use App\Models\Concerns\BelongsToBranch;
+use App\Services\PermissionService;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Relations\BelongsTo;
-use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 /**
- * AT-432 — .ai/specs/auctions.md §5.2. The sale event. One auction may
- * carry many lots; a single-property auction is an auction with one lot.
+ * An auction event that holds many lots (.ai/specs/auctions.md §4.1). A one-property
+ * auction is simply an auction with one lot (is_single_property).
  */
 class Auction extends Model
 {
     use BelongsToAgency, BelongsToBranch, SoftDeletes;
 
-    // §6.1 — Auction lifecycle.
     public const STATUS_DRAFT = 'draft';
-    public const STATUS_SCHEDULED = 'scheduled';
-    public const STATUS_REGISTRATION_OPEN = 'registration_open';
-    public const STATUS_IN_PROGRESS = 'in_progress';
+    public const STATUS_PUBLISHED = 'published';
+    public const STATUS_OPEN = 'open';
     public const STATUS_CLOSED = 'closed';
-    public const STATUS_SETTLED = 'settled';
-    public const STATUS_POSTPONED = 'postponed';
+    public const STATUS_COMPLETED = 'completed';
     public const STATUS_CANCELLED = 'cancelled';
 
     public const STATUSES = [
-        self::STATUS_DRAFT, self::STATUS_SCHEDULED, self::STATUS_REGISTRATION_OPEN,
-        self::STATUS_IN_PROGRESS, self::STATUS_CLOSED, self::STATUS_SETTLED,
-        self::STATUS_POSTPONED, self::STATUS_CANCELLED,
+        self::STATUS_DRAFT, self::STATUS_PUBLISHED, self::STATUS_OPEN,
+        self::STATUS_CLOSED, self::STATUS_COMPLETED, self::STATUS_CANCELLED,
     ];
 
-    public const AUCTIONEER_KINDS = ['internal', 'external'];
-    public const BIDDING_MODES = ['in_room', 'online', 'hybrid'];
+    public const FORMATS = ['timed' => 'Timed online', 'live' => 'Live'];
 
-    /** Matches the migration's DB-level default — see AuctionLot's identical docblock for why. */
-    protected $attributes = [
-        'status' => self::STATUS_DRAFT,
-    ];
+    public const TYPES = ['real_estate' => 'Real estate'];
 
     protected $fillable = [
-        'agency_id', 'branch_id', 'reference', 'title', 'auction_type_id', 'bidding_mode',
-        'auctioneer_kind', 'auctioneer_user_id', 'auctioneer_contact_id', 'auctioneer_company',
-        'auctioneer_licence_no', 'starts_at', 'ends_at', 'registration_opens_at', 'registration_closes_at',
-        'venue_name', 'venue_address', 'venue_lat', 'venue_lng', 'is_online_streamed', 'stream_url',
-        'status', 'rules_document_id', 'conditions_document_id', 'catalogue_published_at', 'notes',
-        'created_by_id', 'external_registration_url', 'auctioneer_phone', 'auctioneer_email',
-        'rules_file_path', 'rules_file_name', 'conditions_file_path', 'conditions_file_name',
+        'agency_id', 'branch_id', 'reference', 'title', 'description', 'cover_image_path', 'format', 'type', 'currency',
+        'status', 'starts_at', 'ends_at', 'registration_closes_at', 'venue_name', 'venue_address', 'lat', 'lng',
+        'stream_url', 'soft_close_minutes', 'buyers_commission_percent', 'deposit_percent', 'is_single_property', 'published_at', 'cancelled_at', 'cancel_reason',
+        'completed_at', 'created_by',
     ];
 
     protected $casts = [
         'starts_at' => 'datetime',
         'ends_at' => 'datetime',
-        'registration_opens_at' => 'datetime',
         'registration_closes_at' => 'datetime',
-        'venue_lat' => 'decimal:7',
-        'venue_lng' => 'decimal:7',
-        'is_online_streamed' => 'boolean',
-        'catalogue_published_at' => 'datetime',
+        'published_at' => 'datetime',
+        'cancelled_at' => 'datetime',
+        'completed_at' => 'datetime',
+        'start_notified_at' => 'datetime',
+        'is_single_property' => 'boolean',
+        'soft_close_minutes' => 'integer',
+        'buyers_commission_percent' => 'float',
+        'deposit_percent' => 'float',
     ];
 
-    public function branch(): BelongsTo
+    public function creator()
     {
-        return $this->belongsTo(Branch::class);
+        return $this->belongsTo(User::class, 'created_by');
     }
 
-    public function auctionType(): BelongsTo
-    {
-        return $this->belongsTo(PropertySettingItem::class, 'auction_type_id');
-    }
-
-    public function auctioneerUser(): BelongsTo
-    {
-        return $this->belongsTo(User::class, 'auctioneer_user_id');
-    }
-
-    public function auctioneerContact(): BelongsTo
-    {
-        return $this->belongsTo(Contact::class, 'auctioneer_contact_id');
-    }
-
-    public function createdBy(): BelongsTo
-    {
-        return $this->belongsTo(User::class, 'created_by_id');
-    }
-
-    public function lots(): HasMany
+    public function lots()
     {
         return $this->hasMany(AuctionLot::class)->orderBy('lot_number');
     }
 
-    public function isInternal(): bool
+    public function increments()
     {
-        return $this->auctioneer_kind === 'internal';
+        return $this->hasMany(AuctionIncrement::class)->orderBy('from_amount');
     }
 
-    /** §9 step 5 — an auction is public once its catalogue has gone live. */
-    public function isCataloguePublished(): bool
+    public function documents()
     {
-        return $this->catalogue_published_at !== null;
+        return $this->hasMany(AuctionDocument::class)->orderBy('sort_order')->orderBy('id');
     }
 
-    /** §10.1 — whether a new bidder may still register right now. */
-    public function isRegistrationOpen(): bool
+    /** Visible on the public auction site (§8.1): drafts and cancelled auctions are never public. */
+    public function isPublic(): bool
     {
-        if (in_array($this->status, [self::STATUS_CLOSED, self::STATUS_SETTLED, self::STATUS_CANCELLED], true)) {
-            return false;
+        return in_array($this->status, [self::STATUS_PUBLISHED, self::STATUS_OPEN, self::STATUS_CLOSED, self::STATUS_COMPLETED], true);
+    }
+
+    /** Details can still be changed; a finished or cancelled auction is a record. */
+    public function isEditable(): bool
+    {
+        return ! in_array($this->status, [self::STATUS_COMPLETED, self::STATUS_CANCELLED], true);
+    }
+
+    /**
+     * What a visitor should be told about the auction RIGHT NOW: upcoming | live | finished | cancelled | draft. From the clock, not the stored
+     * status - a timed auction's status only becomes 'open' when the every-minute job runs, so it can lag behind the start time.
+     */
+    public function publicPhase(): string
+    {
+        return match (true) {
+            $this->status === self::STATUS_DRAFT => 'draft',
+            $this->status === self::STATUS_CANCELLED => 'cancelled',
+            in_array($this->status, [self::STATUS_CLOSED, self::STATUS_COMPLETED], true) => 'finished',
+            $this->starts_at && $this->starts_at->isFuture() => 'upcoming',
+            $this->format === 'timed' && $this->ends_at && $this->ends_at->isPast() => 'finished',
+            default => 'live',
+        };
+    }
+
+    public function publicPhaseLabel(): string
+    {
+        return ['draft' => 'Draft — not public yet', 'cancelled' => 'Cancelled', 'finished' => 'Finished', 'upcoming' => 'Upcoming', 'live' => 'Live now'][$this->publicPhase()];
+    }
+
+    public function statusLabel(): string
+    {
+        return ucwords(str_replace('_', ' ', (string) $this->status));
+    }
+
+    /**
+     * OWN / BRANCH / AGENCY (spec §5): AGENCY sees every auction; BRANCH the auctions of their branch or holding a
+     * property of their branch; OWN the auctions they created or that hold a property they list. The agency boundary
+     * itself is the global AgencyScope.
+     */
+    public function scopeVisibleTo($query, User $user)
+    {
+        $scope = PermissionService::getDataScope($user, 'auctions');
+
+        if ($scope === 'all') {
+            return $query;
         }
-        if ($this->registration_opens_at && now()->lessThan($this->registration_opens_at)) {
-            return false;
+        if ($scope === 'branch') {
+            $branchId = $user->effectiveBranchId();
+
+            return $query->where(function ($q) use ($branchId) {
+                $q->where('branch_id', $branchId)
+                    ->orWhereHas('lots.property', fn ($p) => $p->where('branch_id', $branchId));
+            });
         }
-        if ($this->registration_closes_at && now()->greaterThan($this->registration_closes_at)) {
-            return false;
+        if ($scope === 'own') {
+            $ids = $user->dataIdentityIds();
+
+            return $query->where(function ($q) use ($ids) {
+                $q->whereIn('created_by', $ids)
+                    ->orWhereHas('lots.property', fn ($p) => $p->whereIn('agent_id', $ids));
+            });
         }
 
-        return true;
+        return $query->whereRaw('1 = 0');
+    }
+
+    /** Next free reference for the agency, e.g. AUC-2026-0007. Counts archived rows too so a reference is never reused. */
+    public static function nextReference(int $agencyId): string
+    {
+        $prefix = AgencyAuctionSettings::referencePrefixFor($agencyId);
+        $year = now()->year;
+        $n = static::withTrashed()->withoutGlobalScopes()->where('agency_id', $agencyId)->whereYear('created_at', $year)->count() + 1;
+
+        do {
+            $ref = sprintf('%s-%d-%04d', $prefix, $year, $n++);
+        } while (static::withTrashed()->withoutGlobalScopes()->where('agency_id', $agencyId)->where('reference', $ref)->exists());
+
+        return $ref;
+    }
+
+    /** The increment that applies at a given price: the highest rung whose from_amount is <= the amount. */
+    public function incrementFor(float $amount): float
+    {
+        $rung = $this->increments->sortByDesc('from_amount')->first(fn ($i) => (float) $i->from_amount <= $amount);
+
+        return (float) ($rung?->increment ?? 0);
+    }
+
+    /** Replace the bid ladder (rows are archived, never hard-deleted). @param array<int, array{0: mixed, 1: mixed}> $rungs */
+    public function syncIncrements(array $rungs): void
+    {
+        $this->increments()->get()->each->delete();
+        foreach ($rungs as [$from, $inc]) {
+            AuctionIncrement::create([
+                'agency_id' => $this->agency_id,
+                'auction_id' => $this->id,
+                'from_amount' => (float) $from,
+                'increment' => (float) $inc,
+            ]);
+        }
+        $this->unsetRelation('increments');
     }
 }

@@ -3,140 +3,105 @@
 namespace App\Http\Controllers\CoreX\Auctions;
 
 use App\Http\Controllers\Controller;
-use App\Models\AgencyAuctionSettings;
 use App\Models\Auction;
-use App\Models\AuctionBid;
-use App\Models\AuctionBidder;
 use App\Models\AuctionLot;
-use App\Services\Auctions\AuctionLotStatusService;
-use App\Services\Auctions\BidService;
+use App\Models\AuctionRegistration;
+use App\Services\Auctions\BidEngine;
+use App\Services\Auctions\LotResultService;
 use Illuminate\Http\Request;
+use Illuminate\Validation\ValidationException;
 
 /**
- * AT-432 Phases 3-4 — .ai/specs/auctions.md §11.1-§11.4. The in-room /
- * hybrid Sale Room console: one lot at a time, one-keystroke bid entry,
- * running history, a deliberate fall-of-hammer action. Online timed
- * bidding, auto-extend, proxy bidding and concurrency locking are Phase 4
- * (see BidService) and are reflected live here via the polled bid feed
- * (Api\V1\Auctions\AuctionLotFeedController) for a hybrid/online auction.
- *
- * NOT built here: §11.1's "offline-tolerant... bids queue locally and
- * sync" requirement. That needs `.ai/specs/offline-draft-persistence.md`'s
- * pattern, but that spec's own header reads "SPEC — await Johan approval.
- * NO build until assigned" — it is a separate, cross-cutting, unapproved
- * ticket (AT-165), not an auctions-scoped piece of work, so it cannot be
- * built as part of AT-432 without Johan approving AT-165 first. Flagged
- * to Johan rather than built; see the AT-432 build report. Today, a
- * connection drop mid-sale can lose an unsubmitted bid-entry keystroke on
- * this screen until the connection returns.
+ * Screen S6 — the Sale Room (.ai/specs/auctions.md §5, §8.6). The auctioneer's console for a LIVE auction: put a lot on the
+ * block, record bids called from the floor against a bidder number, knock the lot down or pass it in. For a timed auction it
+ * is a read-only monitor (the clock runs those).
  */
 class SaleRoomController extends Controller
 {
-    /**
-     * The current lot is whichever one is actively under the hammer, else
-     * the next one open for bids, else the next catalogued lot waiting to
-     * start — in lot_number order. ?lot= overrides (the clerk may jump).
-     */
-    public function show(Request $request, Auction $auction)
-    {
-        $lot = null;
-        if ($lotId = $request->query('lot')) {
-            $lot = $auction->lots()->where('id', $lotId)->first();
-        }
-        $lot ??= $auction->lots()->where('status', AuctionLot::STATUS_UNDER_THE_HAMMER)->orderBy('lot_number')->first();
-        $lot ??= $auction->lots()->where('status', AuctionLot::STATUS_OPEN_FOR_BIDS)->orderBy('lot_number')->first();
-        $lot ??= $auction->lots()->where('status', AuctionLot::STATUS_CATALOGUED)->orderBy('lot_number')->first();
+    public function __construct(private BidEngine $engine, private LotResultService $results) {}
 
-        $bidService = new BidService();
-        $agencyId = (int) $auction->agency_id;
+    public function show(Request $request, int $auction)
+    {
+        $auction = $this->auction($request, $auction);
+        $lots = $auction->lots()->withTrashed(false)->with('property')->get();
+
+        $selected = $lots->firstWhere('id', (int) $request->query('lot'))
+            ?? $lots->firstWhere('status', AuctionLot::STATUS_OPEN)
+            ?? $lots->first(fn ($l) => $l->status === AuctionLot::STATUS_PUBLISHED)
+            ?? $lots->first();
+
+        $bids = $selected ? $selected->bids()->with('registration.contact')->orderByDesc('id')->limit(100)->get() : collect();
+        $high = $selected?->highestBid();
 
         return view('corex.auctions.room', [
             'auction' => $auction,
-            'lot' => $lot?->load('property'),
-            'lots' => $auction->lots()->orderBy('lot_number')->get(['id', 'lot_number', 'status']),
-            'currentHighBid' => $lot ? $bidService->currentHighBid($lot)?->load('bidder.contact') : null,
-            'suggestedNextBid' => $lot ? $bidService->suggestedNextBid($lot) : null,
-            'bidHistory' => $lot ? AuctionBid::where('auction_lot_id', $lot->id)->with('bidder.contact')->orderByDesc('placed_at')->limit(20)->get() : collect(),
-            'bidderCount' => $lot ? $bidService->distinctBidderCount($lot) : 0,
-            'canSeeReserve' => AgencyAuctionSettings::reserveVisibilityFor($agencyId) === 'published'
-                || auth()->user()->hasPermission('auctions.reserve.view'),
-            'canRetract' => AgencyAuctionSettings::bidRetractionAllowedFor($agencyId) && auth()->user()->hasPermission('auctions.bid.retract'),
-            'approvedBidders' => AuctionBidder::where('auction_id', $auction->id)->where('status', 'approved')->with('contact')->get(),
+            'lots' => $lots,
+            'lot' => $selected,
+            'bids' => $bids,
+            'high' => $high,
+            'highReg' => $high ? AuctionRegistration::withoutGlobalScopes()->with('contact')->find($high->registration_id) : null,
+            'minNext' => $selected && ! $selected->isConcluded() ? $this->engine->minimumNext($selected) : null,
+            'approved' => AuctionRegistration::withoutGlobalScopes()->where('auction_id', $auction->id)->where('status', 'approved')->whereNull('deleted_at')->count(),
+            'canOperate' => $request->user()->hasPermission('auctions.room.operate') && $auction->format === 'live',
+            'canHammer' => $request->user()->hasPermission('auctions.hammer') && $auction->format === 'live',
         ]);
     }
 
-    public function openForBids(Auction $auction, AuctionLot $lot)
+    public function openLot(Request $request, int $auction, int $lot)
     {
-        (new AuctionLotStatusService())->openForBids($lot, auth()->id());
+        $lot = $this->lot($request, $auction, $lot);
+        $this->results->openLot($lot);
 
-        return redirect()->route('corex.auctions.room.show', [$auction, 'lot' => $lot->id]);
+        return redirect()->route('corex.auctions.room.show', [$lot->auction_id, 'lot' => $lot->id])->with('status', "Lot {$lot->lot_number} is open for bids.");
     }
 
-    public function startHammer(Auction $auction, AuctionLot $lot)
+    public function floorBid(Request $request, int $auction, int $lot)
     {
-        (new AuctionLotStatusService())->startHammer($lot, auth()->id());
+        $lot = $this->lot($request, $auction, $lot);
+        $data = $request->validate(['bidder_number' => 'required|integer|min:1', 'amount' => 'required|numeric|min:1|max:99999999999']);
 
-        return redirect()->route('corex.auctions.room.show', [$auction, 'lot' => $lot->id]);
+        $reg = AuctionRegistration::withoutGlobalScopes()->where('auction_id', $lot->auction_id)->whereNull('deleted_at')
+            ->where('bidder_number', (int) $data['bidder_number'])->where('status', AuctionRegistration::STATUS_APPROVED)->first();
+        if (! $reg) {
+            throw ValidationException::withMessages(['bidder_number' => "No approved bidder has number {$data['bidder_number']} in this auction."]);
+        }
+
+        $this->engine->place($lot, $reg, (float) $data['amount'], 'floor', $request->ip());
+
+        return redirect()->route('corex.auctions.room.show', [$lot->auction_id, 'lot' => $lot->id])
+            ->with('status', 'Bid recorded: bidder #' . $reg->bidder_number . ' at R ' . number_format((float) $data['amount'], 0, '.', ' ') . '.');
     }
 
-    /** One keystroke: paddle number (+ optional off-increment amount). */
-    public function placeBid(Request $request, Auction $auction, AuctionLot $lot)
+    public function hammer(Request $request, int $auction, int $lot)
     {
-        $data = $request->validate([
-            'paddle_number' => 'required|string|max:20',
-            'amount' => 'nullable|numeric|min:0.01',
-        ]);
+        $lot = $this->lot($request, $auction, $lot);
+        $outcome = $this->results->hammer($lot);
 
-        $bidder = AuctionBidder::where('auction_id', $auction->id)->where('paddle_number', $data['paddle_number'])->first();
-        if (! $bidder) {
-            return back()->withErrors(['bid' => "No approved bidder holds paddle #{$data['paddle_number']} in this auction."]);
-        }
-
-        $bidService = new BidService();
-        $amount = $data['amount'] ?? $bidService->suggestedNextBid($lot);
-        if ($amount === null) {
-            return back()->withErrors(['bid' => 'This lot has no opening bid on file — type a starting amount to open the bidding.']);
-        }
-
-        try {
-            $bidService->placeBid($lot, $bidder, (float) $amount, 'in_room', auth()->id());
-        } catch (\RuntimeException $e) {
-            return back()->withErrors(['bid' => $e->getMessage()]);
-        }
-
-        return redirect()->route('corex.auctions.room.show', [$auction, 'lot' => $lot->id]);
+        return redirect()->route('corex.auctions.room.show', [$lot->auction_id, 'lot' => $lot->id])->with('status', match ($outcome) {
+            AuctionLot::STATUS_SOLD => "Lot {$lot->lot_number} sold.",
+            AuctionLot::STATUS_SOLD_SUBJECT => "Lot {$lot->lot_number} sold subject to the seller's confirmation: the highest bid is below the reserve.",
+            default => "Lot {$lot->lot_number} closed.",
+        });
     }
 
-    public function retractBid(Request $request, Auction $auction, AuctionLot $lot)
+    public function passIn(Request $request, int $auction, int $lot)
     {
-        try {
-            (new BidService())->retractLastBid($lot, auth()->id(), $request->input('reason'));
-        } catch (\RuntimeException $e) {
-            return back()->withErrors(['bid' => $e->getMessage()]);
-        }
+        $lot = $this->lot($request, $auction, $lot);
+        $request->validate(['note' => 'nullable|string|max:300']);
+        $this->results->passIn($lot, $request->input('note'));
 
-        return redirect()->route('corex.auctions.room.show', [$auction, 'lot' => $lot->id]);
+        return redirect()->route('corex.auctions.room.show', [$lot->auction_id, 'lot' => $lot->id])->with('status', "Lot {$lot->lot_number} passed in. The property was released.");
     }
 
-    /** §11.1 — "a deliberate, confirmed action — never a single mis-key." The confirm step lives in the view. */
-    public function knockDown(Auction $auction, AuctionLot $lot)
+    private function auction(Request $request, int $id): Auction
     {
-        try {
-            (new AuctionLotStatusService())->recordHammerFromCurrentBid($lot, now(), auth()->id());
-        } catch (\RuntimeException $e) {
-            return back()->withErrors(['bid' => $e->getMessage()]);
-        }
-
-        $next = $auction->lots()->where('lot_number', '>', $lot->lot_number)->orderBy('lot_number')->first();
-
-        return redirect()->route('corex.auctions.room.show', $next ? [$auction, 'lot' => $next->id] : [$auction]);
+        return Auction::visibleTo($request->user())->findOrFail($id);
     }
 
-    public function passIn(Request $request, Auction $auction, AuctionLot $lot)
+    private function lot(Request $request, int $auction, int $lot): AuctionLot
     {
-        (new AuctionLotStatusService())->markPassedIn($lot, auth()->id(), $request->input('reason'));
-        $next = $auction->lots()->where('lot_number', '>', $lot->lot_number)->orderBy('lot_number')->first();
+        $auction = $this->auction($request, $auction);
 
-        return redirect()->route('corex.auctions.room.show', $next ? [$auction, 'lot' => $next->id] : [$auction]);
+        return $auction->lots()->whereKey($lot)->firstOrFail();
     }
 }

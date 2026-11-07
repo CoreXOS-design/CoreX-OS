@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace App\Services\AdTemplates;
 
-use App\Models\Auction;
 use App\Models\Property;
 use Illuminate\Support\Carbon;
 
@@ -36,12 +35,6 @@ final class AdListingFacts
 {
     /** Statuses after which a rental is no longer "available" and a sale no longer worth a price-per-m². */
     private const CLOSED_STATUSES = ['sold', 'transferred', 'rented', 'let_out'];
-
-    /** An auction in any of these states is not an advertisable date (not announced, cancelled, moved, or over). */
-    private const AUCTION_HIDDEN_STATUSES = [
-        Auction::STATUS_DRAFT, Auction::STATUS_CANCELLED, Auction::STATUS_POSTPONED,
-        Auction::STATUS_CLOSED, Auction::STATUS_SETTLED,
-    ];
 
     /**
      * @return array<string, string> every key always present; '' = nothing to show.
@@ -178,8 +171,8 @@ final class AdListingFacts
     }
 
     /**
-     * Date and venue of the listing's open auction lot. Nothing when there is no open lot, the auction is not
-     * announced (draft) / cancelled / postponed / over, or its start has already passed.
+     * Date and venue of the listing's open auction lot. Nothing when there is no advertisable lot (draft, cancelled,
+     * finished or withdrawn) or the sale moment has already passed.
      *
      * @return array{date: string, venue: string}
      */
@@ -190,24 +183,15 @@ final class AdListingFacts
             return $none;
         }
 
-        $auction = $p->currentAuctionLot()?->auction;
-        if ($auction === null || in_array($auction->status, self::AUCTION_HIDDEN_STATUSES, true) || $auction->starts_at === null) {
+        $lot  = $p->currentAuctionLot();
+        $when = $lot?->advertisedDate();
+        if ($when === null || $when->lt($now)) {
             return $none;
-        }
-        if ($auction->starts_at->lt($now) && $auction->status !== Auction::STATUS_IN_PROGRESS) {
-            return $none;
-        }
-
-        $name    = trim((string) $auction->venue_name);
-        $address = trim((string) $auction->venue_address);
-        $venue   = $name !== '' && $address !== '' ? $name . ', ' . $address : ($name !== '' ? $name : $address);
-        if ($venue === '' && $auction->is_online_streamed) {
-            $venue = 'Online auction';
         }
 
         return [
-            'date'  => $auction->starts_at->copy()->setTimezone($tz)->format('j M Y') . ' · ' . $auction->starts_at->copy()->setTimezone($tz)->format('H:i'),
-            'venue' => $venue,
+            'date'  => $when->copy()->setTimezone($tz)->format('j M Y') . ' · ' . $when->copy()->setTimezone($tz)->format('H:i'),
+            'venue' => $lot->advertisedVenue(),
         ];
     }
 }

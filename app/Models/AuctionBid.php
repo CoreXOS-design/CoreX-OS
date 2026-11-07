@@ -4,52 +4,52 @@ namespace App\Models;
 
 use App\Models\Concerns\BelongsToAgency;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
-/**
- * AT-432 Phase 3 — .ai/specs/auctions.md §5.5. The bid log — the auction
- * register for CPA purposes (§18). Never updated in place except to
- * retract (retracted_at/by/reason); never deleted through the UI.
- */
+/** One bid. Append-only: a wrong bid is retracted (status), never deleted (.ai/specs/auctions.md §4.7). */
 class AuctionBid extends Model
 {
     use BelongsToAgency, SoftDeletes;
 
-    public const CHANNELS = ['in_room', 'online', 'phone', 'absentee', 'proxy'];
+    public const STATUS_VALID = 'valid';
+    public const STATUS_RETRACTED = 'retracted';
+    public const SOURCES = ['online' => 'Online', 'auto_bid' => 'Auto-bid', 'floor' => 'Floor'];
 
     protected $fillable = [
-        'agency_id', 'auction_id', 'auction_lot_id', 'auction_bidder_id', 'amount', 'channel',
-        'placed_at', 'is_proxy', 'proxy_max', 'recorded_by_id', 'is_winning',
-        'retracted_at', 'retracted_by_id', 'retracted_reason', 'ip_address', 'user_agent',
+        'agency_id', 'auction_id', 'lot_id', 'registration_id', 'amount', 'placed_at', 'source', 'status',
+        'retracted_by', 'retracted_at', 'retract_reason', 'ip',
     ];
 
-    protected $casts = [
-        'amount' => 'decimal:2',
-        'placed_at' => 'datetime',
-        'is_proxy' => 'boolean',
-        'proxy_max' => 'decimal:2',
-        'is_winning' => 'boolean',
-        'retracted_at' => 'datetime',
-    ];
+    protected $casts = ['amount' => 'decimal:2', 'placed_at' => 'datetime', 'retracted_at' => 'datetime'];
 
-    public function auctionLot(): BelongsTo
+    public function lot()
     {
-        return $this->belongsTo(AuctionLot::class);
+        return $this->belongsTo(AuctionLot::class, 'lot_id')->withTrashed();
     }
 
-    public function bidder(): BelongsTo
+    public function auction()
     {
-        return $this->belongsTo(AuctionBidder::class, 'auction_bidder_id');
+        return $this->belongsTo(Auction::class)->withTrashed();
     }
 
-    public function recordedBy(): BelongsTo
+    public function registration()
     {
-        return $this->belongsTo(User::class, 'recorded_by_id');
+        return $this->belongsTo(AuctionRegistration::class, 'registration_id')->withTrashed();
     }
 
-    public function isRetracted(): bool
+    public function scopeValid($query)
     {
-        return $this->retracted_at !== null;
+        return $query->where('status', self::STATUS_VALID);
+    }
+
+    public function isValid(): bool
+    {
+        return $this->status === self::STATUS_VALID;
+    }
+
+    /** Bids on lots the user's auctions data scope can see (the lot's property decides own / branch). */
+    public function scopeVisibleTo($query, User $user)
+    {
+        return $query->whereIn('lot_id', AuctionLot::visibleTo($user)->withTrashed()->select('auction_lots.id'));
     }
 }

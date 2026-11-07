@@ -164,21 +164,13 @@ class Property24ListingMapper
             $listing['showDays'] = $showdays;
         }
 
-        // AT-432 Phase 5 — .ai/specs/auctions.md §14.1a. `auctionInfo` is what
-        // actually drives P24's AUCTION badge (confirmed live) — `status` has
-        // no Auction member and correctly stays 'Active' above; without this
-        // block an on-auction property syndicates with the POA tag (isPOA,
-        // already wired) but no auction badge/date/venue at all. `date` is the
-        // one required field on P24's AuctionInfo schema; `venue`/`description`
-        // are optional and only sent when CoreX actually holds the data —
-        // `description` is deliberately omitted: there is no free-text auction
-        // description field on auction_lots/auctions to source it from (§14.1a),
-        // and inventing marketing copy for a portal payload is not this
-        // mapper's job.
-        if ($property->isAuction() && ($lot = $property->currentAuctionLot()) && $lot->auction?->starts_at) {
-            $auctionInfo = ['date' => $lot->auction->starts_at->format('Y-m-d\TH:i:s')];
-            if ($lot->auction->venue_name) {
-                $auctionInfo['venue'] = $lot->auction->venue_name;
+        // Auctions v2 - `auctionInfo` is what drives P24's AUCTION badge (`status` has no Auction member and stays 'Active').
+        // `date` is the one required field; `venue` is only sent when CoreX holds one (an online-only auction has none).
+        if ($property->isAuction() && ($lot = $property->currentAuctionLot()) && ($when = $lot->advertisedDate())) {
+            $auctionInfo = ['date' => $when->format('Y-m-d\TH:i:s')];
+            $venue = trim((string) $lot->auction->venue_name);
+            if ($venue !== '') {
+                $auctionInfo['venue'] = $venue;
             }
             $listing['auctionInfo'] = $auctionInfo;
         }

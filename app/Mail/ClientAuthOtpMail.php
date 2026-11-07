@@ -31,6 +31,8 @@ class ClientAuthOtpMail extends Mailable
         public int $expiresMinutes = 10,
         /** The one agency this sign-in is for; null = neutral wording, nothing guessed. */
         public ?Agency $agency = null,
+        /** Set when the code is for the public auction site: 'signup' or 'reset'. Null = the portal sign-in code, unchanged. */
+        public ?string $auctionPurpose = null,
     ) {
         $this->agencyName = $agency ? Agency::displayNameFor($agency) : null;
     }
@@ -41,14 +43,29 @@ class ClientAuthOtpMail extends Mailable
             ? [new Address((string) $this->agency->email, $this->agencyName)]
             : [];
 
+        $from = env('MAIL_OTP_FROM_ADDRESS', 'Otp@corexos.co.za');
+        if ($this->auctionPurpose) {
+            $from = filter_var((string) config('mail.auction_from_address'), FILTER_VALIDATE_EMAIL) ? (string) config('mail.auction_from_address') : (string) config('mail.from.address', $from);
+        }
+
         return new Envelope(
-            from: new Address(
-                env('MAIL_OTP_FROM_ADDRESS', 'Otp@corexos.co.za'),
-                $this->agencyName ?? 'Portal sign-in'
-            ),
+            from: new Address($from, $this->agencyName ?? 'Portal sign-in'),
             replyTo: $replyTo,
-            subject: ($this->agencyName ? "Your {$this->agencyName} sign-in code" : 'Your sign-in code') . ': ' . $this->code,
+            subject: $this->subjectLine(),
         );
+    }
+
+    /** "Your <Agency> auction sign up code: 123456" for the auction site; the portal wording otherwise. */
+    private function subjectLine(): string
+    {
+        if ($this->auctionPurpose === null) {
+            return ($this->agencyName ? "Your {$this->agencyName} sign-in code" : 'Your sign-in code') . ': ' . $this->code;
+        }
+
+        $who = $this->agencyName ? $this->agencyName . ' ' : '';
+        $what = $this->auctionPurpose === 'reset' ? 'auction password reset code' : 'auction sign up code';
+
+        return "Your {$who}{$what}: {$this->code}";
     }
 
     public function content(): Content
@@ -58,6 +75,7 @@ class ClientAuthOtpMail extends Mailable
         return new Content(view: 'emails.client-auth.otp', with: [
             'agencyLogoUrl' => $branding['logoUrl'] ?? null,
             'agencyColor'   => $branding['colors']['default'] ?? '#0b2a4a',
+            'auctionPurpose' => $this->auctionPurpose,
         ]);
     }
 }

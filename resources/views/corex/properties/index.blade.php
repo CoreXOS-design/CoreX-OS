@@ -309,6 +309,8 @@
             // is a different idea from Draft's "unfinished" pencil.
             'Awaiting approval' => '<circle cx="12" cy="12" r="9" fill="none"/><path stroke-linecap="round" stroke-linejoin="round" d="M12 7.5V12l3 1.75"/>',
             'Rented Out'  => '<path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>',
+            // Auction enquiries: a gavel (the same mark as the Auctions menu).
+            'Auction enquiries' => '<path stroke-linecap="round" stroke-linejoin="round" d="M14.25 9.75 16.5 12l-6.75 6.75-2.25-2.25M3 21l3-3m12.75-15L21 5.25m-3.75 3.75L21 5.25m-8.303 8.303 2.652 2.652M5.25 5.25l3.879 3.879"/>',
             // AT-453 — Other agency: a building with a door (another agency's stock).
             'Other agency' => '<path stroke-linecap="round" stroke-linejoin="round" d="M3.75 21h16.5M4.5 3h15v18M9 7.5h1.5M13.5 7.5H15M9 11.25h1.5M13.5 11.25H15M10.5 21v-4.5h3V21"/>',
         ];
@@ -336,12 +338,6 @@
             ['label' => 'Rented Out',  'value' => $stats['rentedOut'],   'filter' => 'rented_out'],
             // AT-448 — Expired tile on both lenses (rental mandates expire too).
             ['label' => 'Expired',     'value' => $stats['expired'] ?? 0, 'filter' => 'expired'],
-        ] : (($isAuctionEntry ?? false) ? [
-            // AT-432 — Auctions lens: the statuses that matter for auction stock.
-            ['label' => 'Total',       'value' => $stats['total'],       'filter' => ''],
-            ['label' => 'On Auction',  'value' => $stats['onAuction'],   'filter' => \App\Models\Property::STATUS_ON_AUCTION],
-            ['label' => 'Draft',       'value' => $stats['draft'],       'filter' => 'draft'],
-            ['label' => 'Sold',        'value' => $stats['sold'],        'filter' => 'sold'],
         ] : [
             ['label' => 'Total',       'value' => $stats['total'],       'filter' => ''],
             ['label' => 'On Market',   'value' => $stats['active'],      'filter' => 'on_market'],
@@ -350,7 +346,7 @@
             ['label' => 'Sold',        'value' => $stats['sold'],        'filter' => 'sold'],
             // AT-448 — Expired tile (spec §2.1).
             ['label' => 'Expired',     'value' => $stats['expired'] ?? 0, 'filter' => 'expired'],
-        ]);
+        ];
 
         // AT-453 — Other Agency Stock is another agency's listing: its own tile, never inside
         // Total / On Market. Shown only where the feature is on for this viewer.
@@ -360,6 +356,11 @@
                 'value'  => $stats['otherAgency'] ?? 0,
                 'filter' => \App\Models\Property::STATUS_OTHER_AGENCY_STOCK,
             ];
+        }
+
+        // Auction enquiries (.ai/specs/auctions.md §23) - owners who described a property through "Sell at auction". Only while Auctions is on.
+        if (($showAuctionEnquiries ?? false)) {
+            $kpiTiles[] = ['label' => 'Auction enquiries', 'value' => $stats['auctionEnquiries'] ?? 0, 'filter' => \App\Models\Property::STATUS_AUCTION_ENQUIRY];
         }
 
         // Layer 3 — "Awaiting approval" (.ai/specs/syndication-approval-gate.md §7.1).
@@ -527,12 +528,7 @@
                  mislabelled — no rental-equivalent status exists for either today. --}}
             <select name="status" onchange="this.form.submit()" class="list-header-filter {{ $status !== '' ? 'is-active' : '' }}" data-tour="re-properties-status">
                 <option value="" {{ $status === '' ? 'selected' : '' }}>All Statuses</option>
-                @if($isAuctionEntry ?? false)
-                <option value="{{ \App\Models\Property::STATUS_ON_AUCTION }}" {{ $status === \App\Models\Property::STATUS_ON_AUCTION ? 'selected' : '' }}>On Auction</option>
-                <option value="draft" {{ $status === 'draft' ? 'selected' : '' }}>Draft</option>
-                <option value="sold" {{ $status === 'sold' ? 'selected' : '' }}>Sold</option>
-                <option value="withdrawn" {{ $status === 'withdrawn' ? 'selected' : '' }}>Withdrawn</option>
-                @elseif($isRentalEntry ?? false)
+                @if($isRentalEntry ?? false)
                 <option value="on_market" {{ $status === 'on_market' ? 'selected' : '' }}>Available</option>
                 <option value="{{ \App\Models\Property::STATUS_PROSPECTING }}" {{ $status === \App\Models\Property::STATUS_PROSPECTING ? 'selected' : '' }}>Prospecting</option>
                 <option value="draft" {{ $status === 'draft' ? 'selected' : '' }}>Draft</option>
@@ -559,6 +555,9 @@
                 @if($showOtherAgencyStock ?? false)
                 <option value="{{ \App\Models\Property::STATUS_OTHER_AGENCY_STOCK }}" {{ $status === \App\Models\Property::STATUS_OTHER_AGENCY_STOCK ? 'selected' : '' }}>Other Agency Stock</option>
                 @endif
+                @if($showAuctionEnquiries ?? false)
+                <option value="{{ \App\Models\Property::STATUS_AUCTION_ENQUIRY }}" {{ $status === \App\Models\Property::STATUS_AUCTION_ENQUIRY ? 'selected' : '' }}>Auction enquiries</option>
+                @endif
                 @endif
             </select>
 
@@ -567,27 +566,7 @@
                  server-side whenever isRentalEntry is true, regardless of
                  what this control (or a hand-edited URL) says, so a static
                  label here is honest, not merely decorative. --}}
-            @if($isAuctionEntry ?? false)
-                <span class="list-header-filter" style="cursor:default;" title="This entry point always shows auction properties only" data-tour="au-prop-lens">Auctions only</span>
-                {{-- AT-432 (§8.2) — lens-only filters: which auction, lot status, reserve met. --}}
-                <select name="auction_id" onchange="this.form.submit()" class="list-header-filter" title="Auction" data-tour="au-prop-auction">
-                    <option value="">All auctions</option>
-                    @foreach($auctionOptions as $ao)
-                    <option value="{{ $ao->id }}" {{ $auctionFilters['auctionId'] === (string) $ao->id ? 'selected' : '' }}>{{ $ao->reference }} — {{ $ao->title }} ({{ $ao->starts_at?->format('d M Y') }})</option>
-                    @endforeach
-                </select>
-                <select name="lot_status" onchange="this.form.submit()" class="list-header-filter" title="Lot status" data-tour="au-prop-lotstatus">
-                    <option value="">Any lot status</option>
-                    @foreach($lotStatusLabels as $slug => $label)
-                    <option value="{{ $slug }}" {{ $auctionFilters['lotStatus'] === (string) $slug ? 'selected' : '' }}>{{ $label }}</option>
-                    @endforeach
-                </select>
-                <select name="reserve_met" onchange="this.form.submit()" class="list-header-filter" title="Reserve" data-tour="au-prop-reserve">
-                    <option value="">Reserve: any</option>
-                    <option value="1" {{ $auctionFilters['reserveMet'] === '1' ? 'selected' : '' }}>Reserve met</option>
-                    <option value="0" {{ $auctionFilters['reserveMet'] === '0' ? 'selected' : '' }}>Reserve not met</option>
-                </select>
-            @elseif($isRentalEntry ?? false)
+            @if($isRentalEntry ?? false)
                 <span class="list-header-filter" style="cursor:default;" title="This entry point always shows rentals only">Rentals only</span>
             @else
                 <select name="listing_type" onchange="this.form.submit()" class="list-header-filter {{ ($filters['listingType'] ?? '') !== '' ? 'is-active' : '' }}">
@@ -607,10 +586,6 @@
                 <option value="price_desc" {{ ($filters['sort'] ?? '') === 'price_desc' ? 'selected' : '' }}>Price: high → low</option>
                 <option value="price_asc"  {{ ($filters['sort'] ?? '') === 'price_asc'  ? 'selected' : '' }}>Price: low → high</option>
                 <option value="title"      {{ ($filters['sort'] ?? '') === 'title'      ? 'selected' : '' }}>Title (A–Z)</option>
-                @if($isAuctionEntry ?? false)
-                <option value="lot_number" {{ ($filters['sort'] ?? '') === 'lot_number' ? 'selected' : '' }}>Lot number</option>
-                <option value="auction_date" {{ ($filters['sort'] ?? '') === 'auction_date' ? 'selected' : '' }}>Auction date</option>
-                @endif
             </select>
 
             {{-- More filters toggle --}}
@@ -1202,8 +1177,6 @@
                 </div>
                 @endif
 
-                @if($isAuctionEntry ?? false) @include('corex.properties.partials.auction-lot-chip') @endif
-
                 {{-- Property type + features row --}}
                 <div class="flex flex-wrap items-center gap-x-3 gap-y-1 mt-2 text-xs" style="color:var(--text-secondary);">
                     <span class="capitalize">{{ str_replace('_', ' ', $property->property_type) }}</span>
@@ -1415,7 +1388,6 @@
                     </td>
                     <td class="px-4 py-2.5 text-xs" style="color:var(--text-secondary);">
                         {{ $property->buildDisplayAddress() }}
-                        @if($isAuctionEntry ?? false) @include('corex.properties.partials.auction-lot-chip') @endif
                     </td>
                     <td class="px-4 py-2.5 text-xs capitalize hidden sm:table-cell" style="color:var(--text-secondary);">
                         {{ str_replace('_', ' ', $property->property_type) }}

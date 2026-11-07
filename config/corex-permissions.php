@@ -1078,35 +1078,43 @@ return [
         // turn syndication on" setting lands, this key is expected to delegate
         // to (or be replaced by) that instead.
         ['key' => 'other_agency_stock.change_status', 'label' => 'Change Other Agency Stock Status', 'section' => 'properties', 'type' => 'action', 'module' => 'other_agency_stock', 'sort_order' => 1],
-        // ── Auctions (AT-432) — .ai/specs/auctions.md §20 ──
-        // Feature-flagged off by default (config/corex-features.php 'auctions') —
-        // an agency that does not auction sees nothing regardless of these grants.
-        // BUG FIX (2026-09-27): these 20 entries were originally inserted AFTER
-        // this array's closing bracket, landing as top-level numeric-keyed
-        // siblings of 'permissions' in the outer config array instead of inside
-        // it — corex:sync-permissions read `config('corex-permissions.permissions')`
-        // and never saw them, so every auctions.* permission key was invisible to
-        // the sync command and would never have existed in nexus_permissions.
-        ['key' => 'access_auctions',                 'label' => 'Access Auctions',                    'section' => 'auctions', 'type' => 'access', 'module' => 'auctions', 'sort_order' => 1],
-        ['key' => 'auctions.view',                   'label' => 'View',                               'section' => 'auctions', 'type' => 'action', 'module' => 'auctions', 'sort_order' => 2],
-        ['key' => 'auctions.create',                 'label' => 'Create',                             'section' => 'auctions', 'type' => 'action', 'module' => 'auctions', 'sort_order' => 3],
-        ['key' => 'auctions.edit',                   'label' => 'Edit',                               'section' => 'auctions', 'type' => 'action', 'module' => 'auctions', 'sort_order' => 4],
-        ['key' => 'auctions.archive',                'label' => 'Archive',                            'section' => 'auctions', 'type' => 'action', 'module' => 'auctions', 'sort_order' => 5],
-        ['key' => 'auctions.publish',                'label' => 'Publish Catalogue',                  'section' => 'auctions', 'type' => 'action', 'module' => 'auctions', 'sort_order' => 6],
-        ['key' => 'auctions.reserve.view',           'label' => 'View Reserve Prices',                'section' => 'auctions', 'type' => 'action', 'module' => 'auctions', 'sort_order' => 7],
-        ['key' => 'auctions.reserve.edit',           'label' => 'Set Reserve Prices',                 'section' => 'auctions', 'type' => 'action', 'module' => 'auctions', 'sort_order' => 8],
-        ['key' => 'auctions.bidders.view',           'label' => 'View Bidder Register',               'section' => 'auctions', 'type' => 'access', 'module' => 'auctions', 'sort_order' => 9],
-        ['key' => 'auctions.bidders.view_all',       'label' => "View All Branches' Bidders",         'section' => 'auctions', 'type' => 'action', 'module' => 'auctions', 'sort_order' => 10],
-        ['key' => 'auctions.bidders.approve',        'label' => 'Approve Bidders / Issue Paddles',    'section' => 'auctions', 'type' => 'action', 'module' => 'auctions', 'sort_order' => 11],
-        ['key' => 'auctions.bidders.verify_fica',    'label' => 'Verify Bidder FICA',                 'section' => 'auctions', 'type' => 'action', 'module' => 'auctions', 'sort_order' => 12],
-        ['key' => 'auctions.bidders.deposits',       'label' => 'Record & Refund Deposits',           'section' => 'auctions', 'type' => 'action', 'module' => 'auctions', 'sort_order' => 13],
-        ['key' => 'auctions.room.operate',           'label' => 'Operate the Sale Room',              'section' => 'auctions', 'type' => 'access', 'module' => 'auctions', 'sort_order' => 14],
-        ['key' => 'auctions.bid.record',             'label' => 'Record Bids',                        'section' => 'auctions', 'type' => 'action', 'module' => 'auctions', 'sort_order' => 15],
-        ['key' => 'auctions.bid.retract',            'label' => 'Retract a Bid',                      'section' => 'auctions', 'type' => 'action', 'module' => 'auctions', 'sort_order' => 16],
-        ['key' => 'auctions.hammer',                 'label' => 'Knock Down a Lot',                   'section' => 'auctions', 'type' => 'action', 'module' => 'auctions', 'sort_order' => 17],
-        ['key' => 'auctions.results.view',           'label' => 'View Results',                       'section' => 'auctions', 'type' => 'access', 'module' => 'auctions', 'sort_order' => 18],
-        ['key' => 'auctions.results.export',         'label' => 'Export Results',                     'section' => 'auctions', 'type' => 'action', 'module' => 'auctions', 'sort_order' => 19],
-        ['key' => 'auctions.manage_settings',        'label' => 'Manage Auction Settings',            'section' => 'auctions', 'type' => 'action', 'module' => 'auctions', 'sort_order' => 20],
+        // ── Auctions v2 — .ai/specs/auctions.md §9 (phase 1 keys; later phases add enquiries / bids / bidders / room / results) ──
+        // Feature-flagged per agency (config/corex-features.php 'auctions', default off). `auctions.view` is the data-scope
+        // row: getDataScope($user, 'auctions') reads it — admin=all, branch_manager=branch, agent=own (scope_defaults).
+        ['key' => 'access_auctions',          'label' => 'Access Auctions',            'section' => 'auctions', 'type' => 'access', 'module' => 'auctions', 'sort_order' => 1],
+        ['key' => 'auctions.view',            'label' => 'View',                       'section' => 'auctions', 'type' => 'action', 'module' => 'auctions', 'sort_order' => 2],
+        ['key' => 'auctions.create',          'label' => 'Create',                     'section' => 'auctions', 'type' => 'action', 'module' => 'auctions', 'sort_order' => 3],
+        ['key' => 'auctions.edit',            'label' => 'Edit',                       'section' => 'auctions', 'type' => 'action', 'module' => 'auctions', 'sort_order' => 4],
+        ['key' => 'auctions.archive',         'label' => 'Archive / Restore',          'section' => 'auctions', 'type' => 'action', 'module' => 'auctions', 'sort_order' => 5],
+        ['key' => 'auctions.publish',         'label' => 'Publish / Cancel / Complete', 'section' => 'auctions', 'type' => 'action', 'module' => 'auctions', 'sort_order' => 6],
+        ['key' => 'auctions.lots.manage',     'label' => 'Manage Lots',                'section' => 'auctions', 'type' => 'action', 'module' => 'auctions', 'sort_order' => 7],
+        ['key' => 'auctions.reserve.view',    'label' => 'View Reserve Prices',        'section' => 'auctions', 'type' => 'action', 'module' => 'auctions', 'sort_order' => 8],
+        ['key' => 'auctions.reserve.edit',    'label' => 'Set Reserve Prices',         'section' => 'auctions', 'type' => 'action', 'module' => 'auctions', 'sort_order' => 9],
+        ['key' => 'auctions.manage_settings', 'label' => 'Manage Auction Settings',    'section' => 'auctions', 'type' => 'action', 'module' => 'auctions', 'sort_order' => 10],
+        // Phase 2 — Enquiries (S3). `view_all` lifts the own/branch scope for this one screen.
+        ['key' => 'auctions.sellers.view',       'label' => 'View Seller Leads ("Sell at auction")',     'section' => 'auctions', 'type' => 'action', 'module' => 'auctions', 'sort_order' => 27],
+        ['key' => 'auctions.sellers.view_all',   'label' => "View All Branches' Seller Leads",           'section' => 'auctions', 'type' => 'action', 'module' => 'auctions', 'sort_order' => 28],
+        ['key' => 'auctions.sellers.manage',     'label' => 'Assign / Update / Archive Seller Leads',    'section' => 'auctions', 'type' => 'action', 'module' => 'auctions', 'sort_order' => 29],
+        ['key' => 'auctions.enquiries.view',     'label' => 'View Enquiries',                  'section' => 'auctions', 'type' => 'action', 'module' => 'auctions', 'sort_order' => 11],
+        ['key' => 'auctions.enquiries.manage',   'label' => 'Assign / Update Enquiries',       'section' => 'auctions', 'type' => 'action', 'module' => 'auctions', 'sort_order' => 12],
+        // Phase 3 — Bidders (S5) and Bids (S4). `bidders.view` is who may see registrations; the others are the actions.
+        ['key' => 'auctions.bidders.view',             'label' => 'View Bidders',                   'section' => 'auctions', 'type' => 'action', 'module' => 'auctions', 'sort_order' => 14],
+        ['key' => 'auctions.bidders.view_all',         'label' => "View All Branches' Bidders",     'section' => 'auctions', 'type' => 'action', 'module' => 'auctions', 'sort_order' => 15],
+        ['key' => 'auctions.bidders.approve',          'label' => 'Approve / Decline Bidders',      'section' => 'auctions', 'type' => 'action', 'module' => 'auctions', 'sort_order' => 16],
+        ['key' => 'auctions.bidders.review_documents', 'label' => 'Review Bidder Documents',        'section' => 'auctions', 'type' => 'action', 'module' => 'auctions', 'sort_order' => 17],
+        ['key' => 'auctions.bids.view',                'label' => 'View Bids',                      'section' => 'auctions', 'type' => 'action', 'module' => 'auctions', 'sort_order' => 18],
+        ['key' => 'auctions.bids.retract',             'label' => 'Retract a Bid',                  'section' => 'auctions', 'type' => 'action', 'module' => 'auctions', 'sort_order' => 19],
+        // Phase 4 — the Sale Room, the hammer (and the seller's decision on a below-reserve sale) and Results.
+        ['key' => 'auctions.room.operate',      'label' => 'Operate the Sale Room',          'section' => 'auctions', 'type' => 'access', 'module' => 'auctions', 'sort_order' => 20],
+        ['key' => 'auctions.hammer',            'label' => 'Knock Down / Pass In / Confirm a Sale', 'section' => 'auctions', 'type' => 'action', 'module' => 'auctions', 'sort_order' => 21],
+        ['key' => 'auctions.results.view',      'label' => 'View Results',                   'section' => 'auctions', 'type' => 'action', 'module' => 'auctions', 'sort_order' => 22],
+        ['key' => 'auctions.results.export',    'label' => 'Export Results',                 'section' => 'auctions', 'type' => 'action', 'module' => 'auctions', 'sort_order' => 23],
+        // Preview page (S9): looking needs auctions.view; changing the wording and pictures needs this.
+        ['key' => 'auctions.page.edit',         'label' => 'Edit the Public Auction Page',   'section' => 'auctions', 'type' => 'action', 'module' => 'auctions', 'sort_order' => 24],
+        // Fees phase — bidder invoices (S10).
+        ['key' => 'auctions.invoices.view',     'label' => 'View Bidder Invoices',           'section' => 'auctions', 'type' => 'action', 'module' => 'auctions', 'sort_order' => 25],
+        ['key' => 'auctions.invoices.manage',   'label' => 'Issue / Record Payments / Cancel Invoices', 'section' => 'auctions', 'type' => 'action', 'module' => 'auctions', 'sort_order' => 26],
+        ['key' => 'auctions.enquiries.view_all', 'label' => "View All Branches' Enquiries",    'section' => 'auctions', 'type' => 'action', 'module' => 'auctions', 'sort_order' => 13],
     ],
 
     // ──────────────────────────────────────────────────────────
@@ -1190,14 +1198,15 @@ return [
                 // Other Agency Stock status; agents/assistants/viewers do not
                 // (fresh-install default; agencies can widen via Role Manager).
                 'other_agency_stock.change_status',
-                // AT-432 (.ai/specs/auctions.md §20) — Branch Manager gets everything
-                // in the Auctions module EXCEPT manage_settings and bid.retract.
-                'access_auctions', 'auctions.view', 'auctions.create', 'auctions.edit', 'auctions.archive',
-                'auctions.publish', 'auctions.reserve.view', 'auctions.reserve.edit',
-                'auctions.bidders.view', 'auctions.bidders.view_all', 'auctions.bidders.approve',
-                'auctions.bidders.verify_fica', 'auctions.bidders.deposits',
-                'auctions.room.operate', 'auctions.bid.record', 'auctions.hammer',
-                'auctions.results.view', 'auctions.results.export',
+                // Auctions v2 (.ai/specs/auctions.md §9) — Branch Manager gets everything built so far except manage_settings.
+                'access_auctions', 'auctions.view', 'auctions.create', 'auctions.edit', 'auctions.archive', 'auctions.publish',
+                'auctions.lots.manage', 'auctions.reserve.view', 'auctions.reserve.edit',
+                'auctions.enquiries.view', 'auctions.enquiries.manage',
+                'auctions.sellers.view', 'auctions.sellers.manage',
+                'auctions.bidders.view', 'auctions.bidders.approve', 'auctions.bidders.review_documents', 'auctions.bids.view',
+                'auctions.room.operate', 'auctions.hammer', 'auctions.results.view', 'auctions.results.export',
+                'auctions.page.edit',
+                'auctions.invoices.view', 'auctions.invoices.manage',
                 'view_dashboard', 'view_dashboard_kpis', 'view_dashboard_charts', 'export_reports',
                 'access_agency_tracker', 'access_daily_activity', 'access_deal_register',
                 'access_listing_stock', 'access_tv_messages', 'access_worksheet_market',
@@ -1410,9 +1419,12 @@ return [
             'include' => [
                 'desk.request_help', // CoreX Desk - Get help (every role by default)
                 'desk.support', 'desk.control', // CoreX Desk - offer support to colleagues in the same agency (Johan, 30 Oct 2026); not the viewer
-                // AT-432 (.ai/specs/auctions.md §20) — Agent's stated subset.
-                'access_auctions', 'auctions.view', 'auctions.create', 'auctions.edit',
-                'auctions.bidders.view', 'auctions.results.view',
+                // Auctions v2 (.ai/specs/auctions.md §9) — Agent: view, create, edit, lots (own scope).
+                'access_auctions', 'auctions.view', 'auctions.create', 'auctions.edit', 'auctions.lots.manage',
+                'auctions.enquiries.view', 'auctions.enquiries.manage',
+                'auctions.bidders.view', 'auctions.bids.view',
+                'auctions.results.view',
+                'auctions.invoices.view',
                 'view_dashboard', 'view_dashboard_kpis', 'view_dashboard_charts',
                 'access_agency_tracker', 'access_daily_activity',
                 'communication_mailboxes.view', // AT-395 — own scope (scope_defaults)

@@ -1,108 +1,79 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Register to Bid — {{ $auction->title }}</title>
-    @vite(['resources/css/app.css', 'resources/js/app.js'])
-</head>
-<body class="bg-slate-50 min-h-screen p-4">
-    <div class="w-full max-w-lg mx-auto py-8">
-        <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
-            <span class="inline-block text-xs font-semibold tracking-wide uppercase bg-amber-100 text-amber-800 rounded px-2 py-1 mb-2">Auction</span>
-            <h1 class="text-xl font-bold text-slate-800 mb-1">{{ $auction->title }}</h1>
-            <p class="text-sm text-slate-500 mb-4">
-                {{ $auction->starts_at?->format('d M Y, H:i') }}
-                @if($auction->venue_name) &middot; {{ $auction->venue_name }} @endif
-            </p>
+@extends('public.auctions._layout')
+@section('title', 'Register to bid')
+@section('content')
+<div class="narrow" style="max-width:640px;">
+    <p class="small"><a href="{{ route('public.auctions.auction', [$agency->slug, $auction->id]) }}">&larr; {{ $auction->title }}</a></p>
+    <div class="panel">
+        <h1 style="margin-top:0;">Register to bid</h1>
+        <p class="muted small">{{ $auction->title }} · {{ $auction->reference }}@if($deadline) · registration closes {{ $deadline->format('j M Y, H:i') }}@endif</p>
 
-            @if($auction->lots->isNotEmpty())
-            <div class="border-t border-slate-100 pt-4 mb-4">
-                <h2 class="text-sm font-semibold text-slate-700 mb-2">Lots on offer</h2>
-                <ul class="text-sm text-slate-600 space-y-1">
-                    @foreach($auction->lots as $lot)
-                    <li>
-                        Lot {{ $lot->lot_number }} — {{ $lot->property?->address ?? $lot->property?->title ?? 'Property #'.$lot->property_id }}
-                        @if($lot->guide_price_min || $lot->guide_price_max)
-                            <span class="text-slate-400">
-                                (Guide: R {{ number_format($lot->guide_price_min ?? 0, 0) }} – R {{ number_format($lot->guide_price_max ?? 0, 0) }})
-                            </span>
-                        @endif
-                    </li>
-                    @endforeach
-                </ul>
-            </div>
+        @if($registration && $registration->status === 'approved')
+            <div class="alert ok">You are approved to bid in this auction. Your bidder number is <strong>#{{ $registration->bidder_number }}</strong>.</div>
+        @elseif(! $isOpen)
+            <div class="alert err">Registration for this auction is closed.</div>
+        @else
+            @if($registration && $registration->status === 'pending')
+                <div class="alert ok">Your registration is waiting for approval. You can change your details below and send it again.</div>
+            @elseif($registration && $registration->status === 'declined')
+                <div class="alert err">Your registration was not approved.@if($registration->declined_reason) {{ $registration->declined_reason }}@endif Please update it below.</div>
             @endif
 
-            @if(session('status'))
-            <div class="rounded bg-green-50 text-green-800 px-3 py-2 text-sm mb-4">{{ session('status') }}</div>
-            @endif
-            @if($errors->any())
-            <div class="rounded bg-red-50 text-red-800 px-3 py-2 text-sm mb-4">{{ $errors->first() }}</div>
-            @endif
-
-            @if(! $registrationOpen)
-            <div class="rounded bg-slate-100 text-slate-700 px-3 py-3 text-sm">
-                Registration for this auction is not currently open. If you believe this is a mistake, please contact the agency directly.
-            </div>
-            @else
-            <p class="text-sm text-slate-600 mb-4">
-                Register below to receive a paddle. Before the sale, our team will verify your FICA documentation
-                @if(!empty($ficaChecklist)) ({{ implode(', ', $ficaChecklist) }}) @endif
-                and ask you to sign the Rules of Auction — we'll be in touch to complete both.
-            </p>
-
-            <form method="POST" action="{{ route('public.auctions.register.store', $auction->id) }}" class="space-y-3" x-data="{ biddingFor: 'self' }">
+            <form method="POST" action="{{ route('public.auctions.register.submit', [$agency->slug, $auction->id]) }}" enctype="multipart/form-data" class="stack">
                 @csrf
-                <div class="grid grid-cols-2 gap-3">
-                    <div>
-                        <label class="block text-xs text-slate-500 mb-1">First name *</label>
-                        <input type="text" name="first_name" required class="w-full rounded border border-slate-300 px-3 py-2 text-sm">
-                    </div>
-                    <div>
-                        <label class="block text-xs text-slate-500 mb-1">Last name</label>
-                        <input type="text" name="last_name" class="w-full rounded border border-slate-300 px-3 py-2 text-sm">
-                    </div>
+                <label>Are you bidding as</label>
+                <div style="display:flex;gap:18px;">
+                    <label style="font-weight:400;"><input type="radio" name="bidder_type" value="individual" @checked($type === 'individual') onchange="setType(this.value)"> An individual</label>
+                    <label style="font-weight:400;"><input type="radio" name="bidder_type" value="company" @checked($type === 'company') onchange="setType(this.value)"> A company</label>
                 </div>
-                <div class="grid grid-cols-2 gap-3">
-                    <div>
-                        <label class="block text-xs text-slate-500 mb-1">Email</label>
-                        <input type="email" name="email" class="w-full rounded border border-slate-300 px-3 py-2 text-sm">
-                    </div>
-                    <div>
-                        <label class="block text-xs text-slate-500 mb-1">Phone</label>
-                        <input type="text" name="phone" class="w-full rounded border border-slate-300 px-3 py-2 text-sm">
-                    </div>
-                </div>
-                <p class="text-xs text-slate-400">Enter at least an email address or a phone number.</p>
 
-                @if($entityBiddersAllowed)
-                <div>
-                    <label class="block text-xs text-slate-500 mb-1">Bidding as</label>
-                    <select name="bidding_for" x-model="biddingFor" class="w-full rounded border border-slate-300 px-3 py-2 text-sm">
-                        <option value="self">Myself</option>
-                        <option value="entity">A company / trust / entity</option>
-                    </select>
+                <div id="company-box" style="{{ $type === 'company' ? '' : 'display:none' }}">
+                    <label for="company_name">Company name</label>
+                    <input id="company_name" type="text" name="company_name" value="{{ old('company_name', $registration?->company_name) }}" maxlength="190">
+                    <label for="company_reg_no">Registration number</label>
+                    <input id="company_reg_no" type="text" name="company_reg_no" value="{{ old('company_reg_no', $registration?->company_reg_no) }}" maxlength="60">
                 </div>
-                <div x-show="biddingFor === 'entity'">
-                    <label class="block text-xs text-slate-500 mb-1">Entity name</label>
-                    <input type="text" name="entity_name" class="w-full rounded border border-slate-300 px-3 py-2 text-sm">
-                </div>
-                @else
-                <input type="hidden" name="bidding_for" value="self">
+
+                <h2>Your documents</h2>
+                <p class="muted small" style="margin-top:0;">The agency needs these to approve you (FICA). Upload a PDF, JPG or PNG, or tick &ldquo;use the one on file&rdquo; if you sent it before.</p>
+                @foreach(['individual' => $requiredIndividual, 'company' => $requiredCompany] as $btype => $required)
+                    @foreach($required as $kind)
+                        @php $files = $onFile->get($kind, collect()); $show = ($type === $btype); @endphp
+                        <div data-req="{{ $btype }}" style="{{ $show ? '' : 'display:none' }};border-top:1px solid var(--line);padding-top:6px;">
+                            <label>{{ $kinds[$kind] ?? $kind }}</label>
+                            @if($files->isNotEmpty())
+                                <label style="font-weight:400;"><input type="radio" name="existing[{{ $kind }}]" value="{{ $files->first()->id }}" checked> Use the one on file ({{ $files->first()->original_name }}, added {{ $files->first()->created_at->format('j M Y') }})</label>
+                                <label style="font-weight:400;"><input type="radio" name="existing[{{ $kind }}]" value=""> Upload a new one</label>
+                            @endif
+                            <input type="file" name="documents[{{ $kind }}]" accept=".pdf,.jpg,.jpeg,.png">
+                        </div>
+                    @endforeach
+                @endforeach
+
+                <h2>Conditions</h2>
+                @if(($feeNotice ?? '') !== '')<p class="small" style="margin-top:0;" data-fee-notice><strong>Fees.</strong> {{ $feeNotice }}</p>@endif
+                @if($documents->isNotEmpty())
+                    <ul class="docs">@foreach($documents as $d)<li><a href="{{ route('public.auctions.auction.document', [$agency->slug, $auction->id, $d->id]) }}" target="_blank">{{ $d->name }}</a></li>@endforeach</ul>
                 @endif
-
-                <label class="flex items-start gap-2 text-xs text-slate-600 pt-2">
-                    <input type="checkbox" name="popia_consent" value="1" required class="mt-0.5">
-                    <span>I consent to my details being processed to register me for this auction, in line with POPIA and the agency's privacy policy.</span>
+                @if($terms !== '')<div class="small" style="white-space:pre-line;max-height:160px;overflow:auto;border:1px solid var(--line);border-radius:8px;padding:10px;margin-top:8px;">{{ $terms }}</div>@endif
+                <label style="font-weight:400;display:flex;gap:8px;align-items:flex-start;margin-top:14px;">
+                    <input type="checkbox" name="accept_conditions" value="1" required style="margin-top:4px;">
+                    <span class="small">I have read and accept the conditions of this auction, and I agree that {{ $branding['name'] }} may verify my documents.</span>
                 </label>
-
-                <button type="submit" class="w-full rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-sm font-semibold py-2.5 mt-2">
-                    Register to Bid
-                </button>
+                <p style="margin-top:16px;"><button class="btn" type="submit">{{ $registration ? 'Send my registration again' : 'Submit registration' }}</button></p>
             </form>
-            @endif
-        </div>
+        @endif
     </div>
-</body>
-</html>
+</div>
+<script>
+    // Only the documents for the chosen bidder type are shown AND submitted (the two lists share some kinds).
+    function setType(t) {
+        document.getElementById('company-box').style.display = t === 'company' ? '' : 'none';
+        document.querySelectorAll('[data-req]').forEach(function (sec) {
+            var on = sec.dataset.req === t;
+            sec.style.display = on ? '' : 'none';
+            sec.querySelectorAll('input').forEach(function (i) { i.disabled = !on; });
+        });
+    }
+    setType(document.querySelector('input[name=bidder_type]:checked') ? document.querySelector('input[name=bidder_type]:checked').value : 'individual');
+</script>
+@endsection

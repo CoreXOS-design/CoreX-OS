@@ -62,8 +62,8 @@
     @if($tab['key'] === 'core-matches' && (!\App\Models\PerformanceSetting::get('matches_enabled', 1) || !\App\Models\PerformanceSetting::get('matches_show_on_properties', 1) || !auth()->user()->hasPermission('access_core_matches')))
         @continue
     @endif
-    {{-- AT-432 — Auction tab only for a property that is on auction. --}}
-    @if($tab['key'] === 'auction' && ($isNew || ! $property->isAuction()))
+    {{-- Auctions v2 — the Auction tab only for a saved property marked as auction, on an agency with Auctions on. --}}
+    @if($tab['key'] === 'auction' && ($isNew || ! $property->isAuction() || ! auth()->user()->hasPermission('auctions.view') || ! app(\App\Services\Features\AgencyFeatureService::class)->enabled('auctions', auth()->user()->effectiveAgencyId() ? \App\Models\Agency::find(auth()->user()->effectiveAgencyId()) : null)))
         @continue
     @endif
     @if($tab['key'] === 'rental-images' && ($isNew || strtolower($property->listing_type ?? '') !== 'rental'))

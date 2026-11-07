@@ -46,6 +46,16 @@ class AgencyApiKey extends Model implements Authenticatable
     public const SCOPE_STATS_WRITE       = 'stats:write';
     public const SCOPE_WEBHOOKS_RECEIVE = 'webhooks:receive';
 
+    // Auction website (.ai/specs/auctions.md §24): an external site that shows this agency's auctions and lets buyers bid, exactly like the public page.
+    public const SCOPE_AUCTIONS_READ    = 'auctions:read';
+    public const SCOPE_AUCTIONS_BUYERS  = 'auctions:buyers';
+    public const SCOPE_AUCTIONS_LEADS   = 'auctions:leads';
+
+    /** The permissions an "auction website" key is given by the one-click preset. */
+    public const AUCTION_WEBSITE_PRESET = [
+        self::SCOPE_AGENCY_READ, self::SCOPE_AUCTIONS_READ, self::SCOPE_AUCTIONS_BUYERS, self::SCOPE_AUCTIONS_LEADS,
+    ];
+
     // NOTE (AT-230): there are deliberately NO demo:* scopes here.
     //
     // The demo instance authenticates to primary with the UNIVERSAL DemoConnector
@@ -65,6 +75,9 @@ class AgencyApiKey extends Model implements Authenticatable
         self::SCOPE_LEADS_WRITE        => 'Submit website leads (enquiries)',
         self::SCOPE_STATS_WRITE        => 'Submit listing statistics (views, hits, contact clicks)',
         self::SCOPE_WEBHOOKS_RECEIVE   => 'Receive webhook events',
+        self::SCOPE_AUCTIONS_READ      => 'Auction website: read auctions, lots, live bids and documents',
+        self::SCOPE_AUCTIONS_BUYERS    => 'Auction website: buyer accounts, registering to bid, bidding',
+        self::SCOPE_AUCTIONS_LEADS     => 'Auction website: enquiries and the "Sell at auction" questionnaire',
     ];
 
     protected $fillable = [

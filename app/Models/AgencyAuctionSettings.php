@@ -4,426 +4,194 @@ namespace App\Models;
 
 use App\Models\Concerns\BelongsToAgency;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\SoftDeletes;
 
 /**
- * AT-432 — .ai/specs/auctions.md §4 / §5.7. One row per agency, the
- * switchboard behind Andre's three shape-defining decisions (spec §0):
- * who runs the auction, where bidding happens, how the agency is paid —
- * every one of them an agency setting, never a hardcoded model.
+ * Auctions v2 (.ai/specs/auctions.md §7). One row per agency; a NULL column means
+ * "use the neutral default below", so an agency that never opens the settings page
+ * still gets sensible behaviour and nothing here is HFC-specific.
  *
- * Copies RentalApplicationQualifyingSetting's pattern verbatim, per the
- * spec's own instruction not to invent a second accessor style: forAgency()
- * NEVER creates a row on read, only returns the documented default when the
- * agency has never opened Settings → Auctions. A row is only ever written
- * when the agency explicitly saves.
+ * Every setting is read through a `{camelKey}For($agencyId)` resolver — the same
+ * convention the onboarding wizard's value loader dispatches on.
  */
 class AgencyAuctionSettings extends Model
 {
-    use BelongsToAgency;
+    use BelongsToAgency, SoftDeletes;
 
-    // ── §4.1 Who runs the auction ───────────────────────────────────────
-    public const AUCTIONEER_MODES = ['internal', 'external', 'both'];
-    public const DEFAULT_AUCTIONEER_MODE = 'both';
-    public const DEFAULT_EXTERNAL_AUCTIONEER_REQUIRED_FIELDS = ['name', 'company', 'contact', 'licence_no'];
-
-    // ── §4.2 Where bidding happens ───────────────────────────────────────
-    public const BIDDING_MODES = ['in_room', 'online', 'hybrid'];
-    public const DEFAULT_BIDDING_MODES_ENABLED = ['in_room'];
-    public const DEFAULT_DEFAULT_BIDDING_MODE = 'in_room';
-    public const DEFAULT_ONLINE_AUTO_EXTEND_ENABLED = true;
-    public const DEFAULT_ONLINE_AUTO_EXTEND_MINUTES = 5;
-    public const DEFAULT_ONLINE_BID_INCREMENT_MODE = 'banded';
-    /** §11.3 — the default increment band table. Agency-editable in full. */
-    public const DEFAULT_ONLINE_BID_INCREMENT_BANDS = [
-        ['from' => 0,       'to' => 500000,   'increment' => 10000],
-        ['from' => 500001,  'to' => 1000000,  'increment' => 25000],
-        ['from' => 1000001, 'to' => 2500000,  'increment' => 50000],
-        ['from' => 2500001, 'to' => 5000000,  'increment' => 100000],
-        ['from' => 5000001, 'to' => null,     'increment' => 250000],
-    ];
-    public const DEFAULT_PROXY_BIDDING_ENABLED = true;
-    public const DEFAULT_ABSENTEE_BIDS_ENABLED = true;
-    public const DEFAULT_PHONE_BIDDING_ENABLED = true;
-    public const DEFAULT_BID_RETRACTION_ALLOWED = false;
-
-    // ── §4.3 How the agency is paid ─────────────────────────────────────
-    public const FEE_MODELS = ['buyers_premium', 'sellers_commission', 'both'];
-    public const DEFAULT_FEE_MODEL = 'buyers_premium';
-    public const DEFAULT_BUYERS_PREMIUM_PERCENT = 10.00;
-    public const DEFAULT_BUYERS_PREMIUM_VAT_INCLUSIVE = false;
-    public const DEFAULT_BUYERS_PREMIUM_MINIMUM = null;
-    public const DEFAULT_SELLERS_COMMISSION_PERCENT = null;
-    public const VAT_RATE_SOURCES = ['system', 'override'];
-    public const DEFAULT_VAT_RATE_SOURCE = 'system';
-    public const PREMIUM_PAYABLE_ON_OPTIONS = ['fall_of_hammer', 'confirmation', 'registration'];
-    public const DEFAULT_PREMIUM_PAYABLE_ON = 'fall_of_hammer';
-
-    // ── §4.4 Bidder registration requirements ───────────────────────────
-    public const DEFAULT_REGISTRATION_REQUIRED = true;
-    public const DEFAULT_REGISTRATION_OPENS_DAYS_BEFORE = 14;
-    public const REGISTRATION_CLOSES_OPTIONS = ['at_start', 'hours_before'];
-    public const DEFAULT_REGISTRATION_CLOSES = 'at_start';
-    public const DEFAULT_REGISTRATION_CLOSES_HOURS_BEFORE = 24;
-    public const DEFAULT_REQUIRE_FICA_BEFORE_PADDLE = true;
-    public const DEFAULT_FICA_DOCUMENT_CHECKLIST = ['ID', 'Proof of Address', 'Proof of Funds'];
-    public const DEFAULT_REGISTRATION_DEPOSIT_REQUIRED = true;
-    public const DEFAULT_REGISTRATION_DEPOSIT_AMOUNT = 50000.00;
-    public const DEFAULT_REGISTRATION_DEPOSIT_REFUND_DAYS = 7;
-    public const DEFAULT_REQUIRE_SIGNED_RULES_BEFORE_PADDLE = true;
-    public const PADDLE_NUMBER_MODES = ['sequential', 'manual'];
-    public const DEFAULT_PADDLE_NUMBER_MODE = 'sequential';
-    public const DEFAULT_ENTITY_BIDDERS_ALLOWED = true;
-
-    // ── §4.5 Reserve, guide and confirmation ─────────────────────────────
-    public const RESERVE_VISIBILITY_OPTIONS = ['private', 'disclosed_on_the_day', 'published'];
-    public const DEFAULT_RESERVE_VISIBILITY = 'private';
-    public const DEFAULT_GUIDE_PRICE_ENABLED = true;
-    public const DEFAULT_CONFIRMATION_PERIOD_ENABLED = true;
-    public const DEFAULT_CONFIRMATION_PERIOD_DAYS = 7;
-    /**
-     * §18 — this shipped line is the system's default disclosure text ONLY.
-     * "The legal wording of every document produced here must be confirmed
-     * by the agency's attorney or compliance officer before first live use
-     * — this spec specifies the system's behaviour, not legal advice."
-     */
-    public const DEFAULT_VENDOR_BIDDING_DISCLOSURE = 'Vendor bidding may take place on this property up to, but not exceeding, the reserve price, where disclosed and permitted by the auction rules and applicable law.';
-
-    // ── §4.6 Deposit and settlement on the day ───────────────────────────
-    public const PURCHASE_DEPOSIT_MODES = ['percent', 'fixed', 'none'];
-    public const DEFAULT_PURCHASE_DEPOSIT_MODE = 'percent';
-    public const DEFAULT_PURCHASE_DEPOSIT_PERCENT = 10.00;
-    public const DEFAULT_PURCHASE_DEPOSIT_FIXED_AMOUNT = null;
-    public const DEFAULT_PURCHASE_DEPOSIT_DUE_DAYS = 0;
-    public const DEFAULT_BALANCE_DUE_DAYS = 30;
-    public const DEFAULT_DEFAULT_ATTORNEY_PROVIDER_ID = null;
+    protected $table = 'agency_auction_settings';
 
     protected $fillable = [
-        'advertising_only',
-        'agency_id',
-        'auctioneer_mode', 'external_auctioneer_required_fields',
-        'bidding_modes_enabled', 'default_bidding_mode',
-        'online_auto_extend_enabled', 'online_auto_extend_minutes',
-        'online_bid_increment_mode', 'online_bid_increment_bands',
-        'proxy_bidding_enabled', 'absentee_bids_enabled', 'phone_bidding_enabled', 'bid_retraction_allowed',
-        'fee_model', 'buyers_premium_percent', 'buyers_premium_vat_inclusive', 'buyers_premium_minimum',
-        'sellers_commission_percent', 'vat_rate_source', 'premium_payable_on',
-        'registration_required', 'registration_opens_days_before', 'registration_closes',
-        'registration_closes_hours_before', 'require_fica_before_paddle', 'fica_document_checklist',
-        'registration_deposit_required', 'registration_deposit_amount', 'registration_deposit_refund_days',
-        'require_signed_rules_before_paddle', 'paddle_number_mode', 'entity_bidders_allowed',
-        'reserve_visibility', 'guide_price_enabled', 'confirmation_period_enabled', 'confirmation_period_days',
-        'vendor_bidding_disclosure',
-        'purchase_deposit_mode', 'purchase_deposit_percent', 'purchase_deposit_fixed_amount',
-        'purchase_deposit_due_days', 'balance_due_days', 'default_attorney_provider_id',
+        'agency_id', 'site_title', 'intro_text', 'contact_email', 'contact_phone', 'reference_prefix',
+        'default_increments', 'soft_close_minutes', 'reserve_visibility', 'show_bid_count', 'show_bidder_numbers',
+        'registration_closes_hours', 'docs_required_individual', 'docs_required_company', 'terms_text',
+        'notify_enquiry_to', 'outbid_emails', 'confirmation_days', 'notify_emails_enabled', 'notify_emails_to', 'start_emails_enabled', 'show_bid_history', 'seller_form_enabled', 'seller_response_text',
+        'hero_image_path', 'accent_color', 'how_it_works', 'footer_text', 'show_past_auctions',
+        'buyers_commission_percent', 'buyers_commission_minimum', 'deposit_percent', 'deposit_due_days', 'balance_due_days', 'payment_details',
     ];
 
     protected $casts = [
-        'advertising_only' => 'boolean',
-        'external_auctioneer_required_fields' => 'array',
-        'bidding_modes_enabled' => 'array',
-        'online_auto_extend_enabled' => 'boolean',
-        'online_auto_extend_minutes' => 'integer',
-        'online_bid_increment_bands' => 'array',
-        'proxy_bidding_enabled' => 'boolean',
-        'absentee_bids_enabled' => 'boolean',
-        'phone_bidding_enabled' => 'boolean',
-        'bid_retraction_allowed' => 'boolean',
-        'buyers_premium_percent' => 'decimal:2',
-        'buyers_premium_vat_inclusive' => 'boolean',
-        'buyers_premium_minimum' => 'decimal:2',
-        'sellers_commission_percent' => 'decimal:2',
-        'registration_required' => 'boolean',
-        'registration_opens_days_before' => 'integer',
-        'registration_closes_hours_before' => 'integer',
-        'require_fica_before_paddle' => 'boolean',
-        'fica_document_checklist' => 'array',
-        'registration_deposit_required' => 'boolean',
-        'registration_deposit_amount' => 'decimal:2',
-        'registration_deposit_refund_days' => 'integer',
-        'require_signed_rules_before_paddle' => 'boolean',
-        'entity_bidders_allowed' => 'boolean',
-        'guide_price_enabled' => 'boolean',
-        'confirmation_period_enabled' => 'boolean',
-        'confirmation_period_days' => 'integer',
-        'purchase_deposit_percent' => 'decimal:2',
-        'purchase_deposit_fixed_amount' => 'decimal:2',
-        'purchase_deposit_due_days' => 'integer',
+        'default_increments' => 'array',
+        'docs_required_individual' => 'array',
+        'docs_required_company' => 'array',
+        'soft_close_minutes' => 'integer',
+        'registration_closes_hours' => 'integer',
+        'confirmation_days' => 'integer',
+        'show_bid_count' => 'boolean',
+        'show_bidder_numbers' => 'boolean',
+        'outbid_emails' => 'boolean',
+        'notify_emails_enabled' => 'boolean',
+        'start_emails_enabled' => 'boolean',
+        'show_bid_history' => 'boolean',
+        'seller_form_enabled' => 'boolean',
+        'show_past_auctions' => 'boolean',
+        'buyers_commission_percent' => 'float',
+        'buyers_commission_minimum' => 'float',
+        'deposit_percent' => 'float',
+        'deposit_due_days' => 'integer',
         'balance_due_days' => 'integer',
     ];
 
-    private static function rowFor(?int $agencyId): ?self
-    {
-        if ($agencyId === null || $agencyId <= 0) {
-            return null;
-        }
+    public const RESERVE_VISIBILITY = ['hidden' => 'Do not show anything about the reserve', 'met_not_met' => 'Show "Reserve met" / "Reserve not met"'];
+    public const NOTIFY_ENQUIRY_TO = ['listing_agent' => 'The listing agent', 'branch_manager' => 'The branch manager', 'both' => 'Both'];
+    public const DOCUMENT_KINDS = [
+        'id_or_passport' => 'ID or passport copy',
+        'proof_of_address' => 'Proof of address',
+        'company_resolution' => 'Company resolution / authority to bid',
+        'other_fica' => 'Other FICA document',
+    ];
 
-        return static::where('agency_id', $agencyId)->first();
-    }
+    /** Bid ladder: [from_amount, increment] pairs, ascending. Amounts in the auction's currency. */
+    public const DEFAULT_INCREMENTS = [[0, 5000], [500000, 10000], [1000000, 25000], [5000000, 50000]];
 
     /**
-     * Advertising-only mode (.ai/specs/auctions-advertising-mode.md): Auctions
-     * is a place to ADVERTISE auction stock; the sale itself (Sale Room,
-     * bidder register, deposits) is run elsewhere. Default ON.
+     * Unsaved edits shown in the Preview page: agency id => column => value. Set only for the duration of one preview render
+     * (see withPreview()); never persisted, and empty on every real request.
+     *
+     * @var array<int, array<string, mixed>>
      */
-    public const DEFAULT_ADVERTISING_ONLY = true;
+    private static array $previewOverrides = [];
 
-    public static function advertisingOnlyFor(?int $agencyId): bool
+    /** Run $render with these unsaved values standing in for the saved settings, then put everything back. */
+    public static function withPreview(int $agencyId, array $overrides, callable $render): mixed
     {
-        $row = self::rowFor($agencyId);
-        return $row && $row->advertising_only !== null ? (bool) $row->advertising_only : self::DEFAULT_ADVERTISING_ONLY;
+        $before = self::$previewOverrides;
+        self::$previewOverrides[$agencyId] = $overrides;
+        try {
+            return $render();
+        } finally {
+            self::$previewOverrides = $before;
+        }
     }
 
-    public static function auctioneerModeFor(?int $agencyId): string
+    private static function value(int $agencyId, string $column, mixed $default): mixed
     {
-        $row = self::rowFor($agencyId);
-        return $row && $row->auctioneer_mode !== null ? $row->auctioneer_mode : self::DEFAULT_AUCTIONEER_MODE;
+        if (array_key_exists($column, self::$previewOverrides[$agencyId] ?? [])) {
+            $v = self::$previewOverrides[$agencyId][$column];
+
+            return $v === null || $v === '' ? $default : $v;
+        }
+
+        $row = static::query()->where('agency_id', $agencyId)->first();
+        $v = $row?->{$column};
+
+        return $v === null || $v === '' ? $default : $v;
     }
 
-    public static function externalAuctioneerRequiredFieldsFor(?int $agencyId): array
+    /** The title the agency typed ('' when it never set one) — what the settings page and wizard edit. */
+    public static function siteTitleFor(int $agencyId): string
     {
-        $row = self::rowFor($agencyId);
-        return $row && $row->external_auctioneer_required_fields !== null
-            ? $row->external_auctioneer_required_fields
-            : self::DEFAULT_EXTERNAL_AUCTIONEER_REQUIRED_FIELDS;
+        return (string) static::value($agencyId, 'site_title', '');
     }
 
-    public static function biddingModesEnabledFor(?int $agencyId): array
+    /** The title buyers see on the public auction page: the agency's own wording, else the agency name. */
+    public static function publicTitleFor(int $agencyId): string
     {
-        $row = self::rowFor($agencyId);
-        return $row && $row->bidding_modes_enabled !== null ? $row->bidding_modes_enabled : self::DEFAULT_BIDDING_MODES_ENABLED;
+        $own = static::siteTitleFor($agencyId);
+
+        return $own !== '' ? $own : (string) (Agency::query()->whereKey($agencyId)->value('name') ?: 'Auctions');
     }
 
-    public static function defaultBiddingModeFor(?int $agencyId): string
+    public static function introTextFor(int $agencyId): string { return (string) static::value($agencyId, 'intro_text', ''); }
+    public static function contactEmailFor(int $agencyId): string { return (string) static::value($agencyId, 'contact_email', ''); }
+    public static function contactPhoneFor(int $agencyId): string { return (string) static::value($agencyId, 'contact_phone', ''); }
+    /** Public URL of the banner picture on the home page, or null. */
+    public static function heroImageUrlFor(int $agencyId): ?string
     {
-        $row = self::rowFor($agencyId);
-        return $row && $row->default_bidding_mode !== null ? $row->default_bidding_mode : self::DEFAULT_DEFAULT_BIDDING_MODE;
+        $path = static::value($agencyId, 'hero_image_path', null);
+
+        return $path ? asset('storage/' . ltrim((string) $path, '/')) : null;
+    }
+    /** The header colour (#rrggbb) the agency chose, or null to use its own brand colour. */
+    public static function accentColorFor(int $agencyId): ?string
+    {
+        $c = static::value($agencyId, 'accent_color', null);
+
+        return is_string($c) && preg_match('/^#[0-9a-fA-F]{6}$/', $c) ? $c : null;
+    }
+    public static function howItWorksFor(int $agencyId): string { return (string) static::value($agencyId, 'how_it_works', ''); }
+    public static function footerTextFor(int $agencyId): string { return (string) static::value($agencyId, 'footer_text', ''); }
+    /** Agency default buyer's commission, % of the hammer price. 0 = none (neutral until the agency sets it). */
+    public static function buyersCommissionPercentFor(int $agencyId): float { return max(0.0, (float) static::value($agencyId, 'buyers_commission_percent', 0)); }
+    public static function buyersCommissionMinimumFor(int $agencyId): float { return max(0.0, (float) static::value($agencyId, 'buyers_commission_minimum', 0)); }
+    public static function depositPercentFor(int $agencyId): float { return max(0.0, (float) static::value($agencyId, 'deposit_percent', 10)); }
+    public static function depositDueDaysFor(int $agencyId): int { return max(0, (int) static::value($agencyId, 'deposit_due_days', 3)); }
+    public static function balanceDueDaysFor(int $agencyId): int { return max(0, (int) static::value($agencyId, 'balance_due_days', 30)); }
+    public static function paymentDetailsFor(int $agencyId): string { return (string) static::value($agencyId, 'payment_details', ''); }
+    public static function showPastAuctionsFor(int $agencyId): bool { return (bool) static::value($agencyId, 'show_past_auctions', true); }
+    public static function referencePrefixFor(int $agencyId): string { return (string) static::value($agencyId, 'reference_prefix', 'AUC'); }
+    public static function softCloseMinutesFor(int $agencyId): int { return (int) static::value($agencyId, 'soft_close_minutes', 5); }
+    public static function reserveVisibilityFor(int $agencyId): string { return (string) static::value($agencyId, 'reserve_visibility', 'met_not_met'); }
+    /** The "Sell at auction" questionnaire section on the public page (§22). On unless the agency switched it off. */
+    public static function sellerFormEnabledFor(int $agencyId): bool { return (bool) static::value($agencyId, 'seller_form_enabled', true); }
+
+    /** How quickly the agency replies to sellers - shown in the questionnaire's thank-you ("An auctioneer will contact you ..."). */
+    public static function sellerResponseTextFor(int $agencyId): string { return trim((string) static::value($agencyId, 'seller_response_text', 'within one business day')) ?: 'within one business day'; }
+
+    /** The "Bidding activity" list on the public lot page (§20). On unless the agency switched it off. */
+    public static function showBidHistoryFor(int $agencyId): bool { return (bool) static::value($agencyId, 'show_bid_history', true); }
+    public static function showBidCountFor(int $agencyId): bool { return (bool) static::value($agencyId, 'show_bid_count', true); }
+    public static function showBidderNumbersFor(int $agencyId): bool { return (bool) static::value($agencyId, 'show_bidder_numbers', false); }
+    public static function registrationClosesHoursFor(int $agencyId): int { return (int) static::value($agencyId, 'registration_closes_hours', 24); }
+    public static function notifyEnquiryToFor(int $agencyId): string { return (string) static::value($agencyId, 'notify_enquiry_to', 'listing_agent'); }
+    public static function outbidEmailsFor(int $agencyId): bool { return (bool) static::value($agencyId, 'outbid_emails', true); }
+
+    /** Emails to the agency when someone registers to bid or sends an enquiry (§19.2). On unless the agency switched them off. */
+    public static function notifyEmailsEnabledFor(int $agencyId): bool { return (bool) static::value($agencyId, 'notify_emails_enabled', true); }
+
+    /** The "auction is now live" email to everyone who signed up (§19.7). On unless the agency switched it off. */
+    public static function startEmailsEnabledFor(int $agencyId): bool { return (bool) static::value($agencyId, 'start_emails_enabled', true); }
+
+    /** What the agency typed into "Send them to" — comma / new-line separated, as written. Blank = every administrator. */
+    public static function notifyEmailsToFor(int $agencyId): string { return (string) static::value($agencyId, 'notify_emails_to', ''); }
+
+    /** The valid addresses typed into "Send them to", lower-cased, de-duplicated. */
+    public static function notifyEmailAddressesFor(int $agencyId): array
+    {
+        $parts = preg_split('/[\s,;]+/', static::notifyEmailsToFor($agencyId), -1, PREG_SPLIT_NO_EMPTY) ?: [];
+
+        return array_values(array_unique(array_filter(array_map('strtolower', $parts), fn ($e) => filter_var($e, FILTER_VALIDATE_EMAIL))));
+    }
+    /** Days a seller has to confirm or decline a sale made below the reserve. */
+    public static function confirmationDaysFor(int $agencyId): int { return max(1, (int) static::value($agencyId, 'confirmation_days', 3)); }
+    public static function termsTextFor(int $agencyId): string { return (string) static::value($agencyId, 'terms_text', ''); }
+
+    /** @return array<int, array{0: int|float, 1: int|float}> */
+    public static function defaultIncrementsFor(int $agencyId): array
+    {
+        $v = static::value($agencyId, 'default_increments', self::DEFAULT_INCREMENTS);
+
+        return is_array($v) && $v ? $v : self::DEFAULT_INCREMENTS;
     }
 
-    public static function onlineAutoExtendEnabledFor(?int $agencyId): bool
+    /** @return array<int, string> */
+    public static function docsRequiredIndividualFor(int $agencyId): array
     {
-        $row = self::rowFor($agencyId);
-        return $row && $row->online_auto_extend_enabled !== null ? (bool) $row->online_auto_extend_enabled : self::DEFAULT_ONLINE_AUTO_EXTEND_ENABLED;
+        return (array) static::value($agencyId, 'docs_required_individual', ['id_or_passport', 'proof_of_address']);
     }
 
-    public static function onlineAutoExtendMinutesFor(?int $agencyId): int
+    /** @return array<int, string> */
+    public static function docsRequiredCompanyFor(int $agencyId): array
     {
-        $row = self::rowFor($agencyId);
-        return $row && $row->online_auto_extend_minutes !== null ? (int) $row->online_auto_extend_minutes : self::DEFAULT_ONLINE_AUTO_EXTEND_MINUTES;
-    }
-
-    public static function onlineBidIncrementModeFor(?int $agencyId): string
-    {
-        $row = self::rowFor($agencyId);
-        return $row && $row->online_bid_increment_mode !== null ? $row->online_bid_increment_mode : self::DEFAULT_ONLINE_BID_INCREMENT_MODE;
-    }
-
-    public static function onlineBidIncrementBandsFor(?int $agencyId): array
-    {
-        $row = self::rowFor($agencyId);
-        return $row && $row->online_bid_increment_bands !== null ? $row->online_bid_increment_bands : self::DEFAULT_ONLINE_BID_INCREMENT_BANDS;
-    }
-
-    public static function proxyBiddingEnabledFor(?int $agencyId): bool
-    {
-        $row = self::rowFor($agencyId);
-        return $row && $row->proxy_bidding_enabled !== null ? (bool) $row->proxy_bidding_enabled : self::DEFAULT_PROXY_BIDDING_ENABLED;
-    }
-
-    public static function absenteeBidsEnabledFor(?int $agencyId): bool
-    {
-        $row = self::rowFor($agencyId);
-        return $row && $row->absentee_bids_enabled !== null ? (bool) $row->absentee_bids_enabled : self::DEFAULT_ABSENTEE_BIDS_ENABLED;
-    }
-
-    public static function phoneBiddingEnabledFor(?int $agencyId): bool
-    {
-        $row = self::rowFor($agencyId);
-        return $row && $row->phone_bidding_enabled !== null ? (bool) $row->phone_bidding_enabled : self::DEFAULT_PHONE_BIDDING_ENABLED;
-    }
-
-    public static function bidRetractionAllowedFor(?int $agencyId): bool
-    {
-        $row = self::rowFor($agencyId);
-        return $row && $row->bid_retraction_allowed !== null ? (bool) $row->bid_retraction_allowed : self::DEFAULT_BID_RETRACTION_ALLOWED;
-    }
-
-    public static function feeModelFor(?int $agencyId): string
-    {
-        $row = self::rowFor($agencyId);
-        return $row && $row->fee_model !== null ? $row->fee_model : self::DEFAULT_FEE_MODEL;
-    }
-
-    public static function buyersPremiumPercentFor(?int $agencyId): float
-    {
-        $row = self::rowFor($agencyId);
-        return $row && $row->buyers_premium_percent !== null ? (float) $row->buyers_premium_percent : self::DEFAULT_BUYERS_PREMIUM_PERCENT;
-    }
-
-    public static function buyersPremiumVatInclusiveFor(?int $agencyId): bool
-    {
-        $row = self::rowFor($agencyId);
-        return $row && $row->buyers_premium_vat_inclusive !== null ? (bool) $row->buyers_premium_vat_inclusive : self::DEFAULT_BUYERS_PREMIUM_VAT_INCLUSIVE;
-    }
-
-    public static function buyersPremiumMinimumFor(?int $agencyId): ?float
-    {
-        $row = self::rowFor($agencyId);
-        return $row && $row->buyers_premium_minimum !== null ? (float) $row->buyers_premium_minimum : self::DEFAULT_BUYERS_PREMIUM_MINIMUM;
-    }
-
-    public static function sellersCommissionPercentFor(?int $agencyId): ?float
-    {
-        $row = self::rowFor($agencyId);
-        return $row && $row->sellers_commission_percent !== null ? (float) $row->sellers_commission_percent : self::DEFAULT_SELLERS_COMMISSION_PERCENT;
-    }
-
-    public static function vatRateSourceFor(?int $agencyId): string
-    {
-        $row = self::rowFor($agencyId);
-        return $row && $row->vat_rate_source !== null ? $row->vat_rate_source : self::DEFAULT_VAT_RATE_SOURCE;
-    }
-
-    public static function premiumPayableOnFor(?int $agencyId): string
-    {
-        $row = self::rowFor($agencyId);
-        return $row && $row->premium_payable_on !== null ? $row->premium_payable_on : self::DEFAULT_PREMIUM_PAYABLE_ON;
-    }
-
-    public static function registrationRequiredFor(?int $agencyId): bool
-    {
-        $row = self::rowFor($agencyId);
-        return $row && $row->registration_required !== null ? (bool) $row->registration_required : self::DEFAULT_REGISTRATION_REQUIRED;
-    }
-
-    public static function registrationOpensDaysBeforeFor(?int $agencyId): int
-    {
-        $row = self::rowFor($agencyId);
-        return $row && $row->registration_opens_days_before !== null ? (int) $row->registration_opens_days_before : self::DEFAULT_REGISTRATION_OPENS_DAYS_BEFORE;
-    }
-
-    public static function registrationClosesFor(?int $agencyId): string
-    {
-        $row = self::rowFor($agencyId);
-        return $row && $row->registration_closes !== null ? $row->registration_closes : self::DEFAULT_REGISTRATION_CLOSES;
-    }
-
-    public static function registrationClosesHoursBeforeFor(?int $agencyId): int
-    {
-        $row = self::rowFor($agencyId);
-        return $row && $row->registration_closes_hours_before !== null ? (int) $row->registration_closes_hours_before : self::DEFAULT_REGISTRATION_CLOSES_HOURS_BEFORE;
-    }
-
-    public static function requireFicaBeforePaddleFor(?int $agencyId): bool
-    {
-        $row = self::rowFor($agencyId);
-        return $row && $row->require_fica_before_paddle !== null ? (bool) $row->require_fica_before_paddle : self::DEFAULT_REQUIRE_FICA_BEFORE_PADDLE;
-    }
-
-    public static function ficaDocumentChecklistFor(?int $agencyId): array
-    {
-        $row = self::rowFor($agencyId);
-        return $row && $row->fica_document_checklist !== null ? $row->fica_document_checklist : self::DEFAULT_FICA_DOCUMENT_CHECKLIST;
-    }
-
-    public static function registrationDepositRequiredFor(?int $agencyId): bool
-    {
-        $row = self::rowFor($agencyId);
-        return $row && $row->registration_deposit_required !== null ? (bool) $row->registration_deposit_required : self::DEFAULT_REGISTRATION_DEPOSIT_REQUIRED;
-    }
-
-    public static function registrationDepositAmountFor(?int $agencyId): float
-    {
-        $row = self::rowFor($agencyId);
-        return $row && $row->registration_deposit_amount !== null ? (float) $row->registration_deposit_amount : self::DEFAULT_REGISTRATION_DEPOSIT_AMOUNT;
-    }
-
-    public static function registrationDepositRefundDaysFor(?int $agencyId): int
-    {
-        $row = self::rowFor($agencyId);
-        return $row && $row->registration_deposit_refund_days !== null ? (int) $row->registration_deposit_refund_days : self::DEFAULT_REGISTRATION_DEPOSIT_REFUND_DAYS;
-    }
-
-    public static function requireSignedRulesBeforePaddleFor(?int $agencyId): bool
-    {
-        $row = self::rowFor($agencyId);
-        return $row && $row->require_signed_rules_before_paddle !== null ? (bool) $row->require_signed_rules_before_paddle : self::DEFAULT_REQUIRE_SIGNED_RULES_BEFORE_PADDLE;
-    }
-
-    public static function paddleNumberModeFor(?int $agencyId): string
-    {
-        $row = self::rowFor($agencyId);
-        return $row && $row->paddle_number_mode !== null ? $row->paddle_number_mode : self::DEFAULT_PADDLE_NUMBER_MODE;
-    }
-
-    public static function entityBiddersAllowedFor(?int $agencyId): bool
-    {
-        $row = self::rowFor($agencyId);
-        return $row && $row->entity_bidders_allowed !== null ? (bool) $row->entity_bidders_allowed : self::DEFAULT_ENTITY_BIDDERS_ALLOWED;
-    }
-
-    public static function reserveVisibilityFor(?int $agencyId): string
-    {
-        $row = self::rowFor($agencyId);
-        return $row && $row->reserve_visibility !== null ? $row->reserve_visibility : self::DEFAULT_RESERVE_VISIBILITY;
-    }
-
-    public static function guidePriceEnabledFor(?int $agencyId): bool
-    {
-        $row = self::rowFor($agencyId);
-        return $row && $row->guide_price_enabled !== null ? (bool) $row->guide_price_enabled : self::DEFAULT_GUIDE_PRICE_ENABLED;
-    }
-
-    public static function confirmationPeriodEnabledFor(?int $agencyId): bool
-    {
-        $row = self::rowFor($agencyId);
-        return $row && $row->confirmation_period_enabled !== null ? (bool) $row->confirmation_period_enabled : self::DEFAULT_CONFIRMATION_PERIOD_ENABLED;
-    }
-
-    public static function confirmationPeriodDaysFor(?int $agencyId): int
-    {
-        $row = self::rowFor($agencyId);
-        return $row && $row->confirmation_period_days !== null ? (int) $row->confirmation_period_days : self::DEFAULT_CONFIRMATION_PERIOD_DAYS;
-    }
-
-    public static function vendorBiddingDisclosureFor(?int $agencyId): string
-    {
-        $row = self::rowFor($agencyId);
-        return $row && $row->vendor_bidding_disclosure !== null ? $row->vendor_bidding_disclosure : self::DEFAULT_VENDOR_BIDDING_DISCLOSURE;
-    }
-
-    public static function purchaseDepositModeFor(?int $agencyId): string
-    {
-        $row = self::rowFor($agencyId);
-        return $row && $row->purchase_deposit_mode !== null ? $row->purchase_deposit_mode : self::DEFAULT_PURCHASE_DEPOSIT_MODE;
-    }
-
-    public static function purchaseDepositPercentFor(?int $agencyId): float
-    {
-        $row = self::rowFor($agencyId);
-        return $row && $row->purchase_deposit_percent !== null ? (float) $row->purchase_deposit_percent : self::DEFAULT_PURCHASE_DEPOSIT_PERCENT;
-    }
-
-    public static function purchaseDepositFixedAmountFor(?int $agencyId): ?float
-    {
-        $row = self::rowFor($agencyId);
-        return $row && $row->purchase_deposit_fixed_amount !== null ? (float) $row->purchase_deposit_fixed_amount : self::DEFAULT_PURCHASE_DEPOSIT_FIXED_AMOUNT;
-    }
-
-    public static function purchaseDepositDueDaysFor(?int $agencyId): int
-    {
-        $row = self::rowFor($agencyId);
-        return $row && $row->purchase_deposit_due_days !== null ? (int) $row->purchase_deposit_due_days : self::DEFAULT_PURCHASE_DEPOSIT_DUE_DAYS;
-    }
-
-    public static function balanceDueDaysFor(?int $agencyId): int
-    {
-        $row = self::rowFor($agencyId);
-        return $row && $row->balance_due_days !== null ? (int) $row->balance_due_days : self::DEFAULT_BALANCE_DUE_DAYS;
-    }
-
-    public static function defaultAttorneyProviderIdFor(?int $agencyId): ?int
-    {
-        $row = self::rowFor($agencyId);
-        return $row && $row->default_attorney_provider_id !== null ? (int) $row->default_attorney_provider_id : self::DEFAULT_DEFAULT_ATTORNEY_PROVIDER_ID;
+        return (array) static::value($agencyId, 'docs_required_company', ['id_or_passport', 'proof_of_address', 'company_resolution']);
     }
 }

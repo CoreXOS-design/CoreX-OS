@@ -942,15 +942,6 @@ class AgencySetupWizardController extends Controller
                         ->where('user_id', Auth::id())
                         ->first()?->{$key} ?? ($control['default'] ?? null)
                 ),
-                // AT-432 — Auctions settings live on agency_auction_settings; the
-                // accessors return the documented default when no row exists.
-                'auction'   => match ($key) {
-                    'auction_advertising_only'    => (int) \App\Models\AgencyAuctionSettings::advertisingOnlyFor($agency->id),
-                    'auction_auctioneer_mode'     => \App\Models\AgencyAuctionSettings::auctioneerModeFor($agency->id),
-                    'auction_reserve_visibility'  => \App\Models\AgencyAuctionSettings::reserveVisibilityFor($agency->id),
-                    'auction_guide_price_enabled' => (int) \App\Models\AgencyAuctionSettings::guidePriceEnabledFor($agency->id),
-                    default                       => $control['default'] ?? null,
-                },
                 // attorney-portal.md §5 - read-time defaults on attorney_portal_settings (one row per agency).
                 'attorney_portal' => match ($key) {
                     'attorney_portal_enabled'           => (int) \App\Models\AttorneyPortalSetting::forAgency($agency->id)->isEnabled(),
@@ -959,6 +950,13 @@ class AgencySetupWizardController extends Controller
                     'attorney_portal_notify'            => \App\Models\AttorneyPortalSetting::forAgency($agency->id)->notifyMode(),
                     default                             => $control['default'] ?? null,
                 },
+                // Auctions v2 — one named resolver per setting on AgencyAuctionSettings ({camelKey}For), same convention
+                // as rental_application above; keys are this file's own config, never user input.
+                'auction'   => (function () use ($key, $agency) {
+                    $v = \App\Models\AgencyAuctionSettings::{\Illuminate\Support\Str::camel($key) . 'For'}($agency->id);
+
+                    return is_bool($v) ? (int) $v : $v;
+                })(),
                 default     => $agency->{$key} ?? ($control['default'] ?? null),
             };
         }

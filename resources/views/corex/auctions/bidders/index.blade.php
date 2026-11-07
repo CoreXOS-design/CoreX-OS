@@ -3,92 +3,78 @@
 @section('corex-content')
 <div class="corex-auctions w-full h-full flex flex-col gap-4">
     <div class="rounded-md px-6 py-5 corex-page-banner flex-shrink-0">
-        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-            <div>
-                <a href="{{ route('corex.auctions.show', $auction) }}" class="text-xs text-muted underline">&larr; {{ $auction->title }}</a>
-                <h1 class="text-base font-bold leading-tight" style="color:var(--text-primary);">Bidder Register</h1>
-                <p class="text-xs" style="color: var(--text-muted);">Everyone registered to bid at this auction, with their deposit, rules and FICA status.</p>
-            </div>
-            @permission('auctions.bidders.approve')
-            <a href="{{ route('corex.auctions.bidders.create', $auction) }}" class="corex-btn-primary">+ Register a Bidder</a>
-            @endpermission
-        </div>
+        <h1 class="text-base font-bold leading-tight" style="color:var(--text-primary);">Bidders</h1>
+        <p class="text-xs" style="color:var(--text-muted);">Buyers who registered to bid. Approve each one before they can bid. {{ $pendingCount }} {{ $pendingCount === 1 ? 'is' : 'are' }} waiting for approval.</p>
     </div>
 
-    @if(session('status'))<div class="rounded-md px-4 py-2 text-sm" style="background:color-mix(in srgb,var(--ds-green,#10b981) 12%,transparent);color:var(--ds-green,#10b981);">{{ session('status') }}</div>@endif
+    @if(session('status'))<div class="rounded-md px-4 py-2 text-sm" style="background:color-mix(in srgb,#10b981 12%,transparent);color:#10b981;">{{ session('status') }}</div>@endif
+    @if($errors->any())<div class="rounded-md px-4 py-2 text-sm" style="background:color-mix(in srgb,#ef4444 12%,transparent);color:#ef4444;">{{ $errors->first() }}</div>@endif
 
-    <form method="GET" class="props-filter-panel flex flex-wrap items-end gap-3 text-sm rounded-md px-4 py-3 flex-shrink-0" style="background:var(--surface);border:1px solid var(--border);">
-        <div>
-            <label class="prop-label">Search</label>
-            <input class="list-header-filter {{ (!empty($filters['search'])) ? 'is-active' : '' }}" type="text" name="search" value="{{ $filters['search'] }}" placeholder="Name, email, mobile, ID, paddle">
-        </div>
-        <div>
-            <label class="prop-label">Status</label>
-            <select class="list-header-filter {{ (!empty($filters['status'])) ? 'is-active' : '' }}" name="status">
+    @include('corex.auctions.bidders._tabs', ['active' => $filters['view']])
+
+    <div class="rounded-md px-4 py-3 flex-shrink-0" style="background:var(--surface);border:1px solid var(--border);">
+        <form method="GET" action="{{ route('corex.auctions.bidders.index') }}" class="flex flex-wrap items-center gap-3">
+            <input type="hidden" name="view" value="{{ $filters['view'] }}">
+            <input type="text" name="search" value="{{ $filters['search'] }}" placeholder="Search name, company, email, bidder no., ID no…"
+                   class="flex-1 min-w-[200px] max-w-sm px-3 py-2 text-sm rounded-md" style="border:1px solid var(--border);background:var(--surface-2);color:var(--text-primary);">
+            <select name="auction_id" onchange="this.form.submit()" class="list-header-filter" title="Auction">
+                <option value="">All auctions</option>
+                @foreach($auctions as $a)<option value="{{ $a->id }}" @selected($filters['auctionId'] === (string) $a->id)>{{ $a->reference }} — {{ $a->title }}</option>@endforeach
+            </select>
+            <select name="status" onchange="this.form.submit()" class="list-header-filter" title="Status">
                 <option value="">All statuses</option>
-                @foreach(\App\Models\AuctionBidder::STATUSES as $s)
-                    <option value="{{ $s }}" @selected($filters['status'] === $s)>{{ ucwords(str_replace('_', ' ', $s)) }}</option>
-                @endforeach
+                @foreach(\App\Models\AuctionRegistration::STATUSES as $s)<option value="{{ $s }}" @selected($filters['status'] === $s)>{{ ucfirst($s) }}</option>@endforeach
             </select>
-        </div>
-        <div>
-            <label class="prop-label">Deposit received</label>
-            <select class="list-header-filter {{ (($filters['depositReceived'] ?? '') !== '') ? 'is-active' : '' }}" name="deposit_received">
-                <option value="">Any</option>
-                <option value="1" @selected($filters['depositReceived'] === '1')>Yes</option>
-                <option value="0" @selected($filters['depositReceived'] === '0')>No</option>
+            <select name="bidder_type" onchange="this.form.submit()" class="list-header-filter" title="Bidder type">
+                <option value="">Individuals &amp; companies</option>
+                @foreach(\App\Models\AuctionRegistration::TYPES as $k => $l)<option value="{{ $k }}" @selected($filters['type'] === $k)>{{ $l }}</option>@endforeach
             </select>
-        </div>
-        <div>
-            <label class="prop-label">Rules signed</label>
-            <select class="list-header-filter {{ (($filters['rulesSigned'] ?? '') !== '') ? 'is-active' : '' }}" name="rules_signed">
-                <option value="">Any</option>
-                <option value="1" @selected($filters['rulesSigned'] === '1')>Yes</option>
-                <option value="0" @selected($filters['rulesSigned'] === '0')>No</option>
+            <span class="inline-flex items-center gap-2 text-xs" style="color:var(--text-muted);">Registered from
+                <input type="date" name="date_from" value="{{ $filters['dateFrom'] }}" onchange="this.form.submit()" class="list-header-filter"> to
+                <input type="date" name="date_to" value="{{ $filters['dateTo'] }}" onchange="this.form.submit()" class="list-header-filter"></span>
+            <select name="sort" onchange="this.form.submit()" class="list-header-filter" title="Sort by">
+                @foreach(['created_at' => 'Sort: Registered', 'bidder_number' => 'Sort: Bidder no.', 'status' => 'Sort: Status', 'auction' => 'Sort: Auction'] as $v => $l)<option value="{{ $v }}" @selected($filters['sort'] === $v)>{{ $l }}</option>@endforeach
             </select>
-        </div>
-        <button type="submit" class="corex-btn-outline">Apply</button>
-    </form>
+            <select name="dir" onchange="this.form.submit()" class="list-header-filter" title="Direction">
+                <option value="desc" @selected($filters['dir'] === 'desc')>Newest first</option><option value="asc" @selected($filters['dir'] === 'asc')>Oldest first</option>
+            </select>
+            <label class="inline-flex items-center gap-1 text-xs" style="color:var(--text-muted);"><input type="checkbox" name="archived" value="1" onchange="this.form.submit()" @checked($filters['archived'])> Withdrawn / archived</label>
+            <button type="submit" class="corex-btn-outline text-xs px-3 py-2">Search</button>
+            <a href="{{ route('corex.auctions.bidders.index') }}" class="text-xs underline" style="color:var(--text-muted);">Clear</a>
+        </form>
+    </div>
 
-    @if($bidders->isEmpty())
-        <div class="text-center py-16 text-muted">
-            No bidders registered yet.
-            @permission('auctions.bidders.approve')
-            <a href="{{ route('corex.auctions.bidders.create', $auction) }}" class="underline">Register at the door</a>
-            @endpermission
+    @if($registrations->isEmpty())
+        <div class="text-center py-16 text-sm" style="color:var(--text-muted);">
+            @if(collect($filters)->only(['search', 'auctionId', 'status', 'type', 'dateFrom', 'dateTo'])->filter()->isNotEmpty() || $filters['archived'] || $filters['view'] !== 'all')
+                No bidders match these filters. <a href="{{ route('corex.auctions.bidders.index') }}" class="underline">Clear them</a>
+            @else
+                No one has registered to bid yet. Registrations appear here as soon as a buyer registers on your public auction page.
+            @endif
         </div>
     @else
-        <div class="rounded-md overflow-x-auto" style="background:var(--surface);border:1px solid var(--border);">
-<table class="min-w-full text-sm">
-            <thead>
-                <tr style="background:var(--surface-2);">
-                    <th class="px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wider" style="color:var(--text-muted);">Paddle</th>
-                    <th class="px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wider" style="color:var(--text-muted);">Bidder</th>
-                    @if($canSeeContactDetails)<th class="px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wider" style="color:var(--text-muted);">Contact</th>@endif
-                    <th class="px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wider" style="color:var(--text-muted);">Status</th>
-                    @if($canSeeFica)<th class="px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wider" style="color:var(--text-muted);">FICA</th>@endif
-                    <th class="px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wider" style="color:var(--text-muted);">Deposit</th>
-                    <th class="px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wider" style="color:var(--text-muted);">Rules</th>
-                    <th class="px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wider" style="color:var(--text-muted);"></th>
-                </tr>
-            </thead>
+    <div class="rounded-md overflow-x-auto" style="background:var(--surface);border:1px solid var(--border);">
+        <table class="min-w-full text-sm">
+            <thead><tr style="background:var(--surface-2);">
+                @foreach(['No.', 'Bidder', 'Type', 'Auction', 'Registered', 'Bids', 'Status', ''] as $h)<th class="px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wider" style="color:var(--text-muted);">{{ $h }}</th>@endforeach
+            </tr></thead>
             <tbody>
-                @foreach($bidders as $bidder)
+            @foreach($registrations as $r)
                 <tr style="border-top:1px solid var(--border);">
-                    <td class="px-4 py-2.5">{{ $bidder->paddle_number ?? '—' }}</td>
-                    <td class="px-4 py-2.5">{{ $bidder->contact?->full_name }}</td>
-                    @if($canSeeContactDetails)<td class="px-4 py-2.5">{{ $bidder->contact?->email }} {{ $bidder->contact?->phone }}</td>@endif
-                    <td class="px-4 py-2.5">{{ ucwords(str_replace('_', ' ', $bidder->status)) }}</td>
-                    @if($canSeeFica)<td class="px-4 py-2.5">{{ $bidder->fica_verified_at ? 'Verified' : 'Pending' }}</td>@endif
-                    <td class="px-4 py-2.5">{{ $bidder->deposit_received_at ? 'Received' : ($bidder->deposit_required ? 'Outstanding' : 'N/A') }}</td>
-                    <td class="px-4 py-2.5">{{ $bidder->rules_signed_at ? 'Signed' : 'Pending' }}</td>
-                    <td class="px-4 py-2.5"><a href="{{ route('corex.auctions.bidders.show', $bidder) }}" class="corex-btn-outline text-xs">Open</a></td>
+                    <td class="px-4 py-2.5 font-semibold">{{ $r->bidder_number ?? '—' }}</td>
+                    <td class="px-4 py-2.5">{{ $r->displayName() }}<div class="text-xs" style="color:var(--text-muted);">{{ $r->clientUser?->email }}</div></td>
+                    <td class="px-4 py-2.5">{{ \App\Models\AuctionRegistration::TYPES[$r->bidder_type] ?? $r->bidder_type }}</td>
+                    <td class="px-4 py-2.5">{{ $r->auction?->reference }}<div class="text-xs" style="color:var(--text-muted);">{{ $r->auction?->title }}</div></td>
+                    <td class="px-4 py-2.5 text-xs whitespace-nowrap">{{ $r->created_at->format('d M Y H:i') }}</td>
+                    <td class="px-4 py-2.5">{{ $r->bids_count }}</td>
+                    <td class="px-4 py-2.5">{{ $r->trashed() ? 'Withdrawn' : $r->statusLabel() }}</td>
+                    <td class="px-4 py-2.5"><a href="{{ route('corex.auctions.bidders.show', $r->id) }}" class="corex-btn-outline text-xs">Open</a></td>
                 </tr>
-                @endforeach
+            @endforeach
             </tbody>
         </table>
-</div>
-        <div>{{ $bidders->links() }}</div>
+    </div>
+    <div>{{ $registrations->links() }}</div>
     @endif
 </div>
 @endsection

@@ -1,231 +1,139 @@
 @extends('layouts.corex')
 
-@php
-    $S = \App\Models\AgencyAuctionSettings::class;
-@endphp
-
 @section('corex-content')
-<div class="corex-auctions w-full h-full flex flex-col gap-4">
-    <div class="rounded-md px-6 py-5 corex-page-banner flex-shrink-0" data-tour="aset-intro">
-        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-            <div>
-                <h1 class="text-base font-bold leading-tight" style="color:var(--text-primary);">Settings — Auctions</h1>
-                <p class="text-xs" style="color:var(--text-muted);">Who runs your auctions, where bidding happens, and how the agency is paid.</p>
-            </div>
-            @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
-        </div>
+@php
+    $field = 'w-full px-3 py-2 text-sm rounded-md';
+    $fieldStyle = 'border:1px solid var(--border);background:var(--surface-2);color:var(--text-primary);';
+    $label = 'block text-xs font-semibold uppercase tracking-wider mb-1';
+    $hint = 'text-[11px] mt-1';
+    $rungs = old('inc_from') ? array_map(fn ($f, $a) => ['from' => $f, 'inc' => $a], old('inc_from'), old('inc_amount', [])) : array_map(fn ($r) => ['from' => $r[0], 'inc' => $r[1]], $values['default_increments']);
+@endphp
+<div class="corex-auctions w-full flex flex-col gap-4 max-w-4xl">
+    <div class="rounded-md px-6 py-5 corex-page-banner">
+        <h1 class="text-base font-bold" style="color:var(--text-primary);">Auction settings</h1>
+        <p class="text-xs" style="color:var(--text-muted);">How your agency's auctions and public auction page behave. Anything left blank uses a sensible default.</p>
     </div>
+    @if(session('status'))<div class="rounded-md px-4 py-2 text-sm" style="background:color-mix(in srgb,#10b981 12%,transparent);color:#10b981;">{{ session('status') }}</div>@endif
+    @if($errors->any())<div class="rounded-md px-4 py-2 text-sm" style="background:color-mix(in srgb,#ef4444 12%,transparent);color:#ef4444;">@foreach($errors->all() as $e)<div>{{ $e }}</div>@endforeach</div>@endif
 
-    @if(session('status'))<div class="rounded-md px-4 py-2 text-sm" style="background:color-mix(in srgb,var(--ds-green,#10b981) 12%,transparent);color:var(--ds-green,#10b981);">{{ session('status') }}</div>@endif
-    @if($errors->any())
-        <div class="rounded-md px-4 py-2 text-sm" style="background:color-mix(in srgb,var(--ds-crimson,#dc2626) 12%,transparent);color:var(--ds-crimson,#dc2626);">
-            <ul>@foreach($errors->all() as $e)<li>{{ $e }}</li>@endforeach</ul>
-        </div>
-    @endif
-
-    <form method="POST" action="{{ route('corex.settings.auctions.update') }}" class="flex flex-col gap-4 w-full">
+    <form method="POST" action="{{ route('corex.settings.auctions.update') }}" class="flex flex-col gap-4">
         @csrf
-
-        <section class="rounded-md p-5" style="background:var(--surface);border:1px solid var(--border);" data-tour="aset-mode">
-            <h2 class="text-sm font-bold mb-3" style="color:var(--text-primary);">How your agency uses Auctions</h2>
-            <label class="flex items-start gap-2 text-sm">
-                <input type="checkbox" name="advertising_only" value="1" class="mt-1" @checked(\App\Models\AgencyAuctionSettings::advertisingOnlyFor($agencyId))>
-                <span><strong>Advertising only</strong> — Auctions is where we advertise auction properties. The sale itself is run elsewhere, so the Sale Room, bidder register and online registration are switched off. Untick to run the sale from CoreX.</span>
-            </label>
-        </section>
-
-        <section class="rounded-md p-5" style="background:var(--surface);border:1px solid var(--border);" data-tour="aset-auctioneer">
-            <h2 class="text-sm font-bold mb-3" style="color:var(--text-primary);">Who runs the auction</h2>
-            <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 text-sm">
-                <div>
-                    <label class="prop-label">Auctioneer mode</label>
-                    <select name="auctioneer_mode" class="prop-input w-full">
-                        @foreach($S::AUCTIONEER_MODES as $m)
-                            <option value="{{ $m }}" @selected((optional($settings)->auctioneer_mode ?? $S::DEFAULT_AUCTIONEER_MODE) === $m)>{{ ucfirst($m) }}</option>
-                        @endforeach
-                    </select>
-                    <p class="text-xs text-muted mt-1">Whether the Auction form offers our own auctioneer, an outside auction house, or asks each time.</p>
-                </div>
+        <section class="rounded-md p-5 space-y-4" style="background:var(--surface);border:1px solid var(--border);">
+            <h2 class="text-sm font-bold" style="color:var(--text-primary);">Your public auction page</h2>
+            <p class="text-xs" style="color:var(--text-muted);">To see how it looks, and to change the banner picture and colour, use the <a href="{{ route('corex.auctions.preview') }}" class="underline">Preview page</a>.</p>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div><label class="{{ $label }}" style="color:var(--text-secondary);">Page title</label>
+                    <input name="site_title" value="{{ old('site_title', $values['site_title']) }}" placeholder="Your agency name" class="{{ $field }}" style="{{ $fieldStyle }}"></div>
+                <div><label class="{{ $label }}" style="color:var(--text-secondary);">Auction reference prefix</label>
+                    <input name="reference_prefix" value="{{ old('reference_prefix', $values['reference_prefix']) }}" maxlength="12" class="{{ $field }}" style="{{ $fieldStyle }}">
+                    <p class="{{ $hint }}" style="color:var(--text-muted);">Auctions are numbered like AUC-2026-0001.</p></div>
+                <div><label class="{{ $label }}" style="color:var(--text-secondary);">Enquiries email</label>
+                    <input type="email" name="contact_email" value="{{ old('contact_email', $values['contact_email']) }}" class="{{ $field }}" style="{{ $fieldStyle }}"></div>
+                <div><label class="{{ $label }}" style="color:var(--text-secondary);">Enquiries phone</label>
+                    <input name="contact_phone" value="{{ old('contact_phone', $values['contact_phone']) }}" class="{{ $field }}" style="{{ $fieldStyle }}"></div>
+                <div class="md:col-span-2"><label class="{{ $label }}" style="color:var(--text-secondary);">Introduction shown on the page</label>
+                    <textarea name="intro_text" rows="3" class="{{ $field }}" style="{{ $fieldStyle }}">{{ old('intro_text', $values['intro_text']) }}</textarea></div>
+                <div class="md:col-span-2"><label class="{{ $label }}" style="color:var(--text-secondary);">How bidding works (optional)</label>
+                    <textarea name="how_it_works" rows="3" class="{{ $field }}" style="{{ $fieldStyle }}">{{ old('how_it_works', $values['how_it_works']) }}</textarea></div>
+                <div class="md:col-span-2"><label class="{{ $label }}" style="color:var(--text-secondary);">Footer text (optional)</label>
+                    <textarea name="footer_text" rows="2" class="{{ $field }}" style="{{ $fieldStyle }}">{{ old('footer_text', $values['footer_text']) }}</textarea></div>
+                <div class="md:col-span-2"><input type="hidden" name="show_past_auctions" value="0">
+                    <label class="inline-flex items-center gap-2 text-sm"><input type="checkbox" name="show_past_auctions" value="1" @checked(old('show_past_auctions', $values['show_past_auctions']))> Show past auctions on the page</label></div>
+                <div><label class="{{ $label }}" style="color:var(--text-secondary);">Who is told about a new enquiry</label>
+                    <select name="notify_enquiry_to" class="{{ $field }}" style="{{ $fieldStyle }}">
+                        @foreach(\App\Models\AgencyAuctionSettings::NOTIFY_ENQUIRY_TO as $k => $l)<option value="{{ $k }}" @selected(old('notify_enquiry_to', $values['notify_enquiry_to']) === $k)>{{ $l }}</option>@endforeach
+                    </select></div>
+                <div class="md:col-span-2" data-seller-form-settings>
+                    <input type="hidden" name="seller_form_enabled" value="0">
+                    <label class="inline-flex items-center gap-2 text-sm"><input type="checkbox" name="seller_form_enabled" value="1" @checked(old('seller_form_enabled', $values['seller_form_enabled']))> Show the "Sell at auction" form on my auction page</label>
+                    <p class="{{ $hint }}" style="color:var(--text-muted);">Lets owners tell you about a property they want to sell at auction. Their answers arrive under Auctions → Seller leads. Switch it off and the form, its button and its link disappear.</p>
+                    <label class="{{ $label }} mt-3" style="color:var(--text-secondary);">How quickly do you reply to sellers?</label>
+                    <input name="seller_response_text" value="{{ old('seller_response_text', $values['seller_response_text']) }}" maxlength="120" class="{{ $field }}" style="{{ $fieldStyle }}">
+                    <p class="{{ $hint }}" style="color:var(--text-muted);">Shown in the thank-you: "An auctioneer will contact you <em>within one business day</em>." Only promise what you will keep.</p></div>
+                <div class="md:col-span-2" data-start-emails>
+                    <input type="hidden" name="start_emails_enabled" value="0">
+                    <label class="inline-flex items-center gap-2 text-sm"><input type="checkbox" name="start_emails_enabled" value="1" @checked(old('start_emails_enabled', $values['start_emails_enabled']))> Email everyone who signed up when an auction starts</label>
+                    <p class="{{ $hint }}" style="color:var(--text-muted);">When an auction's start time arrives, everyone who has signed up on your auction page is emailed that it is now live, once.</p></div>
+                <div class="md:col-span-2" data-notify-emails>
+                    <input type="hidden" name="notify_emails_enabled" value="0">
+                    <label class="inline-flex items-center gap-2 text-sm"><input type="checkbox" name="notify_emails_enabled" value="1" @checked(old('notify_emails_enabled', $values['notify_emails_enabled']))> Email us when someone registers to bid or sends an enquiry</label>
+                    <p class="{{ $hint }}" style="color:var(--text-muted);">Switch this off and these two emails are not sent at all. People still see the new items on their Bidders and Enquiries screens.</p>
+                    <label class="{{ $label }} mt-3" style="color:var(--text-secondary);">Send them to</label>
+                    <textarea name="notify_emails_to" rows="2" placeholder="Leave blank to use your enquiries email above, or your agency's main email" class="{{ $field }}" style="{{ $fieldStyle }}">{{ old('notify_emails_to', $values['notify_emails_to']) }}</textarea>
+                    <p class="{{ $hint }}" style="color:var(--text-muted);">Email addresses, separated by commas or new lines. Anyone named under "Who is told about a new enquiry" above is emailed about enquiries as well.</p></div>
             </div>
         </section>
 
-        <section class="rounded-md p-5" style="background:var(--surface);border:1px solid var(--border);" data-tour="aset-bidding">
-            <h2 class="text-sm font-bold mb-3" style="color:var(--text-primary);">Where bidding happens</h2>
-            <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 text-sm">
-                <div class="sm:col-span-2 xl:col-span-4">
-                    <label class="prop-label">Bidding modes enabled</label>
-                    @php $enabledModes = optional($settings)->bidding_modes_enabled ?? $S::DEFAULT_BIDDING_MODES_ENABLED; @endphp
-                    @foreach(['in_room' => 'In-room', 'online' => 'Online', 'hybrid' => 'Hybrid'] as $val => $label)
-                        <label class="mr-4"><input type="checkbox" name="bidding_modes_enabled[]" value="{{ $val }}" @checked(in_array($val, $enabledModes, true))> {{ $label }}</label>
-                    @endforeach
+        <section class="rounded-md p-5 space-y-4" style="background:var(--surface);border:1px solid var(--border);" data-fee-settings>
+            <h2 class="text-sm font-bold" style="color:var(--text-primary);">Fees and payment</h2>
+            <p class="text-xs" style="color:var(--text-muted);">What the winning bidder pays on top of the price, and when. Each auction can override the percentages. Leave the commission at 0 to charge none.</p>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div><label class="{{ $label }}" style="color:var(--text-secondary);">Buyer's commission (% of the price, before VAT)</label>
+                    <input type="number" step="0.01" min="0" max="50" name="buyers_commission_percent" value="{{ old('buyers_commission_percent', $values['buyers_commission_percent']) }}" class="{{ $field }}" style="{{ $fieldStyle }}"></div>
+                <div><label class="{{ $label }}" style="color:var(--text-secondary);">Minimum commission (R)</label>
+                    <input type="number" step="1" min="0" name="buyers_commission_minimum" value="{{ old('buyers_commission_minimum', $values['buyers_commission_minimum']) }}" class="{{ $field }}" style="{{ $fieldStyle }}"></div>
+                <div><label class="{{ $label }}" style="color:var(--text-secondary);">Deposit (% of the price)</label>
+                    <input type="number" step="0.01" min="0" max="100" name="deposit_percent" value="{{ old('deposit_percent', $values['deposit_percent']) }}" class="{{ $field }}" style="{{ $fieldStyle }}"></div>
+                <div class="grid grid-cols-2 gap-3">
+                    <div><label class="{{ $label }}" style="color:var(--text-secondary);">Deposit due (days)</label>
+                        <input type="number" min="0" max="365" name="deposit_due_days" value="{{ old('deposit_due_days', $values['deposit_due_days']) }}" class="{{ $field }}" style="{{ $fieldStyle }}"></div>
+                    <div><label class="{{ $label }}" style="color:var(--text-secondary);">Balance due (days)</label>
+                        <input type="number" min="0" max="365" name="balance_due_days" value="{{ old('balance_due_days', $values['balance_due_days']) }}" class="{{ $field }}" style="{{ $fieldStyle }}"></div>
                 </div>
-                <div>
-                    <label class="prop-label">Default bidding mode</label>
-                    <select name="default_bidding_mode" class="prop-input w-full">
-                        @foreach(['in_room' => 'In-room', 'online' => 'Online', 'hybrid' => 'Hybrid'] as $val => $label)
-                            <option value="{{ $val }}" @selected((optional($settings)->default_bidding_mode ?? $S::DEFAULT_DEFAULT_BIDDING_MODE) === $val)>{{ $label }}</option>
-                        @endforeach
-                    </select>
-                </div>
-                <div><label><input type="checkbox" name="online_auto_extend_enabled" value="1" @checked(optional($settings)->online_auto_extend_enabled ?? $S::DEFAULT_ONLINE_AUTO_EXTEND_ENABLED)> Auto-extend online bidding (anti-sniping)</label></div>
-                <div>
-                    <label class="prop-label">Auto-extend minutes</label>
-                    <input type="number" name="online_auto_extend_minutes" min="1" max="30" value="{{ optional($settings)->online_auto_extend_minutes ?? $S::DEFAULT_ONLINE_AUTO_EXTEND_MINUTES }}" class="prop-input w-full">
-                </div>
-                <div>
-                    <label class="prop-label">Increment mode</label>
-                    <select name="online_bid_increment_mode" class="prop-input w-full">
-                        <option value="fixed" @selected((optional($settings)->online_bid_increment_mode ?? $S::DEFAULT_ONLINE_BID_INCREMENT_MODE) === 'fixed')>Fixed</option>
-                        <option value="banded" @selected((optional($settings)->online_bid_increment_mode ?? $S::DEFAULT_ONLINE_BID_INCREMENT_MODE) === 'banded')>Banded</option>
-                    </select>
-                </div>
-                <div><label><input type="checkbox" name="proxy_bidding_enabled" value="1" @checked(optional($settings)->proxy_bidding_enabled ?? $S::DEFAULT_PROXY_BIDDING_ENABLED)> Proxy bidding</label></div>
-                <div><label><input type="checkbox" name="absentee_bids_enabled" value="1" @checked(optional($settings)->absentee_bids_enabled ?? $S::DEFAULT_ABSENTEE_BIDS_ENABLED)> Absentee bids</label></div>
-                <div><label><input type="checkbox" name="phone_bidding_enabled" value="1" @checked(optional($settings)->phone_bidding_enabled ?? $S::DEFAULT_PHONE_BIDDING_ENABLED)> Phone bidding</label></div>
-                <div><label><input type="checkbox" name="bid_retraction_allowed" value="1" @checked(optional($settings)->bid_retraction_allowed ?? $S::DEFAULT_BID_RETRACTION_ALLOWED)> Auctioneer may retract a bid</label></div>
+                <div class="md:col-span-2"><label class="{{ $label }}" style="color:var(--text-secondary);">Payment details printed on invoices</label>
+                    <textarea name="payment_details" rows="3" placeholder="Bank, account holder, account number, branch code" class="{{ $field }}" style="{{ $fieldStyle }}">{{ old('payment_details', $values['payment_details']) }}</textarea>
+                    <p class="{{ $hint }}" style="color:var(--text-muted);">VAT on the commission uses the VAT rate set for your agency.</p></div>
             </div>
         </section>
 
-        <section class="rounded-md p-5" style="background:var(--surface);border:1px solid var(--border);" data-tour="aset-fees">
-            <h2 class="text-sm font-bold mb-3" style="color:var(--text-primary);">How the agency is paid</h2>
-            <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 text-sm">
-                <div>
-                    <label class="prop-label">Fee model</label>
-                    <select name="fee_model" class="prop-input w-full">
-                        @foreach($S::FEE_MODELS as $m)
-                            <option value="{{ $m }}" @selected((optional($settings)->fee_model ?? $S::DEFAULT_FEE_MODEL) === $m)>{{ ucwords(str_replace('_', ' ', $m)) }}</option>
-                        @endforeach
+        <section class="rounded-md p-5 space-y-4" style="background:var(--surface);border:1px solid var(--border);">
+            <h2 class="text-sm font-bold" style="color:var(--text-primary);">Bidding</h2>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div><label class="{{ $label }}" style="color:var(--text-secondary);">Soft close (minutes)</label>
+                    <input type="number" min="0" max="60" name="soft_close_minutes" value="{{ old('soft_close_minutes', $values['soft_close_minutes']) }}" class="{{ $field }}" style="{{ $fieldStyle }}">
+                    <p class="{{ $hint }}" style="color:var(--text-muted);">A bid in the last few minutes extends the closing time by the same amount, so nobody is sniped at the buzzer.</p></div>
+                <div><label class="{{ $label }}" style="color:var(--text-secondary);">What buyers see about the reserve</label>
+                    <select name="reserve_visibility" class="{{ $field }}" style="{{ $fieldStyle }}">
+                        @foreach(\App\Models\AgencyAuctionSettings::RESERVE_VISIBILITY as $k => $l)<option value="{{ $k }}" @selected(old('reserve_visibility', $values['reserve_visibility']) === $k)>{{ $l }}</option>@endforeach
                     </select>
-                </div>
-                <div>
-                    <label class="prop-label">Buyer's premium %</label>
-                    <input type="number" name="buyers_premium_percent" step="0.01" min="0" max="100" value="{{ optional($settings)->buyers_premium_percent ?? $S::DEFAULT_BUYERS_PREMIUM_PERCENT }}" class="prop-input w-full">
-                </div>
-                <div><label><input type="checkbox" name="buyers_premium_vat_inclusive" value="1" @checked(optional($settings)->buyers_premium_vat_inclusive ?? $S::DEFAULT_BUYERS_PREMIUM_VAT_INCLUSIVE)> Premium is VAT-inclusive</label></div>
-                <div>
-                    <label class="prop-label">Buyer's premium minimum (R)</label>
-                    <input type="number" name="buyers_premium_minimum" step="0.01" min="0" value="{{ optional($settings)->buyers_premium_minimum }}" class="prop-input w-full">
-                </div>
-                <div>
-                    <label class="prop-label">Seller's commission %</label>
-                    <input type="number" name="sellers_commission_percent" step="0.01" min="0" max="100" value="{{ optional($settings)->sellers_commission_percent }}" class="prop-input w-full">
-                </div>
-                <div>
-                    <label class="prop-label">VAT rate source</label>
-                    <select name="vat_rate_source" class="prop-input w-full">
-                        <option value="system" @selected((optional($settings)->vat_rate_source ?? $S::DEFAULT_VAT_RATE_SOURCE) === 'system')>System (15%)</option>
-                        <option value="override" @selected((optional($settings)->vat_rate_source ?? $S::DEFAULT_VAT_RATE_SOURCE) === 'override')>Agency override</option>
-                    </select>
-                </div>
-                <div>
-                    <label class="prop-label">Premium payable on</label>
-                    <select name="premium_payable_on" class="prop-input w-full">
-                        @foreach($S::PREMIUM_PAYABLE_ON_OPTIONS as $o)
-                            <option value="{{ $o }}" @selected((optional($settings)->premium_payable_on ?? $S::DEFAULT_PREMIUM_PAYABLE_ON) === $o)>{{ ucwords(str_replace('_', ' ', $o)) }}</option>
-                        @endforeach
-                    </select>
-                </div>
+                    <p class="{{ $hint }}" style="color:var(--text-muted);">The reserve amount itself is never shown to buyers.</p></div>
+                <label class="inline-flex items-center gap-2 text-sm"><input type="checkbox" name="show_bid_count" value="1" @checked(old('show_bid_count', $values['show_bid_count']))> Show how many bids a lot has</label>
+                <label class="inline-flex items-center gap-2 text-sm"><input type="checkbox" name="show_bid_history" value="1" @checked(old('show_bid_history', $values['show_bid_history']))> Show the latest bids on a lot ("Bidding activity")</label>
+                <label class="inline-flex items-center gap-2 text-sm"><input type="checkbox" name="show_bidder_numbers" value="1" @checked(old('show_bidder_numbers', $values['show_bidder_numbers']))> Show bidder numbers to other bidders</label>
+                <label class="inline-flex items-center gap-2 text-sm"><input type="checkbox" name="outbid_emails" value="1" @checked(old('outbid_emails', $values['outbid_emails']))> Email a bidder when they are outbid</label>
+            </div>
+            <div x-data="{ rows: {{ json_encode($rungs) }} }" class="space-y-2">
+                <label class="{{ $label }}" style="color:var(--text-secondary);">Default bid increments for new auctions</label>
+                <template x-for="(r, i) in rows" :key="i">
+                    <div class="flex items-center gap-2"><span class="text-xs" style="color:var(--text-muted);">From R</span>
+                        <input type="number" min="0" name="inc_from[]" x-model="r.from" class="px-3 py-2 text-sm rounded-md w-40" style="{{ $fieldStyle }}">
+                        <span class="text-xs" style="color:var(--text-muted);">goes up by R</span>
+                        <input type="number" min="1" name="inc_amount[]" x-model="r.inc" class="px-3 py-2 text-sm rounded-md w-40" style="{{ $fieldStyle }}">
+                        <button type="button" @click="rows.splice(i, 1)" class="text-xs underline" style="color:var(--text-muted);">Remove</button></div>
+                </template>
+                <button type="button" @click="rows.push({from: '', inc: ''})" class="text-xs underline" style="color:var(--text-muted);">+ Add a line</button>
             </div>
         </section>
 
-        <section class="rounded-md p-5" style="background:var(--surface);border:1px solid var(--border);" data-tour="aset-registration">
-            <h2 class="text-sm font-bold mb-3" style="color:var(--text-primary);">Bidder registration requirements</h2>
-            <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 text-sm">
-                <div><label><input type="checkbox" name="registration_required" value="1" @checked(optional($settings)->registration_required ?? $S::DEFAULT_REGISTRATION_REQUIRED)> Registration required to bid</label></div>
-                <div>
-                    <label class="prop-label">Registration opens (days before)</label>
-                    <input type="number" name="registration_opens_days_before" min="0" value="{{ optional($settings)->registration_opens_days_before ?? $S::DEFAULT_REGISTRATION_OPENS_DAYS_BEFORE }}" class="prop-input w-full">
-                </div>
-                <div>
-                    <label class="prop-label">Registration closes</label>
-                    <select name="registration_closes" class="prop-input w-full">
-                        <option value="at_start" @selected((optional($settings)->registration_closes ?? $S::DEFAULT_REGISTRATION_CLOSES) === 'at_start')>At the start</option>
-                        <option value="hours_before" @selected((optional($settings)->registration_closes ?? $S::DEFAULT_REGISTRATION_CLOSES) === 'hours_before')>Hours before</option>
-                    </select>
-                </div>
-                <div>
-                    <label class="prop-label">Hours before (if above)</label>
-                    <input type="number" name="registration_closes_hours_before" min="0" value="{{ optional($settings)->registration_closes_hours_before ?? $S::DEFAULT_REGISTRATION_CLOSES_HOURS_BEFORE }}" class="prop-input w-full">
-                </div>
-                <div><label><input type="checkbox" name="require_fica_before_paddle" value="1" @checked(optional($settings)->require_fica_before_paddle ?? $S::DEFAULT_REQUIRE_FICA_BEFORE_PADDLE)> FICA required before paddle</label></div>
-                <div><label><input type="checkbox" name="registration_deposit_required" value="1" @checked(optional($settings)->registration_deposit_required ?? $S::DEFAULT_REGISTRATION_DEPOSIT_REQUIRED)> Registration deposit required</label></div>
-                <div>
-                    <label class="prop-label">Deposit amount (R)</label>
-                    <input type="number" name="registration_deposit_amount" step="0.01" min="0" value="{{ optional($settings)->registration_deposit_amount ?? $S::DEFAULT_REGISTRATION_DEPOSIT_AMOUNT }}" class="prop-input w-full">
-                </div>
-                <div>
-                    <label class="prop-label">Refund SLA (days)</label>
-                    <input type="number" name="registration_deposit_refund_days" min="0" value="{{ optional($settings)->registration_deposit_refund_days ?? $S::DEFAULT_REGISTRATION_DEPOSIT_REFUND_DAYS }}" class="prop-input w-full">
-                </div>
-                <div><label><input type="checkbox" name="require_signed_rules_before_paddle" value="1" @checked(optional($settings)->require_signed_rules_before_paddle ?? $S::DEFAULT_REQUIRE_SIGNED_RULES_BEFORE_PADDLE)> Rules of Auction must be signed before paddle</label></div>
-                <div>
-                    <label class="prop-label">Paddle number mode</label>
-                    <select name="paddle_number_mode" class="prop-input w-full">
-                        <option value="sequential" @selected((optional($settings)->paddle_number_mode ?? $S::DEFAULT_PADDLE_NUMBER_MODE) === 'sequential')>Sequential</option>
-                        <option value="manual" @selected((optional($settings)->paddle_number_mode ?? $S::DEFAULT_PADDLE_NUMBER_MODE) === 'manual')>Manual</option>
-                    </select>
-                </div>
-                <div><label><input type="checkbox" name="entity_bidders_allowed" value="1" @checked(optional($settings)->entity_bidders_allowed ?? $S::DEFAULT_ENTITY_BIDDERS_ALLOWED)> Company/trust bidders allowed</label></div>
+        <section class="rounded-md p-5 space-y-4" style="background:var(--surface);border:1px solid var(--border);">
+            <h2 class="text-sm font-bold" style="color:var(--text-primary);">Bidder registration</h2>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div><label class="{{ $label }}" style="color:var(--text-secondary);">Days a seller has to confirm a below-reserve sale</label>
+                    <input type="number" min="1" max="60" name="confirmation_days" value="{{ old('confirmation_days', $values['confirmation_days']) }}" class="{{ $field }}" style="{{ $fieldStyle }}">
+                    <p class="{{ $hint }}" style="color:var(--text-muted);">When the highest bid is under the reserve, the seller decides within this time. It appears on the calendar.</p></div>
+                <div><label class="{{ $label }}" style="color:var(--text-secondary);">Registration closes (hours before the auction)</label>
+                    <input type="number" min="0" max="720" name="registration_closes_hours" value="{{ old('registration_closes_hours', $values['registration_closes_hours']) }}" class="{{ $field }}" style="{{ $fieldStyle }}"></div>
+                @foreach(['docs_required_individual' => 'Documents required from an individual', 'docs_required_company' => 'Documents required from a company'] as $key => $title)
+                <div><label class="{{ $label }}" style="color:var(--text-secondary);">{{ $title }}</label>
+                    @foreach(\App\Models\AgencyAuctionSettings::DOCUMENT_KINDS as $k => $l)
+                    <label class="flex items-center gap-2 text-sm"><input type="checkbox" name="{{ $key }}[]" value="{{ $k }}" @checked(in_array($k, (array) old($key, $values[$key]), true))> {{ $l }}</label>
+                    @endforeach</div>
+                @endforeach
+                <div class="md:col-span-2"><label class="{{ $label }}" style="color:var(--text-secondary);">Terms shown to a buyer when they register</label>
+                    <textarea name="terms_text" rows="4" class="{{ $field }}" style="{{ $fieldStyle }}">{{ old('terms_text', $values['terms_text']) }}</textarea></div>
             </div>
         </section>
-
-        <section class="rounded-md p-5" style="background:var(--surface);border:1px solid var(--border);" data-tour="aset-reserve">
-            <h2 class="text-sm font-bold mb-3" style="color:var(--text-primary);">Reserve, guide and confirmation</h2>
-            <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 text-sm">
-                <div>
-                    <label class="prop-label">Reserve visibility</label>
-                    <select name="reserve_visibility" class="prop-input w-full">
-                        @foreach($S::RESERVE_VISIBILITY_OPTIONS as $o)
-                            <option value="{{ $o }}" @selected((optional($settings)->reserve_visibility ?? $S::DEFAULT_RESERVE_VISIBILITY) === $o)>{{ ucwords(str_replace('_', ' ', $o)) }}</option>
-                        @endforeach
-                    </select>
-                </div>
-                <div><label><input type="checkbox" name="guide_price_enabled" value="1" @checked(optional($settings)->guide_price_enabled ?? $S::DEFAULT_GUIDE_PRICE_ENABLED)> Show a guide price publicly</label></div>
-                <div><label><input type="checkbox" name="confirmation_period_enabled" value="1" @checked(optional($settings)->confirmation_period_enabled ?? $S::DEFAULT_CONFIRMATION_PERIOD_ENABLED)> Below-reserve sales go to seller confirmation</label></div>
-                <div>
-                    <label class="prop-label">Confirmation period (days)</label>
-                    <input type="number" name="confirmation_period_days" min="1" max="60" value="{{ optional($settings)->confirmation_period_days ?? $S::DEFAULT_CONFIRMATION_PERIOD_DAYS }}" class="prop-input w-full">
-                </div>
-                <div class="sm:col-span-2 xl:col-span-4">
-                    <label class="prop-label">Vendor bidding disclosure (printed on every catalogue/advert — confirm wording with your attorney before first live use)</label>
-                    <textarea name="vendor_bidding_disclosure" rows="2" class="prop-input w-full">{{ optional($settings)->vendor_bidding_disclosure ?? $S::DEFAULT_VENDOR_BIDDING_DISCLOSURE }}</textarea>
-                </div>
-            </div>
-        </section>
-
-        <section class="rounded-md p-5" style="background:var(--surface);border:1px solid var(--border);" data-tour="aset-deposit">
-            <h2 class="text-sm font-bold mb-3" style="color:var(--text-primary);">Deposit and settlement on the day</h2>
-            <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 text-sm">
-                <div>
-                    <label class="prop-label">Purchase deposit mode</label>
-                    <select name="purchase_deposit_mode" class="prop-input w-full">
-                        @foreach($S::PURCHASE_DEPOSIT_MODES as $m)
-                            <option value="{{ $m }}" @selected((optional($settings)->purchase_deposit_mode ?? $S::DEFAULT_PURCHASE_DEPOSIT_MODE) === $m)>{{ ucfirst($m) }}</option>
-                        @endforeach
-                    </select>
-                </div>
-                <div>
-                    <label class="prop-label">Deposit %</label>
-                    <input type="number" name="purchase_deposit_percent" step="0.01" min="0" max="100" value="{{ optional($settings)->purchase_deposit_percent ?? $S::DEFAULT_PURCHASE_DEPOSIT_PERCENT }}" class="prop-input w-full">
-                </div>
-                <div>
-                    <label class="prop-label">Fixed amount (R, if mode=fixed)</label>
-                    <input type="number" name="purchase_deposit_fixed_amount" step="0.01" min="0" value="{{ optional($settings)->purchase_deposit_fixed_amount }}" class="prop-input w-full">
-                </div>
-                <div>
-                    <label class="prop-label">Deposit due (days after hammer)</label>
-                    <input type="number" name="purchase_deposit_due_days" min="0" value="{{ optional($settings)->purchase_deposit_due_days ?? $S::DEFAULT_PURCHASE_DEPOSIT_DUE_DAYS }}" class="prop-input w-full">
-                </div>
-                <div>
-                    <label class="prop-label">Balance due (days)</label>
-                    <input type="number" name="balance_due_days" min="0" value="{{ optional($settings)->balance_due_days ?? $S::DEFAULT_BALANCE_DUE_DAYS }}" class="prop-input w-full">
-                </div>
-            </div>
-        </section>
-
-        <div>
-            <button type="submit" class="corex-btn-primary" data-tour="aset-save">Save Auction Settings</button>
-        </div>
+        <div><button type="submit" class="corex-btn-primary">Save settings</button></div>
     </form>
 </div>
 @endsection

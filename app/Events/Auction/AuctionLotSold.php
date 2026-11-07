@@ -7,34 +7,20 @@ namespace App\Events\Auction;
 use App\Events\AbstractDomainEvent;
 use App\Models\AuctionLot;
 
-/**
- * Fires when the hammer falls at/above reserve (§12.1). CPA s45(4): the sale
- * is complete at the fall of the hammer. Known subscribers (§17): Deal
- * creation, property status, commission, seller + buyer notification, audit
- * — Deal creation/commission are Phase 3 listeners (§21); Phase 1 wires
- * property status only.
- */
+/** A lot closed at or above its reserve and was sold to the highest bidder. */
 final class AuctionLotSold extends AbstractDomainEvent
 {
-    public function __construct(
-        public readonly AuctionLot $lot,
-        public readonly ?int $actorId = null,
-        ?string $traceId = null,
-    ) {
+    public function __construct(public readonly AuctionLot $lot, public readonly bool $afterConfirmation = false, ?string $traceId = null)
+    {
         parent::__construct($traceId);
     }
 
-    public function agencyId(): ?int { return $this->lot->agency_id; }
-    public function actorUserId(): ?int { return $this->actorId; }
+    public function agencyId(): ?int { return $this->lot->agency_id ?? null; }
+    public function actorUserId(): ?int { return null; }
     public function subject(): ?array { return [AuctionLot::class, $this->lot->id]; }
 
     public function context(): array
     {
-        return [
-            'auction_id' => $this->lot->auction_id,
-            'property_id' => $this->lot->property_id,
-            'hammer_price' => $this->lot->hammer_price,
-            'reserve_met' => $this->lot->reserve_met,
-        ];
+        return ['auction_id' => $this->lot->auction_id, 'property_id' => $this->lot->property_id, 'hammer_price' => $this->lot->hammer_price, 'winning_bid_id' => $this->lot->winning_bid_id, 'after_confirmation' => $this->afterConfirmation];
     }
 }

@@ -3,244 +3,258 @@
 namespace App\Http\Controllers\CoreX\Auctions;
 
 use App\Http\Controllers\Controller;
-use App\Models\AgencyAuctionSettings;
-use App\Models\AuctionBid;
+use App\Models\Auction;
 use App\Models\AuctionLot;
-use App\Models\AuctionLotViewing;
-use App\Models\PropertySettingItem;
+use App\Models\Property;
+use App\Models\User;
 use App\Services\Auctions\AuctionDealFactory;
-use App\Services\Auctions\AuctionLotStatusService;
+use App\Services\Auctions\AuctionLotService;
+use App\Services\Auctions\LotResultService;
 use Illuminate\Http\Request;
+use Illuminate\Validation\ValidationException;
 
 /**
- * AT-432 Phase 1 — .ai/specs/auctions.md §7 screen 4 (Lot detail) + the
- * manual result-capture actions Phase 1 needs in place of a bidding engine
- * (§21 Phase 1: "record the result, open the deal" minus the engine itself
- * — deal-opening is Phase 3, see AuctionLotSold's docblock).
- *
- * Every action below is a thin wrapper: AuctionLotStatusService owns the
- * transition, the audit trail, and the property-status sync (§6.2). This
- * controller only validates input and translates a service exception into
- * a user-facing error.
+ * Screen S2 — Lots (.ai/specs/auctions.md §5): list across all auctions, create a lot for a property,
+ * edit, withdraw, archive and restore. All writes go through AuctionLotService, the same writer the
+ * property's Auction tab uses.
  */
 class AuctionLotController extends Controller
 {
-    public function show(AuctionLot $lot)
-    {
-        $agencyId = (int) $lot->agency_id;
+    private const SORTABLE = ['auction', 'lot_number', 'title', 'status', 'opens_at', 'closes_at', 'opening_bid'];
 
-        return view('corex.auctions.lots.show', [
-            'lot' => $lot->load(['auction', 'property', 'confirmedBy', 'statusHistory.changedBy', 'viewings.agent']),
-            'canSeeReserve' => AgencyAuctionSettings::reserveVisibilityFor($agencyId) === 'published'
-                || auth()->user()->hasPermission('auctions.reserve.view'),
-            'statusLabels' => PropertySettingItem::auctionLotStatusLabelsFor($agencyId),
-            'advertisingOnly' => AgencyAuctionSettings::advertisingOnlyFor($agencyId),
-            // §12.3 — "surfaces the top under-bidder with their number so the
-            // agent can negotiate from a known position." Task auto-creation
-            // for every registered bidder is a follow-up (needs a generic
-            // task/reminder mechanism this build did not need to touch
-            // elsewhere yet); this is the safely-buildable half — visibility.
-            'topUnderBidders' => $lot->status === AuctionLot::STATUS_PASSED_IN
-                ? AuctionBid::where('auction_lot_id', $lot->id)->whereNull('retracted_at')
-                    ->with('bidder.contact')->orderByDesc('amount')->limit(5)->get()
-                    ->unique('auction_bidder_id')->values()
-                : collect(),
+    public function __construct(private AuctionLotService $service, private LotResultService $results) {}
+
+    public function index(Request $request)
+    {
+        $user = $request->user();
+
+        $search = trim((string) $request->query('search', ''));
+        $auctionId = trim((string) $request->query('auction_id', ''));
+        $status = trim((string) $request->query('status', ''));
+        $agentId = trim((string) $request->query('agent_id', ''));
+        $dateFrom = trim((string) $request->query('date_from', ''));
+        $dateTo = trim((string) $request->query('date_to', ''));
+        $archived = $request->boolean('archived');
+        $sort = in_array($request->query('sort'), self::SORTABLE, true) ? $request->query('sort') : 'auction';
+        $dir = $request->query('dir', 'desc') === 'asc' ? 'asc' : 'desc';
+
+        $query = AuctionLot::visibleTo($user)
+            ->join('auctions', 'auctions.id', '=', 'auction_lots.auction_id')
+            ->select('auction_lots.*')
+            ->with(['auction', 'property.agent']);
+        if ($archived) {
+            $query->onlyTrashed();
+        }
+
+        if ($search !== '') {
+            $query->where(function ($q) use ($search) {
+                $q->where('auction_lots.lot_number', $search)
+                    ->orWhere('auction_lots.title', 'like', "%{$search}%")
+                    ->orWhere('auction_lots.reference', 'like', "%{$search}%")
+                    ->orWhereHas('property', fn ($p) => $p->where('title', 'like', "%{$search}%")
+                        ->orWhere('address', 'like', "%{$search}%")
+                        ->orWhere('street_name', 'like', "%{$search}%")
+                        ->orWhere('suburb', 'like', "%{$search}%"))
+                    ->orWhereHas('property.agent', fn ($a) => $a->where('name', 'like', "%{$search}%"));
+            });
+        }
+        if ($auctionId !== '' && ctype_digit($auctionId)) {
+            $query->where('auction_lots.auction_id', (int) $auctionId);
+        }
+        if (in_array($status, AuctionLot::STATUSES, true)) {
+            $query->where('auction_lots.status', $status);
+        }
+        if ($agentId !== '' && ctype_digit($agentId)) {
+            $query->whereHas('property', fn ($p) => $p->where('agent_id', (int) $agentId));
+        }
+        if ($dateFrom !== '') {
+            $query->whereDate('auctions.starts_at', '>=', $dateFrom);
+        }
+        if ($dateTo !== '') {
+            $query->whereDate('auctions.starts_at', '<=', $dateTo);
+        }
+
+        match ($sort) {
+            'auction' => $query->orderBy('auctions.starts_at', $dir)->orderBy('auction_lots.lot_number'),
+            'title' => $query->orderBy('auction_lots.title', $dir),
+            default => $query->orderBy('auction_lots.' . $sort, $dir),
+        };
+
+        return view('corex.auctions.lots.index', [
+            'lots' => $query->paginate(25)->withQueryString(),
+            'filters' => compact('search', 'auctionId', 'status', 'agentId', 'dateFrom', 'dateTo', 'archived', 'sort', 'dir'),
+            'auctions' => Auction::visibleTo($user)->orderByDesc('starts_at')->get(['id', 'reference', 'title']),
+            'agents' => User::query()->where('agency_id', $user->effectiveAgencyId())->orderBy('name')->get(['id', 'name']),
         ]);
     }
 
-    /**
-     * Reserve / guide / opening bid can be corrected until bidding opens — the publish gate asks for a
-     * reserve statement, and removing and re-adding the lot must not be the only way to give one.
-     * The reserve is written only for a user who may see it; for anyone else the field is never
-     * rendered, and an absent field must not blank what is stored.
-     */
-    public function updatePrices(Request $request, AuctionLot $lot)
+    public function create(Request $request)
     {
-        if (! in_array($lot->status, [AuctionLot::STATUS_DRAFT, AuctionLot::STATUS_CATALOGUED], true)) {
-            return back()->withErrors(['lot' => 'Prices can only be changed before bidding opens on the lot.']);
+        $user = $request->user();
+        $property = null;
+        if ($pid = $request->query('property_id')) {
+            $property = Property::visibleTo($user)->find($pid);
         }
 
-        $data = $request->validate([
-            'reserve_price' => 'nullable|numeric|min:0',
+        return view('corex.auctions.lots.form', [
+            'lot' => new AuctionLot(['auction_id' => $request->query('auction_id')]),
+            'property' => $property,
+            'auctions' => $this->openAuctions($user),
+        ]);
+    }
+
+    public function store(Request $request)
+    {
+        $user = $request->user();
+        $data = $this->validated($request);
+        $property = $this->eligibleProperty($user, (int) $request->input('property_id'));
+
+        if ($existing = $property->currentAuctionLot()) {
+            throw ValidationException::withMessages(['property_id' => "That property is already Lot {$existing->lot_number} in another auction. Edit that lot instead."]);
+        }
+        if (empty($data['auction_id'])) {
+            throw ValidationException::withMessages(['auction_id' => 'Pick the auction this lot belongs to.']);
+        }
+
+        $lot = $this->service->saveForProperty($property, $data, $user);
+
+        return redirect()->route('corex.auctions.lots.edit', $lot)->with('status', "Lot {$lot->lot_number} created.");
+    }
+
+    public function edit(Request $request, int $lot)
+    {
+        $lot = $this->find($request, $lot, withTrashed: true);
+        $lot->load(['auction', 'property']);
+
+        return view('corex.auctions.lots.form', [
+            'lot' => $lot,
+            'property' => $lot->property,
+            'auctions' => $this->openAuctions($request->user(), $lot),
+        ]);
+    }
+
+    public function update(Request $request, int $lot)
+    {
+        $lot = $this->find($request, $lot);
+        abort_if($lot->isConcluded(), 422, 'A finished lot can no longer be changed.');
+
+        $data = $this->validated($request);
+        // The lot number is only chosen when the lot is created.
+        unset($data['lot_number']);
+        $this->service->saveForProperty($lot->property, $data, $request->user(), $lot);
+
+        return back()->with('status', 'Lot saved.');
+    }
+
+    /** The seller accepts the highest bid although it is below the reserve: the lot is sold and the deal opens. */
+    public function confirm(Request $request, int $lot)
+    {
+        $this->results->confirmSale($this->find($request, $lot));
+
+        return back()->with('status', 'Sale confirmed. The deal was opened if the property has a seller on file.');
+    }
+
+    public function decline(Request $request, int $lot)
+    {
+        $data = $request->validate(['reason' => 'required|string|max:300']);
+        $this->results->declineSale($this->find($request, $lot), $data['reason']);
+
+        return back()->with('status', 'Sale declined. The lot was passed in and the property released.');
+    }
+
+    /** Retry opening the Deal for a sold lot (it needs a linked seller on the property). */
+    public function openDeal(Request $request, int $lot, AuctionDealFactory $factory)
+    {
+        $lot = $this->find($request, $lot);
+        try {
+            $deal = $factory->createFromSoldLot($lot, $request->user()->id);
+        } catch (\App\Exceptions\Deal\PropertyOwnerMismatchException $e) {
+            return back()->withErrors(['deal' => 'This property has no seller on file yet. Add the seller to the property (Contacts tab), then open the deal.']);
+        } catch (\RuntimeException $e) {
+            return back()->withErrors(['deal' => $e->getMessage()]);
+        }
+
+        return back()->with('status', 'Deal ' . $deal->deal_no . ' opened.');
+    }
+
+    public function withdraw(Request $request, int $lot)
+    {
+        $request->validate(['reason' => 'nullable|string|max:300']);
+        $this->service->withdraw($this->find($request, $lot), $request->input('reason'));
+
+        return back()->with('status', 'Lot withdrawn. The property can go into another auction.');
+    }
+
+    public function archive(Request $request, int $lot)
+    {
+        $lot = $this->find($request, $lot);
+        if (! in_array($lot->status, [AuctionLot::STATUS_DRAFT, AuctionLot::STATUS_PUBLISHED, AuctionLot::STATUS_WITHDRAWN], true)) {
+            return back()->withErrors(['archive' => 'A lot with a result cannot be archived.']);
+        }
+        $lot->delete();
+        $this->service->releaseProperty($lot);
+
+        return redirect()->route('corex.auctions.lots.index')->with('status', 'Lot archived.');
+    }
+
+    public function restore(Request $request, int $lot)
+    {
+        $lot = $this->find($request, $lot, withTrashed: true);
+        if ($lot->property?->currentAuctionLot()) {
+            return back()->withErrors(['restore' => 'That property is already in another live lot.']);
+        }
+        $lot->restore();
+        $lot->forceFill(['status' => AuctionLot::STATUS_DRAFT])->save();
+        $lot->property?->forceFill(['sale_method' => 'auction'])->save();
+
+        return redirect()->route('corex.auctions.lots.edit', $lot)->with('status', 'Lot restored as a draft.');
+    }
+
+    private function find(Request $request, int $id, bool $withTrashed = false): AuctionLot
+    {
+        $q = AuctionLot::visibleTo($request->user());
+        if ($withTrashed) {
+            $q->withTrashed();
+        }
+
+        return $q->findOrFail($id);
+    }
+
+    /** Sale listings the user may see; a rental is never auctioned. */
+    private function eligibleProperty(User $user, int $propertyId): Property
+    {
+        $property = Property::visibleTo($user)->find($propertyId);
+        if (! $property || $property->isRental()) {
+            throw ValidationException::withMessages(['property_id' => 'Pick one of your properties that is for sale.']);
+        }
+
+        return $property;
+    }
+
+    /** Auctions a lot can still be placed in: not finished, not cancelled. The lot's current one is always listed. */
+    private function openAuctions(User $user, ?AuctionLot $lot = null)
+    {
+        return Auction::visibleTo($user)
+            ->where(fn ($q) => $q->whereNotIn('status', [Auction::STATUS_COMPLETED, Auction::STATUS_CANCELLED])
+                ->when($lot, fn ($q2) => $q2->orWhere('id', $lot->auction_id)))
+            ->orderByDesc('starts_at')->get(['id', 'reference', 'title', 'starts_at']);
+    }
+
+    private function validated(Request $request): array
+    {
+        return $request->validate([
+            'auction_id' => 'nullable|integer',
+            'lot_number' => 'nullable|integer|min:1',
+            'title' => 'nullable|string|max:200',
+            'reference' => 'nullable|string|max:60',
+            'external_ref' => 'nullable|string|max:60',
+            'description' => 'nullable|string|max:20000',
+            'opens_at' => 'nullable|date',
+            'closes_at' => 'nullable|date',
             'opening_bid' => 'nullable|numeric|min:0',
+            'reserve_price' => 'nullable|numeric|min:0',
             'guide_price_min' => 'nullable|numeric|min:0',
             'guide_price_max' => 'nullable|numeric|min:0',
         ]);
-
-        $guideMin = $data['guide_price_min'] ?? null;
-        $guideMax = $data['guide_price_max'] ?? null;
-        if ($guideMin !== null && $guideMax !== null && (float) $guideMax < (float) $guideMin) {
-            return back()->withErrors(['guide_price_max' => 'The guide price maximum cannot be lower than the minimum.'])->withInput();
-        }
-
-        $canSeeReserve = AgencyAuctionSettings::reserveVisibilityFor((int) $lot->agency_id) === 'published'
-            || auth()->user()->hasPermission('auctions.reserve.view');
-
-        $lot->opening_bid = $data['opening_bid'] ?? null;
-        $lot->guide_price_min = $guideMin;
-        $lot->guide_price_max = $guideMax;
-        if ($canSeeReserve && $request->has('reserve_price')) {
-            $lot->reserve_price = $data['reserve_price'] ?? null;
-        }
-        $lot->save();
-
-        return redirect()->route('corex.auctions.lots.show', $lot)->with('status', 'Lot prices updated.');
-    }
-
-    public function openForBids(AuctionLot $lot)
-    {
-        return $this->run($lot, fn ($svc) => $svc->openForBids($lot, auth()->id()), 'Lot opened for bids.');
-    }
-
-    public function startHammer(AuctionLot $lot)
-    {
-        return $this->run($lot, fn ($svc) => $svc->startHammer($lot, auth()->id()), 'Lot is now under the hammer.');
-    }
-
-    public function recordHammer(Request $request, AuctionLot $lot)
-    {
-        $data = $request->validate(['hammer_price' => 'required|numeric|min:0.01']);
-
-        return $this->run(
-            $lot,
-            fn ($svc) => $svc->recordHammer($lot, (float) $data['hammer_price'], now(), auth()->id()),
-            'Hammer recorded.',
-        );
-    }
-
-    /**
-     * Advertising-only mode (.ai/specs/auctions-advertising-mode.md §5): the
-     * sale happened elsewhere, so the agent just records the outcome. The
-     * state machine is NOT bypassed — a catalogued lot is walked through
-     * open → hammer → result inside one transaction, so the history, the
-     * property status and the deal-creation event all behave exactly as they
-     * do after a Sale Room sale.
-     */
-    public function recordResult(Request $request, AuctionLot $lot)
-    {
-        $data = $request->validate([
-            'outcome' => 'required|in:sold,passed_in,withdrawn',
-            'hammer_price' => 'required_if:outcome,sold|nullable|numeric|min:0.01',
-            'reason' => 'nullable|string|max:500',
-        ]);
-
-        return $this->run($lot, function ($svc) use ($lot, $data) {
-            \Illuminate\Support\Facades\DB::transaction(function () use ($svc, $lot, $data) {
-                if ($data['outcome'] === 'withdrawn') {
-                    $svc->withdraw($lot, auth()->id(), $data['reason'] ?? null);
-                    return;
-                }
-                if ($lot->status === AuctionLot::STATUS_CATALOGUED) {
-                    $svc->openForBids($lot, auth()->id());
-                    $lot->refresh();
-                }
-                if ($lot->status === AuctionLot::STATUS_OPEN_FOR_BIDS) {
-                    $svc->startHammer($lot, auth()->id());
-                    $lot->refresh();
-                }
-                if ($data['outcome'] === 'sold') {
-                    $svc->recordHammer($lot, (float) $data['hammer_price'], now(), auth()->id());
-                } else {
-                    $svc->markPassedIn($lot, auth()->id(), $data['reason'] ?? null);
-                }
-            });
-        }, 'Result recorded.');
-    }
-
-    public function confirm(AuctionLot $lot)
-    {
-        return $this->run($lot, fn ($svc) => $svc->confirmSaleBelowReserve($lot, auth()->id()), 'Sale confirmed by the seller.');
-    }
-
-    public function decline(Request $request, AuctionLot $lot)
-    {
-        $reason = $request->input('reason');
-
-        return $this->run($lot, fn ($svc) => $svc->declineSaleBelowReserve($lot, auth()->id(), $reason), 'Sale declined — lot passed in.');
-    }
-
-    public function passedIn(Request $request, AuctionLot $lot)
-    {
-        $reason = $request->input('reason');
-
-        return $this->run($lot, fn ($svc) => $svc->markPassedIn($lot, auth()->id(), $reason), 'Lot marked passed in.');
-    }
-
-    public function withdraw(Request $request, AuctionLot $lot)
-    {
-        $reason = $request->input('reason');
-
-        return $this->run($lot, fn ($svc) => $svc->withdraw($lot, auth()->id(), $reason), 'Lot withdrawn.');
-    }
-
-    /**
-     * Manual retry path for CreateDealOnLotSold (§17) — that listener
-     * silently logs and gives up on failure (most commonly: no seller
-     * contact linked to the property yet, DealPropertyOwnerGate) rather
-     * than breaking the fall-of-hammer transaction. This button is how the
-     * agent finishes the job once they've fixed whatever blocked it, and is
-     * also simply how a Phase-1-recorded sale (no bidding engine, hammer
-     * entered manually) gets its deal — CreateDealOnLotSold only fires from
-     * a REAL bid's AuctionLotSold; a lot sold via the plain recordHammer()
-     * path (Phase 1, still supported) has no bid behind it to trigger from.
-     */
-    public function openDeal(AuctionLot $lot)
-    {
-        if ($lot->deal_id) {
-            return back()->withErrors(['lot' => "This lot already carries deal #{$lot->deal_id}."]);
-        }
-
-        try {
-            $deal = app(AuctionDealFactory::class)->createFromSoldLot($lot, auth()->id());
-        } catch (\Throwable $e) {
-            return back()->withErrors(['lot' => 'Could not open the deal: '.$e->getMessage()]);
-        }
-
-        return redirect()->route('corex.auctions.lots.show', $lot)->with('status', "Deal #{$deal->deal_no} opened.");
-    }
-
-    /** AT-432 Phase 5 — .ai/specs/auctions.md §5.6. Publish a viewing window ahead of the sale. */
-    public function addViewing(Request $request, AuctionLot $lot)
-    {
-        $data = $request->validate([
-            'starts_at' => 'required|date',
-            'ends_at' => 'required|date|after:starts_at',
-            'is_by_appointment' => 'nullable|boolean',
-            'notes' => 'nullable|string|max:500',
-            'agent_id' => 'nullable|integer|exists:users,id',
-        ]);
-
-        AuctionLotViewing::create([
-            'agency_id' => $lot->agency_id,
-            'auction_lot_id' => $lot->id,
-            'agent_id' => $data['agent_id'] ?? auth()->id(),
-            'starts_at' => $data['starts_at'],
-            'ends_at' => $data['ends_at'],
-            'is_by_appointment' => (bool) ($data['is_by_appointment'] ?? false),
-            'notes' => $data['notes'] ?? null,
-        ]);
-
-        return redirect()->route('corex.auctions.lots.show', $lot)->with('status', 'Viewing added.');
-    }
-
-    public function removeViewing(AuctionLot $lot, AuctionLotViewing $viewing)
-    {
-        if ((int) $viewing->auction_lot_id !== (int) $lot->id) {
-            abort(404);
-        }
-        $viewing->delete();
-
-        return redirect()->route('corex.auctions.lots.show', $lot)->with('status', 'Viewing removed.');
-    }
-
-    private function run(AuctionLot $lot, \Closure $action, string $message)
-    {
-        try {
-            $action(new AuctionLotStatusService());
-        } catch (\RuntimeException $e) {
-            return back()->withErrors(['lot' => $e->getMessage()]);
-        }
-
-        return redirect()->route('corex.auctions.lots.show', $lot)->with('status', $message);
     }
 }
