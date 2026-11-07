@@ -16,6 +16,9 @@ class MergeFields
     public const FIELDS = [
         'agency_name', 'agency_trading_name', 'agency_reg_no', 'agency_vat_no', 'agency_address',
         'today', 'go_live_date', 'billing_start_date',
+        // Single-agent agreements only (solo-agent-accounts.md section 4.2/5a): filled for a single-agent agency, blank - and so
+        // refused with a clear message - for any other. monthly_fee comes from the same setting billing uses, so the contract and the bill agree.
+        'agent_name', 'agent_ffc_number', 'monthly_fee',
     ];
 
     public function __construct(private AgencyTimelineService $timelines)
@@ -32,7 +35,9 @@ class MergeFields
         $live = $timeline ? $this->timelines->goLive($timeline) : null;
         $liveDate = $live ? ($live['expected'] ?? $live['planned']) : null;
 
-        return [
+        $solo = $this->soloValues($agency);
+
+        return $solo + [
             'agency_name'         => (string) $agency->name,
             'agency_trading_name' => (string) ($agency->trading_name ?: $agency->name),
             'agency_reg_no'       => (string) $agency->reg_no,
@@ -41,6 +46,21 @@ class MergeFields
             'today'               => now()->format('j F Y'),
             'go_live_date'        => $liveDate ? $liveDate->format('j F Y') : '',
             'billing_start_date'  => $liveDate ? $liveDate->copy()->addDay()->format('j F Y') : '',
+        ];
+    }
+
+    /** @return array<string,string> agent_name / agent_ffc_number / monthly_fee for a single-agent agency; [] for any other. */
+    private function soloValues(Agency $agency): array
+    {
+        if (! $agency->isSolo()) {
+            return [];
+        }
+        $signup = \App\Models\SoloAgentSignup::withTrashed()->where('agency_id', $agency->id)->first();
+
+        return [
+            'agent_name'       => (string) ($signup?->user?->name ?? ''),
+            'agent_ffc_number' => (string) ($signup?->ffc_number ?? ''),
+            'monthly_fee'      => \App\Support\Money\Zar::formatWhole((float) config('solo-agent.monthly_fee_zar', 450)) . ' per month',
         ];
     }
 

@@ -388,6 +388,34 @@ solo; `corex-domain-events-spec.md`; `.ai/CHAT_STARTER.md`.
    `config('solo-agent.ai_template_monthly_limit')` (5) inside the creation transaction; the one shared pool
    (property templates and company ads) is unchanged. Tests:
    `tests/Feature/SoloAgent/SoloBillingAndAiAllowanceTest.php`.
-4. Solo Agents section (create → contract send → list → detail → actions) + activation listener + awaiting-contract gate.
+4. **DONE (2026-11-07)** — Solo Agents section + agreement + activation. As built (amends §4.2/§6/§9):
+   - **Tables:** `solo_agent_signups` (adds `suspended_before_archive`, so Restore never reopens an account that was
+     suspended before it was archived) and `solo_agent_status_events` (adds an `event` column: created, contract_sent,
+     contract_signed, setup_email_sent, edited, suspended, unsuspended, archived, restored). Platform-owned like
+     `agency_timelines` - no agency scoping, owner-only access.
+   - **Agreement = the generic Platform E-Sign engine**, new template kind `solo_agent_agreement` (a wording or PDF
+     template the owner authors; the build writes no contract text). The first signer role is the agent; any
+     further role is signed by the CoreX user who sends it. Wording can use `{{ agent_name }}`, `{{ agent_ffc_number }}`
+     and `{{ monthly_fee }}` - the last comes from the same setting billing uses, so the contract and the bill cannot
+     disagree. (The existing web-document Subscription Agreement is band-priced and stays for normal agencies.)
+   - **Activation:** `EsignService::complete()` emits `Platform\EsignDocumentCompleted`; `ActivateSoloAgentOnAgreementSigned`
+     opens the account only for kind `solo_agent_agreement` AND only for the very document this sign-up sent. Login on,
+     password-setup email out, `SoloAgentActivated`. Idempotent; never opens an archived account.
+   - **Awaiting-contract gate = the login itself.** The login is off until signing; the first-sign-in claim
+     (`AgencyAdminFirstLoginService`) refuses an unsigned or archived solo agent so a password reset cannot skip the
+     contract, and the sign-in screen says "waiting for your signed agreement" instead of the generic message.
+     (No separate "waiting" page: an unsigned agent can never be signed in.)
+   - **Archive** = soft delete of the sign-up, agency suspended, login shut (raw update - the last-admin rule protects
+     live agencies, not closed ones), billing stops (no active seat), an unsigned agreement voided. **Restore** reverses
+     it (login back on only if the agreement was signed; stays suspended if it was suspended before).
+   - **Edit details** covers agency name, trading name, agent name, mobile, FFC; not the login email or what they do.
+   - **List** has the §6 columns, search on the five named fields, sort on all 14 columns (default newest first), the
+     status/what-they-do/FFC-expiry/date filters, 25/50/100 per page and the empty state. Last login comes from
+     `login_histories`; AI used from the same count the allowance uses (`AiTemplateBuilderService::usedQuery`, now public).
+   - **Permissions** `solo_agents.view/create/manage/archive` are owner-only: excluded from admin's default, listed in
+     `solo-agent.php` denied permissions, every route behind `owner_only` + the key, every action re-checks.
+   - **Agency Management** hides single agents by default; `?type=solo|all` shows them.
+   - **Events** (catalogue updated): `SoloAgentCreated/Activated/Suspended/Unsuspended/Archived/Restored` and `EsignDocumentCompleted`.
+   - Tests: `tests/Feature/SoloAgent/SoloAgentSectionTest.php` (29).
 5. Merged Settings + sidebar for solo + Company Settings redirect.
 6. Wizard solo track + events catalogue + API catalogue + docs.

@@ -6007,6 +6007,24 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::put('/{agency}', [\App\Http\Controllers\Admin\AgencyBillingController::class, 'update'])->name('update');
     });
 
+    // Solo Agents - the CoreX team's section for single-agent accounts (.ai/specs/solo-agent-accounts.md sections 4, 6, 8).
+    // OWNER-ONLY: owner_only here (a ROLE check, not a grantable key) + the solo_agents.* permission + re-checked in every action.
+    $soloAgents = \App\Http\Controllers\Admin\SoloAgentController::class;
+    Route::middleware('owner_only')->prefix('admin/solo-agents')->name('admin.solo-agents.')->group(function () use ($soloAgents) {
+        Route::get('/',                [$soloAgents, 'index'])->middleware('permission:solo_agents.view')->name('index');
+        Route::get('/create',          [$soloAgents, 'create'])->middleware('permission:solo_agents.create')->name('create');
+        Route::post('/',               [$soloAgents, 'store'])->middleware('permission:solo_agents.create')->name('store');
+        Route::get('/{signup}',        [$soloAgents, 'show'])->whereNumber('signup')->middleware('permission:solo_agents.view')->name('show');
+        Route::get('/{signup}/edit',   [$soloAgents, 'edit'])->whereNumber('signup')->middleware('permission:solo_agents.manage')->name('edit');
+        Route::put('/{signup}',        [$soloAgents, 'update'])->whereNumber('signup')->middleware('permission:solo_agents.manage')->name('update');
+        Route::post('/{signup}/send-contract',    [$soloAgents, 'sendContract'])->whereNumber('signup')->middleware('permission:solo_agents.manage')->name('send-contract');
+        Route::post('/{signup}/resend-setup',     [$soloAgents, 'resendSetup'])->whereNumber('signup')->middleware('permission:solo_agents.manage')->name('resend-setup');
+        Route::post('/{signup}/suspend',          [$soloAgents, 'suspend'])->whereNumber('signup')->middleware('permission:solo_agents.manage')->name('suspend');
+        Route::post('/{signup}/unsuspend',        [$soloAgents, 'unsuspend'])->whereNumber('signup')->middleware('permission:solo_agents.manage')->name('unsuspend');
+        Route::post('/{signup}/archive',          [$soloAgents, 'archive'])->whereNumber('signup')->middleware('permission:solo_agents.archive')->name('archive');
+        Route::post('/{signup}/restore',          [$soloAgents, 'restore'])->whereNumber('signup')->middleware('permission:solo_agents.archive')->name('restore');
+    });
+
     // Agency Management — index/create/store/destroy/toggle-active/toggle-maintenance are owner-only.
     Route::middleware('owner_only')->prefix('settings/agencies')->name('agencies.')->group(function () {
         Route::get('/',              [\App\Http\Controllers\Admin\AgencyController::class, 'index'])->name('index');

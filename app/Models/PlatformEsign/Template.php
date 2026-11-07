@@ -16,6 +16,8 @@ class Template extends Model
 
     public const KINDS = [
         'subscription_agreement' => 'Subscription agreement',
+        // The single-agent agreement sent from Solo Agents (.ai/specs/solo-agent-accounts.md section 4.2). Signing it opens the account.
+        'solo_agent_agreement'   => 'Single-agent agreement',
         'debit_order'            => 'Debit-order form',
         'other'                  => 'Other',
     ];

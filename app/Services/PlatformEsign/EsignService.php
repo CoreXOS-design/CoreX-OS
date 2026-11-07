@@ -789,6 +789,20 @@ class EsignService
             Log::error('Platform e-sign: timeline sync after completion failed', ['document_id' => $doc->id, 'error' => $e->getMessage()]);
             $this->log($doc, 'timeline_sync_failed', 'The agency timeline could not be updated — it will catch up when the timeline is next opened');
         }
+        // Domain event (NN #9): the document is fully signed. Not for a forced re-seal ($notify = false) - nothing new happened.
+        // Failure-isolated: the signatures are committed, so a subscriber's fault is logged on the document, never thrown at the signer.
+        if ($notify) {
+            try {
+                event(new \App\Events\Platform\EsignDocumentCompleted(
+                    (int) $doc->id,
+                    $doc->agency_id ? (int) $doc->agency_id : null,
+                    Template::withTrashed()->whereKey($doc->template_id)->value('kind'),
+                ));
+            } catch (\Throwable $e) {
+                Log::error('Platform e-sign: completion subscribers failed', ['document_id' => $doc->id, 'error' => $e->getMessage()]);
+                $this->log($doc, 'completion_event_failed', 'A follow-up step after signing failed - the owner can retry it from the screen it belongs to');
+            }
+        }
     }
 
     /** Build and store the sealed PDF. @return bool sealed */

@@ -363,7 +363,8 @@
         'admin.ai-usage.*',
         'admin.billing.*',
         'admin.revenue.*',
-        'admin.agency-timelines.*'
+        'admin.agency-timelines.*',
+        'admin.solo-agents.*'
     )) {
         $activeGroup = 'agency';
     } elseif (request()->routeIs(
@@ -2918,6 +2919,11 @@
                 <div class="corex-nav-panel-title">Agency</div>
 
                 <a href="{{ route('agencies.index') }}" class="corex-nav-subitem {{ request()->routeIs('agencies.*') ? 'active' : '' }}">Agency Management</a>
+
+                {{-- Solo Agents - single-agent accounts, signed up and managed by the CoreX team (owner-only, spec solo-agent-accounts.md section 6). --}}
+                @permission('solo_agents.view')
+                <a href="{{ route('admin.solo-agents.index') }}" class="corex-nav-subitem {{ request()->routeIs('admin.solo-agents.*') ? 'active' : '' }}">Solo Agents</a>
+                @endpermission
 
                 {{-- Agency Setup Progress — onboarding-wizard tracking board (owner-only) --}}
                 <a href="{{ route('admin.agency-setup-progress') }}" class="corex-nav-subitem {{ request()->routeIs('admin.agency-setup-progress', 'admin.agency-setup-progress.*') ? 'active' : '' }}">Agency Setup Progress</a>

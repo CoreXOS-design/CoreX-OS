@@ -45,6 +45,13 @@ class AgencyAdminFirstLoginService
      */
     public function handle(User $user, bool $showWelcomePopup = true): void
     {
+        // Solo Agent Accounts - a single agent whose agreement is not signed (or whose account is closed) must NOT be
+        // activated by a first sign-in: otherwise a password reset would let them skip the contract. The claim below flips
+        // is_active, so refuse before it; the callers' is_active gate then rejects them.
+        if (\App\Models\SoloAgentSignup::loginBlockedReason($user) !== null) {
+            return;
+        }
+
         // Atomic compare-and-swap: only the request that actually flips
         // first_login_at from NULL proceeds. Without this, two near-
         // simultaneous logins (double-click, two tabs) could both read it as

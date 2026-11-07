@@ -1360,8 +1360,12 @@ PROMPT;
             ->count();
     }
 
-    /** @return \Illuminate\Database\Eloquent\Builder<AiTemplateGeneration> */
-    private function usedQuery(?int $agencyId)
+    /**
+     * The rows that count against the month's allowance (public so the owner's Solo Agents list can sort on the very same count).
+     *
+     * @return \Illuminate\Database\Eloquent\Builder<AiTemplateGeneration>
+     */
+    public function usedQuery(?int $agencyId)
     {
         $monthStart = Carbon::now()->startOfMonth();
         $staleAfter = Carbon::now()->subMinutes(self::PENDING_STALE_MIN);

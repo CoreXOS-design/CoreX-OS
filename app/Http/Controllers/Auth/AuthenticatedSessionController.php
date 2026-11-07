@@ -114,7 +114,10 @@ class AuthenticatedSessionController extends Controller
             $request->session()->invalidate();
             $request->session()->regenerateToken();
 
-            return back()->withErrors(['email' => 'Your account is inactive. Please contact the administrator.']);
+            // A single agent still waiting on their signed agreement (or whose account is closed) is told so, plainly.
+            $soloReason = \App\Models\SoloAgentSignup::loginBlockedReason(\App\Models\User::withoutGlobalScopes()->withTrashed()->where('email', $request->input('email'))->first());
+
+            return back()->withErrors(['email' => $soloReason ?? 'Your account is inactive. Please contact the administrator.']);
         }
 
         $request->session()->regenerate();

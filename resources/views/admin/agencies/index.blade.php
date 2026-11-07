@@ -17,6 +17,17 @@
         </div>
     </div>
 
+    {{-- Type filter: single-agent accounts have their own section (Solo Agents) and are left out of this list by default. --}}
+    <form method="GET" class="rounded-md p-3 flex flex-wrap gap-2 items-center" style="background: var(--surface); border: 1px solid var(--border);">
+        <label class="text-xs font-semibold" style="color: var(--text-muted);" for="agency-type-filter">Show</label>
+        <select id="agency-type-filter" name="type" class="list-header-filter {{ ($type ?? 'agency') !== 'agency' ? 'is-active' : '' }}" onchange="this.form.submit()">
+            <option value="agency" @selected(($type ?? 'agency') === 'agency')>Agencies</option>
+            <option value="solo" @selected(($type ?? '') === 'solo')>Single agents only</option>
+            <option value="all" @selected(($type ?? '') === 'all')>Agencies and single agents</option>
+        </select>
+        <a href="{{ route('admin.solo-agents.index') }}" class="text-xs underline" style="color: var(--text-secondary);">Manage single agents</a>
+    </form>
+
     {{-- Summary KPIs --}}
     @if($agencies->isNotEmpty())
     <div class="corex-kpi-grid">

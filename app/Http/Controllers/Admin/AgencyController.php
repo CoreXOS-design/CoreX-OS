@@ -86,11 +86,23 @@ class AgencyController extends Controller
     }
 
 
-    public function index()
+    public function index(Request $request)
     {
-        $agencies = Agency::withCount(['branches', 'users'])->orderBy('name')->get();
+        // Single-agent accounts live in their own section (Solo Agents) and would drown this list, so they are left out by
+        // default; ?type=solo shows only them, ?type=all shows everything (.ai/specs/solo-agent-accounts.md section 6).
+        $type  = in_array($request->query('type'), ['solo', 'all'], true) ? $request->query('type') : 'agency';
+        $query = Agency::withCount(['branches', 'users'])->orderBy('name');
+        // Guarded so this page still opens in the moment between a deploy landing and its migration running.
+        if (\Illuminate\Support\Facades\Schema::hasColumn('agencies', 'account_kind')) {
+            if ($type === 'solo') {
+                $query->where('account_kind', Agency::ACCOUNT_KIND_SOLO);
+            } elseif ($type === 'agency') {
+                $query->where('account_kind', '!=', Agency::ACCOUNT_KIND_SOLO);
+            }
+        }
+        $agencies = $query->get();
 
-        return view('admin.agencies.index', compact('agencies'));
+        return view('admin.agencies.index', compact('agencies', 'type'));
     }
 
     public function create()

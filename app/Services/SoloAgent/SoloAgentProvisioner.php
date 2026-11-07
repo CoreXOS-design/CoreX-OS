@@ -4,7 +4,10 @@ declare(strict_types=1);
 
 namespace App\Services\SoloAgent;
 
+use App\Events\SoloAgent\SoloAgentCreated;
 use App\Models\Agency;
+use App\Models\SoloAgentSignup;
+use App\Models\SoloAgentStatusEvent;
 use App\Models\User;
 use App\Services\Agencies\AgencyProvisioningService;
 use Illuminate\Support\Facades\DB;
@@ -35,7 +38,7 @@ class SoloAgentProvisioner
 
     /**
      * @param  array{agency_name:string,name:string,email:string,cell?:?string,agency_type?:?string,trading_name?:?string}  $input
-     * @return array{agency: Agency, user: User}
+     * @return array{agency: Agency, user: User, signup: SoloAgentSignup}
      *
      * @throws \Illuminate\Validation\ValidationException
      */
@@ -48,9 +51,12 @@ class SoloAgentProvisioner
             'cell'        => ['nullable', 'string', 'max:50'],
             'agency_type' => ['nullable', 'in:sales,rentals,both'],
             'trading_name' => ['nullable', 'string', 'max:255'],
+            // FFC is required by the Solo Agents sign-up form (SoloAgentController); the provisioner itself only shapes it.
+            'ffc_number'     => ['nullable', 'string', 'max:50'],
+            'ffc_expires_on' => ['nullable', 'date'],
         ])->validate();
 
-        $created = DB::transaction(function () use ($data) {
+        $created = DB::transaction(function () use ($data, $createdByUserId) {
             $result = $this->provisioning->createWithFirstAdmin(
                 [
                     'name'          => $data['agency_name'],
@@ -81,17 +87,38 @@ class SoloAgentProvisioner
                 'ai_template_monthly_limit' => (int) config('solo-agent.ai_template_monthly_limit', 5),
             ]);
 
-            return $result;
+            // The CoreX team's sign-up record + the first line of its timeline, in the same transaction as the account.
+            $signup = SoloAgentSignup::create([
+                'agency_id'      => $result['agency']->id,
+                'user_id'        => $result['admin']->id,
+                'status'         => SoloAgentSignup::STATUS_AWAITING_CONTRACT,
+                'ffc_number'     => $data['ffc_number'] ?? null,
+                'ffc_expires_on' => $data['ffc_expires_on'] ?? null,
+                'created_by'     => $createdByUserId,
+            ]);
+            SoloAgentStatusEvent::create([
+                'signup_id'     => $signup->id,
+                'from_status'   => null,
+                'to_status'     => SoloAgentSignup::STATUS_AWAITING_CONTRACT,
+                'event'         => 'created',
+                'actor_user_id' => $createdByUserId,
+                'reason'        => 'Signed up by the CoreX team',
+            ]);
+
+            return $result + ['signup' => $signup];
         });
 
         $agency = $created['agency'];
         $user   = $created['admin'];
+        $signup = $created['signup'];
 
         // Same post-commit steps a normal agency gets (domain event NN #9, per-agency defaults).
         $this->provisioning->announceCreated($agency, $user, $createdByUserId);
         $this->provisioning->seedDefaults($agency, $user);
 
-        return ['agency' => $agency, 'user' => $user];
+        event(new SoloAgentCreated((int) $signup->id, (int) $agency->id, $createdByUserId));
+
+        return ['agency' => $agency, 'user' => $user, 'signup' => $signup];
     }
 
     /** A slug no agency (archived or not) already uses. */

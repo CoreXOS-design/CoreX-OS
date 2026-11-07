@@ -54,5 +54,7 @@ return [
         'branches.view_all', 'branches.switch', 'branches.edit_all', 'branches.self_assign_managed',
         // Portal administration
         'manage_p24', 'p24.manage',
+        // The CoreX team's own Solo Agents section - never held by any agency user, solo or not.
+        'solo_agents.view', 'solo_agents.create', 'solo_agents.manage', 'solo_agents.archive',
     ],
 ];

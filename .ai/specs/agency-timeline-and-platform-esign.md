@@ -299,7 +299,7 @@ Tests: `tests/Feature/Platform/{AgencyTimelineTest,AgencyTimelineAuditFixesTest,
   backfill when they add it; the snapshot backfill no longer uses an application model).
 * **Deliberately NOT done:** signer tokens stay stored in clear text — the owner's reminders and the "Resend" screen need the live link, so
   hashing them would break reminders (the 48-char token is ~285 bits; links are rotated on resend/void). No domain events are emitted by the
-  generic engine beyond the timeline's `AgencyContractSigned` (a spec decision, not a fix).
+  generic engine beyond the timeline's `AgencyContractSigned` (a spec decision, not a fix). **Amended 2026-11-07 (Solo Agent Accounts):** `EsignService::complete()` now also emits the scalar-only `Platform\EsignDocumentCompleted` (document, agency, template kind) so a contract kind can react to being signed; the new template kind `solo_agent_agreement` and the merge fields `agent_name`, `agent_ffc_number`, `monthly_fee` (filled only for a single-agent agency) belong to `solo-agent-accounts.md` §4.2.
 
 
 ## 11. Web documents — CoreX Subscription Agreement (AT-447 follow-up, 2026-10-06, Johan)

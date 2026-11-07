@@ -867,6 +867,12 @@ return [
         ['key' => 'manage_performance_settings', 'label' => 'Manage Performance Settings', 'section' => 'settings',         'type' => 'access',  'module' => 'settings',         'sort_order' => 4],
         ['key' => 'agency_setup.run',            'label' => 'Run Agency Setup Wizard',     'section' => 'settings',         'type' => 'access',  'module' => 'settings',         'sort_order' => 5],
         ['key' => 'agency_setup.track',          'label' => 'Track Agency Setup Progress (owner)', 'section' => 'settings', 'type' => 'access',  'module' => 'settings',         'sort_order' => 6],
+        // Solo Agent Accounts (.ai/specs/solo-agent-accounts.md section 8) - the CoreX team's Solo Agents section. Platform-owner-only:
+        // excluded from admin's all-minus-exclude default below, and every route also sits behind owner_only, so no agency role holds them.
+        ['key' => 'solo_agents.view',            'label' => 'View Solo Agents (owner)',    'section' => 'settings',         'type' => 'access',  'module' => 'settings',         'sort_order' => 6],
+        ['key' => 'solo_agents.create',          'label' => 'Sign up a Single Agent (owner)', 'section' => 'settings',      'type' => 'access',  'module' => 'settings',         'sort_order' => 6],
+        ['key' => 'solo_agents.manage',          'label' => 'Manage Solo Agents - edit, send agreement, suspend (owner)', 'section' => 'settings', 'type' => 'access', 'module' => 'settings', 'sort_order' => 6],
+        ['key' => 'solo_agents.archive',         'label' => 'Archive / restore Solo Agents (owner)', 'section' => 'settings', 'type' => 'access', 'module' => 'settings',      'sort_order' => 6],
         ['key' => 'agency_features.manage',      'label' => 'Manage Features (module on/off)', 'section' => 'settings',     'type' => 'access',  'module' => 'settings',         'sort_order' => 6],
         // AT-478 gradual feature rollout — the agency's own plan (Settings → Feature rollout) and the onboarding
         // choice. Not in any role's role_defaults include list: admin / super_admin hold it through the all-minus-exclude rule.
@@ -1138,7 +1144,7 @@ return [
             // global, not per-agency, allowlist (ellie-reference-sources spec).
             // desk.support / desk.control (CoreX Desk console + take-over): admin gets them through this all-minus-exclude default; branch_manager, agent and
             // office_admin through their include lists (Johan, 30 Oct 2026: any colleague may offer support; the viewer may not). Editable per agency in Role Manager.
-            'exclude' => ['manage_agency_switching', 'reveal_mailbox_credential', 'reveal_backup_password', 'agency_setup.track', 'manage_reference_sources', 'templates.transfer', 'templates.release'],
+            'exclude' => ['manage_agency_switching', 'reveal_mailbox_credential', 'reveal_backup_password', 'agency_setup.track', 'manage_reference_sources', 'templates.transfer', 'templates.release', 'solo_agents.view', 'solo_agents.create', 'solo_agents.manage', 'solo_agents.archive'],
             // Payroll: admin gets full payroll management
             'include' => [
                 'manage_payroll', 'run_payroll', 'view_payroll_reports', 'view_own_payslips',

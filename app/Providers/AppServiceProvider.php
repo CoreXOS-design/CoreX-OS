@@ -370,6 +370,9 @@ class AppServiceProvider extends ServiceProvider
         // A fully signed Subscription Agreement's quoted fee (more than the last band) becomes the agency's billing amount
         // (Johan 2026-10-20). SYNC and failure-isolated inside the listener.
         Event::listen(\App\Events\Platform\SubscriptionAgreementCompleted::class, \App\Listeners\Billing\ApplyAgreedQuotedFee::class);
+        // Solo Agent Accounts - the single-agent agreement being fully signed opens the account (solo-agent-accounts.md section 4.2).
+        // Acts only on kind 'solo_agent_agreement' and only on the agreement that sign-up sent. SYNC, idempotent.
+        Event::listen(\App\Events\Platform\EsignDocumentCompleted::class, \App\Listeners\SoloAgent\ActivateSoloAgentOnAgreementSigned::class);
         // AT-450 — a collected title deed tells the responsible agent and emails every owner. SYNC and failure-isolated inside the listener.
         Event::listen(\App\Events\TitleDeeds\TitleDeedCollected::class, \App\Listeners\TitleDeeds\NotifyOnTitleDeedCollected::class);
         // §17.5 (maintenance flow, Build 1) — one in-app note to the property's agent per crew "Send to office".
