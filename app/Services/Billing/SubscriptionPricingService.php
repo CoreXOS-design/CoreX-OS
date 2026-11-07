@@ -48,7 +48,11 @@ class SubscriptionPricingService
         $subscription = AgencySubscription::forAgency((int) $agency->id);
         $derivedPlan = $this->derivePlan($seats, $subscription);
 
-        $lines    = $this->lines($derivedPlan, $seats, $branches);
+        // A single-agent account (.ai/specs/solo-agent-accounts.md §5a) pays one flat fee from
+        // config('solo-agent.monthly_fee_zar') — never the band list, so editing the bands
+        // can never move a solo agent's price. Custom amount / discount still apply below.
+        $isSolo   = Agency::idIsSolo((int) $agency->id);
+        $lines    = $isSolo ? $this->soloLines($seats) : $this->lines($derivedPlan, $seats, $branches);
         $computed = round(array_sum(array_column($lines, 'amount')), 2);
 
         // ── Price resolution order (spec §4). Custom amount beats discount,
@@ -84,7 +88,7 @@ class SubscriptionPricingService
             billableBranches:        $billableBranches,
             derivedPlan:             $derivedPlan,
             storedPlan:              (string) ($subscription->plan ?? AgencySubscription::PLAN_TEAM),
-            planLabel:               $this->planLabel($derivedPlan),
+            planLabel:               $isSolo ? 'Single agent' : $this->planLabel($derivedPlan),
             lines:                   $lines,
             computedZar:             $computed,
             payableZar:              max(0.0, $payable),
@@ -98,7 +102,31 @@ class SubscriptionPricingService
             discountNote:            $discountActive ? $subscription->discount_note : null,
             onQuotation:             $onQuotation,
             usesBands:               $subscription->usesBands(),
+            isSolo:                  $isSolo,
         );
+    }
+
+    /**
+     * Single agent: ONE flat monthly line. Billed only while the account has its one active
+     * login (an account still awaiting its signed agreement owes nothing), exactly as a
+     * normal agency with no active users owes nothing.
+     */
+    public function soloLines(int $seats): array
+    {
+        if ($seats < 1) {
+            return [];
+        }
+
+        $fee = round((float) config('solo-agent.monthly_fee_zar', 450), 2);
+
+        return [[
+            'group'  => 'seats',
+            'label'  => 'Single agent',
+            'note'   => 'One flat monthly fee for your single-agent account.',
+            'qty'    => 1,
+            'unit'   => $fee,
+            'amount' => $fee,
+        ]];
     }
 
     /**

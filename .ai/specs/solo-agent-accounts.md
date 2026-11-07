@@ -380,7 +380,14 @@ solo; `corex-domain-events-spec.md`; `.ai/CHAT_STARTER.md`.
    active and sends the password-setup email. Provisioning also fires `AgencyCreated` (rental defaults etc.)
    and seeds the same per-agency defaults a normal agency gets. Sign-up record, fee and AI allowance follow
    in steps 3-4. Tests: `tests/Feature/SoloAgent/SoloProvisionerTest.php`.
-3. Price (R450 solo line) + AI allowance of 5 at provisioning.
+3. **DONE (2026-11-07)** — Price + AI allowance. `SubscriptionPricingService::quoteFor` swaps in one
+   "Single agent" line from `config('solo-agent.monthly_fee_zar')` for a solo agency (never the band list);
+   it is billed only while the account has its one active login, so an account awaiting its agreement owes
+   nothing. `BillingQuote::isSolo` drives the wording on the agent's Billing page; the owner's custom-amount
+   and discount controls still apply on top. The provisioner sets `agencies.ai_template_monthly_limit` to
+   `config('solo-agent.ai_template_monthly_limit')` (5) inside the creation transaction; the one shared pool
+   (property templates and company ads) is unchanged. Tests:
+   `tests/Feature/SoloAgent/SoloBillingAndAiAllowanceTest.php`.
 4. Solo Agents section (create → contract send → list → detail → actions) + activation listener + awaiting-contract gate.
 5. Merged Settings + sidebar for solo + Company Settings redirect.
 6. Wizard solo track + events catalogue + API catalogue + docs.

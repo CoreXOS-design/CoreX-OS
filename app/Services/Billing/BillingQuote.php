@@ -41,6 +41,7 @@ final class BillingQuote
         public readonly ?string $discountNote = null,
         public readonly bool $onQuotation = false,
         public readonly bool $usesBands = false,
+        public readonly bool $isSolo = false,
     ) {
     }
 

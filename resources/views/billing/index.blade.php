@@ -94,7 +94,7 @@
 
     {{-- ── Summary tiles ── --}}
     <div class="corex-kpi-grid" data-tour="cop-bill-tiles">
-        <x-corex-kpi-card :title="$quote->usesBands ? 'Your price band' : 'Your plan'" :value="$quote->planLabel" />
+        <x-corex-kpi-card :title="$quote->isSolo ? 'Your account' : ($quote->usesBands ? 'Your price band' : 'Your plan')" :value="$quote->planLabel" />
         <x-corex-kpi-card title="Billable users" :value="(string) $quote->seats" />
         <x-corex-kpi-card title="Branches" :value="(string) $quote->branches" />
         <x-corex-kpi-card title="Monthly total" :value="$quote->onQuotation ? 'On quotation' : Zar::format($quote->payableZar)" />
@@ -121,7 +121,9 @@
             <div>
                 <h2 class="text-base font-semibold" style="color:var(--text-primary);">How this is worked out</h2>
                 <p class="text-sm mt-0.5" style="color:var(--text-secondary);">
-                    @if($quote->usesBands)
+                    @if($quote->isSolo)
+                        Your account is a single-agent account, billed one flat monthly fee. Every line below adds up to your total — check our maths.
+                    @elseif($quote->usesBands)
                         Your price band is {{ $quote->planLabel }}. Every line below adds up to your total — check our maths.
                     @else
                         You are on the {{ $quote->planLabel }} plan. Every line below adds up to your total — check our maths.
@@ -161,7 +163,9 @@
                             Users — you have {{ $quote->seats }}
                         </div>
                         <div class="text-xs mt-0.5" style="color:var(--text-secondary);">
-                            @if($quote->usesBands)
+                            @if($quote->isSolo)
+                                One flat monthly fee for your single-agent account.
+                            @elseif($quote->usesBands)
                                 One flat monthly fee for your number of users — it only changes when you move into another band.
                             @elseif($quote->derivedPlan === \App\Models\Billing\AgencySubscription::PLAN_AGENCY)
                                 Rates are banded by how many users you have — not by who they are.

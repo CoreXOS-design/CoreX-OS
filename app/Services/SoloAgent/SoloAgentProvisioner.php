@@ -51,7 +51,7 @@ class SoloAgentProvisioner
         ])->validate();
 
         $created = DB::transaction(function () use ($data) {
-            return $this->provisioning->createWithFirstAdmin(
+            $result = $this->provisioning->createWithFirstAdmin(
                 [
                     'name'          => $data['agency_name'],
                     'slug'          => $this->uniqueSlug($data['agency_name']),
@@ -73,6 +73,15 @@ class SoloAgentProvisioner
                     'admin_invited' => false,
                 ],
             );
+
+            // AI template builder allowance (decision 6): 5 a month, not a normal agency's 20.
+            // The existing per-agency counter does the rest (AiTemplateBuilderService, AT-456);
+            // only the CoreX owner can change this number afterwards.
+            DB::table('agencies')->where('id', $result['agency']->id)->update([
+                'ai_template_monthly_limit' => (int) config('solo-agent.ai_template_monthly_limit', 5),
+            ]);
+
+            return $result;
         });
 
         $agency = $created['agency'];
