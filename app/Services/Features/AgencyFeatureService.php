@@ -317,6 +317,17 @@ class AgencyFeatureService
             $self[$key] = $this->selfEnabled($key, $def, $overrides, $switchboard);
         }
 
+        // Solo agent accounts (.ai/specs/solo-agent-accounts.md section 5): the locked features are OFF whatever
+        // the agency's own settings say - decided before the cascade so anything depending on one follows it off.
+        // Same decision source for the sidebar, every feature-gated route and the permissions a feature owns.
+        if ($agencyId !== null && Agency::idIsSolo((int) $agencyId)) {
+            foreach ((array) config('solo-agent.locked_features', []) as $lockedKey) {
+                if (array_key_exists($lockedKey, $self)) {
+                    $self[$lockedKey] = false;
+                }
+            }
+        }
+
         // Pass 2 — apply the depends_on cascade (a child is off if any parent is
         // off), memoised with a cycle guard.
         $final = [];

@@ -65,6 +65,39 @@ final class ExternalPublishingGuard
     }
 
     /**
+     * Solo agent accounts (.ai/specs/solo-agent-accounts.md section 5): a single-agent account can never talk to a
+     * property portal - not to write, and not to read either, because a client with no credentials of its own
+     * would otherwise fall back to the platform's. Unlike the install-wide switch above this is per agency, it
+     * covers reads, and it holds on the real live server.
+     */
+    public static function refusesAgency(?\App\Models\Agency $agency): bool
+    {
+        return $agency !== null && $agency->isSolo();
+    }
+
+    /** Plain-language wording when a portal call was refused because the account is a single-agent account. */
+    public static function soloMessage(): string
+    {
+        return 'Single-agent accounts cannot publish to the property portals.';
+    }
+
+    /** One WARNING line for a portal call refused on a single-agent account. Never throws. */
+    public static function logRefusedSolo(string $channel, string $action, ?int $agencyId, int|string|null $property = null): void
+    {
+        try {
+            Log::warning(sprintf(
+                'Portal call refused (%s): %s on property %s did nothing - agency %s is a single-agent account.',
+                $channel,
+                $action,
+                $property === null || $property === '' ? '(none)' : (string) $property,
+                $agencyId === null ? '(none)' : (string) $agencyId,
+            ));
+        } catch (\Throwable) {
+            // Logging must never break the caller.
+        }
+    }
+
+    /**
      * Log one WARNING line for a refused portal write. Never throws.
      *
      * @param string          $channel  one of the CHANNEL_* constants

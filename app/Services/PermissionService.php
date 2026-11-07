@@ -18,6 +18,9 @@ class PermissionService
     /** @var bool|null Whether the role_permissions table has ANY rows (fresh-DB guard) */
     protected static ?bool $seeded = null;
 
+    /** @var array<int, bool> Per-request memo: is this agency a single-agent account? (solo-agent-accounts.md) */
+    protected static array $soloAgencies = [];
+
     /**
      * AT-265 — the unseeded POSTURE. NULL = derive from the environment.
      *
@@ -565,6 +568,15 @@ class PermissionService
             return true;
         }
 
+        // Solo agent accounts (.ai/specs/solo-agent-accounts.md section 5): the team/agency machinery is refused
+        // for a single-agent account whatever any role grants. Refused here, not by editing role rows, because the
+        // deploy-time sync re-adds missing grants to every agency's roles and would bring a removed one back.
+        if ($agencyId !== null
+            && in_array($permissionKey, (array) config('solo-agent.denied_permissions', []), true)
+            && (static::$soloAgencies[$agencyId] ??= \App\Models\Agency::idIsSolo((int) $agencyId))) {
+            return false;
+        }
+
         // AT-265 — an empty grants table is a catastrophe, not a default. Deny, loudly.
         //
         // This RETURNS the verdict rather than falling through: with no grants at all, the lookup
@@ -616,6 +628,7 @@ class PermissionService
         static::$scopeCache = [];
         static::$seeded = null;
         static::$agencyHasGrants = [];
+        static::$soloAgencies = [];
         static::$allowAllWhenUnseeded = null;
     }
 }

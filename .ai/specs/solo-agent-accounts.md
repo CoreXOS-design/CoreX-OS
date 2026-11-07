@@ -134,15 +134,30 @@ Enforced **server-side and at the route** (a hidden link is not a lock — rule 
 | Commission splits / revenue share | **No** (no team to split with) |
 | Adding a second login | **No** — a solo agency is exactly one seat |
 
-The "yes" and "no" lists live in **one config file** (`config/solo-agent.php`) — a feature profile seeded
-onto the agency at creation through the existing `AgencyFeatureService`/`AgencyFeatureWriter` (same
-pattern as `AgencyTypeFeatureSeeder`). The "locked" subset is additionally enforced by a middleware
-`not.solo` and a guard inside the syndication entry points, so a switch flipped in the database by mistake
-still cannot push to a portal.
+The lists live in **one config file** (`config/solo-agent.php`): `locked_features` and `denied_permissions`.
+**Built in step 2 (design amended while building — three changes from the first draft):**
 
-**Permissions:** a solo user holds one built-in, non-editable role **"Solo Agent"** whose permission set
-is defined in `config/solo-agent.php` and mirrored into `config/corex-permissions.php`. Because Role
-Manager is gone for them, nobody can edit it; the CoreX team changes it in config.
+1. **Locked features are applied inside `AgencyFeatureService`**, before its dependency cascade, whatever the
+   agency's own switches say. One decision drives the sidebar, every feature-gated route, the Features page and
+   the permissions a feature owns. (No separate `not.solo` middleware — it would be a second source of truth.)
+2. **Denied permissions are refused inside `PermissionService::userHasPermission`**, not by editing role rows.
+   The deploy-time permission sync re-adds missing grants to every agency's roles, so a removed grant would
+   come back; a refusal at the check cannot.
+3. **The solo user holds the agency's own `admin` role, not a new "Solo Agent" role.** The project's
+   agency-admin rule and many role checks assume an agency's person-in-charge is `admin`; a new role name risks
+   breaking them. With the denied list above, an `admin` in a solo agency has everything an agency admin has
+   *except* the team machinery.
+4. **Portal block is at the two clients every call passes through** — `Property24ApiClient::request()` and
+   `PrivatePropertySoapClient::call()` — via `ExternalPublishingGuard`. It refuses reads as well as writes
+   (a client without credentials of its own would fall back to the platform's), and unlike the install-wide
+   switch it holds on the real live server.
+
+**Provisioner rule:** `account_kind = 'solo'` must be set **in the same insert that creates the agency**
+(`forceFill` before `save()`), not afterwards — creating an agency already makes the feature gate work out and
+remember its answers, and a later flip would leave that agency's answers stale for the rest of the request.
+
+**Deferred, to confirm before locking:** `commission-management` (unverified what it owns) and
+`company-settings` (merged into Settings in step 5, not removed).
 
 ---
 
@@ -337,7 +352,7 @@ fully isolated. The R450 and the 5 are config values, not constants buried in co
 
 **Create:** migration(s) + schema snapshot; `app/Models/SoloAgentSignup.php`;
 `app/Services/Solo/SoloAgentProvisioner.php`; `app/Http/Controllers/Admin/SoloAgentController.php`;
-`app/Http/Middleware/NotSolo.php`; `config/solo-agent.php`; views (Solo Agents list + create + detail,
+`config/solo-agent.php`; views (Solo Agents list + create + detail,
 awaiting-contract page); `app/Events/Solo*`; listeners (activate on `SubscriptionAgreementCompleted`);
 tests under `tests/Feature/SoloAgent/`.
 
@@ -353,7 +368,11 @@ solo; `corex-domain-events-spec.md`; `.ai/CHAT_STARTER.md`.
 ## 16. Build order (one concern per prompt)
 
 1. Migrations + `account_kind` + `isSolo()` + backfill regression test (nothing visible changes).
-2. `SoloAgentProvisioner` + feature profile + Solo Agent role + syndication guard + `not.solo` + one-seat rule.
+2. **DONE (2026-11-07)** — The locks: feature lock in `AgencyFeatureService`, permission refusal in
+   `PermissionService`, portal block at the P24 and PP clients, `config/solo-agent.php`, tests
+   (`tests/Feature/SoloAgent/SoloLocksTest.php`, `tests/Feature/Syndication/SoloAgentPortalBlockTest.php`).
+2b. `SoloAgentProvisioner` (sets `account_kind` at creation; extracts the shared agency+user creation from
+   `Admin\AgencyController@store`) + the one-seat rule (no second login in a solo agency).
 3. Price (R450 solo line) + AI allowance of 5 at provisioning.
 4. Solo Agents section (create → contract send → list → detail → actions) + activation listener + awaiting-contract gate.
 5. Merged Settings + sidebar for solo + Company Settings redirect.

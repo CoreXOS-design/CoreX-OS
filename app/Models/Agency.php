@@ -1056,6 +1056,26 @@ class Agency extends Model
         return $this->account_kind === self::ACCOUNT_KIND_SOLO;
     }
 
+    /**
+     * Is the agency with this id a single-agent account? For callers that hold only an id (permission checks, the
+     * feature gate). One plain query, no tenant scope. Returns false - never throws - when the account_kind column is
+     * not there yet (a deploy that has pulled the code but not yet run its migration), so a deploy cannot take the
+     * whole app down for every agency. Callers memoise per request.
+     */
+    public static function idIsSolo(?int $agencyId): bool
+    {
+        if (! $agencyId) {
+            return false;
+        }
+
+        try {
+            return \Illuminate\Support\Facades\DB::table('agencies')->where('id', $agencyId)->value('account_kind')
+                === self::ACCOUNT_KIND_SOLO;
+        } catch (\Throwable) {
+            return false;
+        }
+    }
+
     // ── Agency suspension (.ai/specs/agency-suspension.md) ───────────────
 
     // suspended_at is deliberately NOT fillable: only suspend()/unsuspend() (owner-only route) may set it.

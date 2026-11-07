@@ -94,6 +94,24 @@ class PrivatePropertySoapClient
      */
     public function call(string $method, array $params): array
     {
+        // A single-agent account never reaches Private Property - reads included (solo-agent-accounts.md section 5).
+        // Same agency the client would use for its settings: the bound one, else the signed-in user's.
+        $callAgency = $this->agency ?? \Illuminate\Support\Facades\Auth::user()?->agency;
+        if (ExternalPublishingGuard::refusesAgency($callAgency)) {
+            ExternalPublishingGuard::logRefusedSolo(
+                ExternalPublishingGuard::CHANNEL_PRIVATE_PROPERTY,
+                $method,
+                $callAgency->id,
+                $params['PropertyId'] ?? $params['UniqueListingId'] ?? $params['ListingImport']['PropertyId'] ?? null,
+            );
+
+            return [
+                'error'   => true,
+                'refused' => true,
+                'message' => ExternalPublishingGuard::soloMessage(),
+            ];
+        }
+
         // One warning line, no SOAP call, no retry. Lowest common point of every PP write.
         if (in_array($method, self::WRITE_OPERATIONS, true) && ! ExternalPublishingGuard::isAllowed()) {
             ExternalPublishingGuard::logRefusedWrite(

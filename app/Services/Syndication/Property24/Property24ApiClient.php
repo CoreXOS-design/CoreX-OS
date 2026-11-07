@@ -68,6 +68,9 @@ class Property24ApiClient
     private ?string $userGroupId;
     /** Per-agency HTTP read timeout (seconds); AT-101. */
     private int $readTimeout;
+    /** True when the bound agency is a single-agent account: every call is refused (solo-agent-accounts.md section 5). */
+    private bool $agencyRefused = false;
+    private ?int $boundAgencyId = null;
 
     /**
      * In-process memo of the P24 agent list per agency id, SHARED across client
@@ -107,6 +110,10 @@ class Property24ApiClient
         // AT-101: per-agency HTTP read timeout; falls back to the canonical
         // default (120s) when the agency has no override / no agency is bound.
         $this->readTimeout = $agency?->p24HttpReadTimeout() ?? Agency::P24_DEFAULT_HTTP_READ_TIMEOUT;
+
+        // A single-agent account never talks to P24 (solo-agent-accounts.md section 5) - see request().
+        $this->agencyRefused = ExternalPublishingGuard::refusesAgency($agency);
+        $this->boundAgencyId = $agency?->id;
     }
 
     /** Fetch supported countries. */
@@ -553,6 +560,19 @@ class Property24ApiClient
     {
         $path = "/listing/{$this->apiVersion}" . $endpoint;
         $url  = $this->baseUrl . $path;
+
+        // A single-agent account never reaches P24 - reads included (a client with no credentials of its own would
+        // otherwise fall back to the platform's). One warning line, no HTTP call, no cost-window tally, no log row.
+        if ($this->agencyRefused) {
+            ExternalPublishingGuard::logRefusedSolo(ExternalPublishingGuard::CHANNEL_PROPERTY24, $action, $this->boundAgencyId, $propertyId);
+
+            return [
+                'success' => false,
+                'refused' => true,
+                'message' => ExternalPublishingGuard::soloMessage(),
+                'data'    => [],
+            ];
+        }
 
         // Every WRITE (POST/PUT/DELETE: submit, status change, re-list, agent push) stops here on a copy of live
         // (ExternalPublishingGuard). Reads stay allowed. One warning line, no HTTP call, no cost-window tally, no log row.
